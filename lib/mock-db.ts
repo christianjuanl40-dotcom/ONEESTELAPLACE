@@ -1,0 +1,6 @@
+export interface Booking {
+  // ... existing fields ...
+  // Added "cancellation_under_review" and removed raw "cancelled" if user initiates it
+  status: "pending" | "confirmed" | "declined" | "completed" | "cancellation_under_review" | "cancelled"
+  // ...
+}
