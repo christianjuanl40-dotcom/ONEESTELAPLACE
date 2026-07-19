@@ -2360,6 +2360,8 @@ function MaintenanceCalendarModal({
   const [reason, setReason] = useState("")
   const [isSaving, setIsSaving] = useState(false)
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false)
+  const [filterLocation, setFilterLocation] = useState("all")
+  const [maintPage, setMaintPage] = useState(1)
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), 1)
@@ -2372,6 +2374,7 @@ function MaintenanceCalendarModal({
       setOfficeGroup("")
       setSelectedDates([])
       setReason("")
+      setFilterLocation("all")
     }
   }, [open, maintType, venues])
 
@@ -2384,9 +2387,27 @@ function MaintenanceCalendarModal({
     r => r.type === maintType
   ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 
-  const spaceFilteredRecords = selectedSpaceId
-    ? filteredRecords.filter(r => r.spaceId === selectedSpaceId || r.spaceName === selectedSpaceId)
-    : filteredRecords
+  const spaceFilteredRecords = useMemo(() => {
+    const locationFiltered = filterLocation !== "all"
+      ? filteredRecords.filter(r => r.spaceId === filterLocation || r.spaceName === filterLocation)
+      : filteredRecords
+    return [...locationFiltered].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    )
+  }, [filteredRecords, filterLocation])
+
+  const filterOptions = useMemo(() => {
+    const opts: { value: string; label: string; group?: string }[] = []
+    if (maintType === "venue") {
+      for (const v of venues) opts.push({ value: v.id, label: v.name })
+    } else {
+      const groupA = offices.filter(o => { const n = parseInt(o.id.slice(1)); return n >= 1 && n <= 8 })
+      const groupB = offices.filter(o => { const n = parseInt(o.id.slice(1)); return n >= 9 && n <= 16 })
+      for (const o of groupA) opts.push({ value: o.id, label: `Room ${parseInt(o.id.slice(1))}`, group: "Office A" })
+      for (const o of groupB) opts.push({ value: o.id, label: `Room ${parseInt(o.id.slice(1)) - 8}`, group: "Office B" })
+    }
+    return opts
+  }, [maintType, venues, offices])
 
   // Calendar computations
   const calYear = calendarMonth.getFullYear()
@@ -2828,39 +2849,133 @@ function MaintenanceCalendarModal({
                     Delete All
                   </button>
                 </div>
-                <div className="mt-1.5 space-y-1.5 max-h-[220px] overflow-y-auto">
-                  {spaceFilteredRecords.map((rec) => {
-                    const space = (maintType === "venue" ? venues : offices).find(
-                      s => s.id === rec.spaceId
+
+                <div className="mt-2">
+                  <label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
+                    Filter Location
+                  </label>
+                  <select
+                    value={filterLocation}
+                    onChange={(e) => { setFilterLocation(e.target.value); setMaintPage(1) }}
+                    className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                  >
+                    <option value="all">All Locations</option>
+                    {filterOptions.reduce((groups: { label: string; items: typeof filterOptions }[], opt) => {
+                      const last = groups[groups.length - 1]
+                      if (!opt.group || last?.label !== opt.group) {
+                        groups.push({ label: opt.group || "", items: [opt] })
+                      } else {
+                        last.items.push(opt)
+                      }
+                      return groups
+                    }, []).map((group) => (
+                      <optgroup key={group.label} label={group.label}>
+                        {group.items.map((opt) => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="mt-2 space-y-1.5 max-h-[220px] overflow-y-auto">
+                  {(() => {
+                    const PAGE_SIZE = 5
+                    const totalPages = Math.max(1, Math.ceil(spaceFilteredRecords.length / PAGE_SIZE))
+                    const safePage = Math.min(maintPage, totalPages)
+                    const pageItems = spaceFilteredRecords.slice(
+                      (safePage - 1) * PAGE_SIZE,
+                      safePage * PAGE_SIZE
                     )
                     return (
-                      <div
-                        key={rec.id}
-                        className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 gap-2"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[11px] font-bold text-slate-700 truncate">
-                            {space?.name || rec.spaceName}
-                          </p>
-                          <p className="text-[9px] font-semibold text-slate-400">
-                            {formatDateSimple(rec.date)}
-                            {rec.startDate && rec.endDate && rec.startDate !== rec.endDate
-                              ? ` - ${formatDateSimple(rec.endDate)}`
-                              : ""}
-                            {rec.reason ? ` · ${rec.reason}` : ""}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => removeMaintenanceRecord(rec.id)}
-                          className="shrink-0 p-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors"
-                          title="Remove maintenance"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
+                      <>
+                        {pageItems.map((rec) => {
+                          const space = (maintType === "venue" ? venues : offices).find(
+                            s => s.id === rec.spaceId
+                          )
+                          const isOffice = maintType === "office"
+                          const building = isOffice && rec.spaceId?.startsWith("o")
+                            ? (parseInt(rec.spaceId.slice(1)) <= 8 ? "Office A" : "Office B")
+                            : ""
+                          const roomName = space?.name || rec.spaceName
+                          return (
+                            <div
+                              key={rec.id}
+                              className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 gap-2"
+                            >
+                              <div className="min-w-0 flex-1">
+                                {isOffice ? (
+                                  <>
+                                    <p className="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">{building}</p>
+                                    <p className="text-[11px] font-bold text-slate-700 truncate">{roomName}</p>
+                                  </>
+                                ) : (
+                                  <p className="text-[11px] font-bold text-slate-700 truncate">{roomName}</p>
+                                )}
+                                <p className="text-[9px] font-semibold text-slate-400">
+                                  {formatDateSimple(rec.date)}
+                                  {rec.startDate && rec.endDate && rec.startDate !== rec.endDate
+                                    ? ` - ${formatDateSimple(rec.endDate)}`
+                                    : ""}
+                                  {rec.reason ? ` · ${rec.reason}` : ""}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeMaintenanceRecord(rec.id)}
+                                className="shrink-0 p-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors"
+                                title="Remove maintenance"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          )
+                        })}
+
+                        {totalPages > 1 && (
+                          <div className="flex items-center justify-between pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setMaintPage((p) => Math.max(1, p - 1))}
+                              disabled={safePage <= 1}
+                              className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:pointer-events-none"
+                            >
+                              <ChevronLeft className="h-3 w-3" />
+                              Previous
+                            </button>
+                            <div className="flex items-center gap-1">
+                              {Array.from({ length: totalPages }).map((_, i) => {
+                                const p = i + 1
+                                return (
+                                  <button
+                                    key={p}
+                                    type="button"
+                                    onClick={() => setMaintPage(p)}
+                                    className={`h-6 w-6 rounded-md text-[10px] font-bold transition-colors ${
+                                      p === safePage
+                                        ? "bg-slate-900 text-white"
+                                        : "text-slate-500 hover:bg-slate-100"
+                                    }`}
+                                  >
+                                    {p}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setMaintPage((p) => Math.min(totalPages, p + 1))}
+                              disabled={safePage >= totalPages}
+                              className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:pointer-events-none"
+                            >
+                              Next
+                              <ChevronRight className="h-3 w-3" />
+                            </button>
+                          </div>
+                        )}
+                      </>
                     )
-                  })}
+                  })()}
                 </div>
               </div>
             )}
@@ -2874,7 +2989,9 @@ function MaintenanceCalendarModal({
           <h3 className="text-base font-black text-slate-900">Delete all maintenance records?</h3>
           <p className="mt-1 text-sm font-semibold text-slate-500">
             This will remove all maintenance records for{" "}
-            {currentSpaces.find(s => s.id === selectedSpaceId)?.name || selectedSpaceId}.
+            {filterLocation !== "all"
+              ? (venues.concat(offices).find(s => s.id === filterLocation)?.name || filterLocation)
+              : currentSpaces.find(s => s.id === selectedSpaceId)?.name || selectedSpaceId}.
           </p>
           <div className="mt-4 flex gap-2">
             <Button
