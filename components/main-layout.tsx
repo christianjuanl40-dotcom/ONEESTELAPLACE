@@ -48,7 +48,7 @@ const MENU_ITEMS = [
   { label: "Booking Management", href: "/dashboard/bookings", icon: Calendar },
   { label: "Chat Support", href: "/dashboard/chat", icon: MessageSquare },
   { label: "Payment Verification", href: "/dashboard/payments", icon: CreditCard },
-  { label: "Reports & Analytics", href: "/dashboard/reports", icon: FileText },
+  { label: "Reports", href: "/dashboard/reports", icon: FileText },
   { label: "Staff Management", href: "/dashboard/staff", icon: Users },
   { label: "Content Management", href: "/content", icon: Settings },
   { label: "Customer Reviews", href: "/reviews", icon: Star },

@@ -55,7 +55,7 @@ export function MainLayout({ children }: MainLayoutProps) {
     { name: "Booking Management", href: "/dashboard/bookings", icon: BookOpen, hasPingBadge: hasPendingBookings },
     { name: "Customer Chat", href: "/dashboard/chat", icon: MessageSquare, hasDotBadge: unreadCount > 0 },
     { name: "Payment Verification", href: "/dashboard/payments", icon: CreditCard, badge: pendingPayments > 0 ? pendingPayments : undefined },
-    { name: "Reports & Analytics", href: "/dashboard/reports", icon: BarChart3 },
+    { name: "Reports", href: "/dashboard/reports", icon: BarChart3 },
     { name: "Staff Management", href: "/dashboard/staff", icon: UserCheck },
     { name: "CMS Settings", href: "/dashboard/cms", icon: Settings },
     { name: "Users Information", href: "/users", icon: Users },

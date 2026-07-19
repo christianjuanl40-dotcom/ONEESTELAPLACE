@@ -47,7 +47,7 @@ const ADMIN_MENU = [
   { name: "Booking Management", href: "/dashboard/bookings", icon: BookOpen, key: "bookings" },
   { name: "Payment Verification", href: "/dashboard/payments", icon: CreditCard, key: "payments" },
   { name: "Chat Support", href: "/dashboard/chat", icon: MessageSquare, key: "chat" },
-  { name: "Reports & Analytics", href: "/dashboard/reports", icon: BarChart, key: "reports" },
+  { name: "Reports", href: "/dashboard/reports", icon: BarChart, key: "reports" },
   { name: "Staff Management", href: "/dashboard/staff", icon: Users, key: "staff" },
   { name: "CMS Settings", href: "/dashboard/cms", icon: Settings, key: "cms" },
   { name: "Users Information", href: "/users", icon: UserCheck, key: "users" },

@@ -23,7 +23,7 @@ export const PERMISSION_LABELS: Record<keyof StaffPermissions, string> = {
   bookings: "Booking Management",
   chat: "Chat Support",
   payments: "Payment Verification",
-  reports: "Reports & Analytics",
+  reports: "Reports",
   cms: "CMS Settings",
   users: "Users Information",
 }

@@ -113,7 +113,7 @@ export default function AdminDashboardPage() {
             icon={<TrendingUp className="h-4 w-4" />}
             label="Revenue"
             value={formatCurrency(stats.totalRevenue)}
-            description="Reports & Analytics"
+            description="Reports"
             tone="orange"
           />
           <StatCard

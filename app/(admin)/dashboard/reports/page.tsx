@@ -366,10 +366,10 @@ export default function ReportsPage() {
       <div className="border-b border-slate-200 pb-5 mb-5">
         <div className="min-w-0">
           <p className="text-[11px] font-black uppercase tracking-[0.2em] text-orange-600">
-            Admin Reports & Analytics
+            Admin Reports
           </p>
           <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950 md:text-3xl">
-            Reports & Analytics
+            Reports
           </h1>
           <p className="mt-1 text-xs leading-5 text-slate-500 sm:text-sm">
             Review booking records, revenue trends, event performance, and downloadable report summaries.
