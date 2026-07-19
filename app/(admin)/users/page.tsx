@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Users } from "lucide-react"
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
+import { UserAvatar } from "@/src/modules/shared/components/user-avatar"
 import { db } from "@/lib/firebase"
 import { collection, getDocs } from "firebase/firestore"
 
@@ -15,6 +16,7 @@ interface UserRecord {
   role: string
   status: string
   createdAt: string
+  profilePicture?: string
 }
 
 export default function UsersPage() {
@@ -50,6 +52,7 @@ export default function UsersPage() {
             role: data.role || "",
             status: data.status || "",
             createdAt: data.createdAt || "",
+            profilePicture: data.profilePicture || "",
           })
         })
         console.log("[UsersPage] users loaded:", loaded.length)
@@ -116,9 +119,14 @@ export default function UsersPage() {
           <div className="mt-5 space-y-3">
             {users.map((u) => (
               <div key={u.uid} className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600 font-black text-sm uppercase">
-                  {(u.fullName || u.email || "?").charAt(0)}
-                </div>
+                <UserAvatar
+                  name={u.fullName}
+                  picture={u.profilePicture}
+                  className="h-11 w-11 shrink-0"
+                  ringClassName=""
+                  fallbackClassName="bg-orange-50 text-orange-600"
+                  textClassName="font-black uppercase text-sm"
+                />
                 <div className="min-w-0 flex-1 grid grid-cols-2 gap-x-3 gap-y-1.5 sm:grid-cols-3 sm:gap-x-4">
                   <div className="min-w-0">
                     <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Name</p>

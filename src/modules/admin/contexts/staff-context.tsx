@@ -27,6 +27,7 @@ export type StaffAccount = {
   permissions: StaffPermissions
   createdAt: string
   lastActive?: string
+  profilePicture?: string
 }
 
 type StaffContextValue = {
@@ -87,6 +88,7 @@ export const StaffProvider = ({ children }: { children: React.ReactNode }) => {
             permissions,
             createdAt: d.createdAt || "",
             lastActive: d.lastActive || "",
+            profilePicture: d.profilePicture || "",
           })
         })
         setStaff(loaded)

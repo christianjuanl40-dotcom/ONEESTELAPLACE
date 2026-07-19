@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { cn } from "@/src/modules/shared/lib/utils"
 
 interface UserAvatarProps {
@@ -21,11 +22,14 @@ export function UserAvatar({
   textClassName = "font-black uppercase",
   alt,
 }: UserAvatarProps) {
-  if (picture) {
+  const [imgError, setImgError] = useState(false)
+
+  if (picture && !imgError) {
     return (
       <img
         src={picture}
         alt={alt || name || "Profile"}
+        onError={() => setImgError(true)}
         className={cn(
           "shrink-0 rounded-full object-cover shadow-sm",
           ringClassName,

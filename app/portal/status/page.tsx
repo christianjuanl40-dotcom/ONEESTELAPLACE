@@ -292,19 +292,19 @@ function StatusCard({ booking, cmsData }: { booking: StatusBooking; cmsData?: an
               status={
                 isCancelled
                   ? "rejected"
-                  : ["confirmed", "reservation_secured", "slot_secured"].includes(
-                        String(booking.status).toLowerCase(),
-                      )
+                  : isCompleted
                     ? "done"
-                    : isCompleted
-                      ? "done"
+                    : ["confirmed", "reservation_secured", "slot_secured"].includes(
+                          String(booking.status).toLowerCase(),
+                        )
+                      ? "current"
                       : "pending"
               }
               active
             />
             <StatusTimelineRow
               label={isCompleted ? "Completed" : "Event completed"}
-              status={isCompleted ? "done" : "pending"}
+              status={isCompleted ? "current" : "pending"}
               isLast
               active
             />

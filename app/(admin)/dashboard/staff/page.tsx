@@ -25,16 +25,8 @@ import {
 } from "@shared/components/ui/select"
 import { useToast } from "@shared/hooks/use-toast"
 import { Checkbox } from "@shared/components/ui/checkbox"
-import {
-  Edit2,
-  Plus,
-  Power,
-  RotateCcw,
-  Search,
-  ShieldCheck,
-  Users,
-  Trash2,
-} from "lucide-react"
+import { Edit2, Plus, Search, ShieldCheck, Users, Trash2 } from "lucide-react"
+import { UserAvatar } from "@/src/modules/shared/components/user-avatar"
 import type { StaffPermissions } from "@/src/modules/shared/types/permissions"
 import { DEFAULT_STAFF_PERMISSIONS, PERMISSION_LABELS } from "@/src/modules/shared/types/permissions"
 
@@ -84,12 +76,6 @@ function getInitials(firstName?: string, lastName?: string) {
   return `${first}${last}`.toUpperCase() || "ST"
 }
 
-function getStatusBadgeClass(status: string) {
-  return normalizeStaffStatus(status) === "Active"
-    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-    : "border-amber-200 bg-amber-50 text-amber-700"
-}
-
 export default function StaffManagementPage() {
   const { user } = useAuth()
   const router = useRouter()
@@ -98,8 +84,6 @@ export default function StaffManagementPage() {
     loading,
     addStaff,
     updateStaff,
-    deactivateStaff,
-    activateStaff,
     deleteStaff,
     toggleStaffPermission,
   } = useStaff()
@@ -326,34 +310,6 @@ export default function StaffManagementPage() {
       permissions: { ...staffMember.permissions },
     })
     setIsEditDialogOpen(true)
-  }
-
-  const handleToggleStatus = async (staffMember: StaffAccount) => {
-    const fullName = getFullName(staffMember)
-    const normalizedStatus = normalizeStaffStatus(staffMember.status)
-
-    try {
-      if (normalizedStatus === "Active") {
-        await deactivateStaff(staffMember.uid)
-        toast({
-          title: "Staff deactivated",
-          description: `${fullName} can no longer access staff functions.`,
-          variant: "destructive",
-        })
-      } else {
-        await activateStaff(staffMember.uid)
-        toast({
-          title: "Staff activated",
-          description: `${fullName} can access staff functions again.`,
-        })
-      }
-    } catch {
-      toast({
-        title: "Failed to update status",
-        description: "An error occurred. Please try again.",
-        variant: "destructive",
-      })
-    }
   }
 
   const handleDeleteStaff = async (staffMember: StaffAccount) => {
@@ -627,7 +583,6 @@ export default function StaffManagementPage() {
           <div className="space-y-3">
             {paginatedStaff.map((staffMember: StaffAccount) => {
               const fullName = getFullName(staffMember)
-              const normalizedStatus = normalizeStaffStatus(staffMember.status)
               const grantedCount = Object.values(staffMember.permissions).filter(Boolean).length
 
               return (
@@ -636,11 +591,14 @@ export default function StaffManagementPage() {
                   className="group flex w-full max-w-full min-w-0 flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-4"
                 >
                   <div className="flex shrink-0 items-center gap-3 sm:w-[200px]">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
-                      <span className="text-sm font-black uppercase">
-                        {getInitials(staffMember.firstName, staffMember.lastName)}
-                      </span>
-                    </div>
+                    <UserAvatar
+                      name={fullName}
+                      picture={staffMember.profilePicture}
+                      className="h-11 w-11 shrink-0"
+                      ringClassName=""
+                      fallbackClassName="bg-orange-50 text-orange-600"
+                      textClassName="text-sm font-black uppercase"
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
                         Staff
@@ -666,53 +624,24 @@ export default function StaffManagementPage() {
                     </p>
                   </div>
 
-                  <div className="flex shrink-0 items-center justify-between gap-2 sm:flex-col sm:items-end sm:gap-1">
-                    <span
-                      className={`inline-flex rounded-md border px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.2em] whitespace-nowrap ${getStatusBadgeClass(
-                        normalizedStatus
-                      )}`}
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-2.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50"
+                      onClick={() => handleOpenEditDialog(staffMember)}
                     >
-                      {normalizedStatus}
-                    </span>
-                    <div className="flex gap-1.5">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-2.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50"
-                        onClick={() => handleOpenEditDialog(staffMember)}
-                      >
-                        <Edit2 className="mr-1 h-3 w-3" />
-                        Edit
-                      </Button>
-                      {normalizedStatus === "Active" ? (
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          className="h-8 shrink-0 whitespace-nowrap rounded-lg px-2.5 text-[10px] font-bold"
-                          onClick={() => handleToggleStatus(staffMember)}
-                        >
-                          <Power className="mr-1 h-3 w-3" />
-                          Deactivate
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          className="h-8 shrink-0 whitespace-nowrap rounded-lg bg-emerald-600 px-2.5 text-[10px] font-bold text-white hover:bg-emerald-700"
-                          onClick={() => handleToggleStatus(staffMember)}
-                        >
-                          <RotateCcw className="mr-1 h-3 w-3" />
-                          Activate
-                        </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        className="h-8 shrink-0 whitespace-nowrap rounded-lg px-2.5 text-[10px] font-bold"
-                        onClick={() => handleDeleteStaff(staffMember)}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
+                      <Edit2 className="mr-1 h-3 w-3" />
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="h-8 shrink-0 whitespace-nowrap rounded-lg px-2.5 text-[10px] font-bold"
+                      onClick={() => handleDeleteStaff(staffMember)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
                   </div>
                 </div>
               )

@@ -6,6 +6,9 @@ import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { useChat } from "@/src/modules/shared/contexts/chat-context"
 import { Button } from "@/src/modules/shared/components/ui/button"
 import { Paperclip, Send, ShieldCheck, Search, X } from "lucide-react"
+import { UserAvatar } from "@/src/modules/shared/components/user-avatar"
+import { db } from "@/lib/firebase"
+import { collection, getDocs } from "firebase/firestore"
 
 function formatMessageTime(timestamp?: string | number | Date, now: Date = new Date()): string {
   if (!timestamp) return ""
@@ -58,6 +61,7 @@ export default function AdminSupportChatPage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null)
   const [nowTick, setNowTick] = useState(() => new Date())
+  const [userProfilePictures, setUserProfilePictures] = useState<Record<string, string>>({})
 
   useEffect(() => {
     const id = setInterval(() => setNowTick(new Date()), 60 * 1000)
@@ -71,7 +75,16 @@ export default function AdminSupportChatPage() {
     const clientsMap = new Map()
     messages.forEach((m: any) => {
       if (m.clientId) {
-        const existing = clientsMap.get(m.clientId) || { id: m.clientId, name: m.clientName || "Unknown Client", unread: 0, lastTimestamp: 0 }
+        const existing = clientsMap.get(m.clientId) || {
+          id: m.clientId,
+          name: m.clientName || "Unknown Client",
+          profilePicture: m.clientProfilePicture || userProfilePictures[m.clientId] || "",
+          unread: 0,
+          lastTimestamp: 0,
+        }
+        if (!existing.profilePicture) {
+          existing.profilePicture = m.clientProfilePicture || userProfilePictures[m.clientId] || ""
+        }
         const msgTime = new Date(m.timestamp || 0).getTime()
         if (msgTime > existing.lastTimestamp) { existing.lastTimestamp = msgTime }
         if (m.sender === "client" && !m.isRead) { existing.unread += 1 }
@@ -95,6 +108,21 @@ export default function AdminSupportChatPage() {
   }, [activeClientId])
   
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }) }, [activeClientMessages])
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const snapshot = await getDocs(collection(db, "users"))
+        const map: Record<string, string> = {}
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data()
+          if (data.profilePicture) map[docSnap.id] = data.profilePicture
+        })
+        setUserProfilePictures(map)
+      } catch {}
+    }
+    fetchUsers()
+  }, [])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -137,7 +165,7 @@ export default function AdminSupportChatPage() {
               
               return (
                 <div key={client.id} onClick={() => setActiveClientId(client.id)} className={`p-4 flex items-start gap-3 cursor-pointer border-b border-slate-50 transition-colors ${activeClientId === client.id ? "bg-orange-50 border-r-2 border-r-orange-500" : "hover:bg-slate-50"}`}>
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold shrink-0 ${activeClientId === client.id ? "bg-slate-900" : "bg-slate-300"}`}>{client.name.charAt(0)}</div>
+                  <UserAvatar name={client.name} picture={client.profilePicture} className="h-10 w-10 shrink-0" ringClassName="" fallbackClassName={`${activeClientId === client.id ? "bg-slate-900" : "bg-slate-300"} text-white flex items-center justify-center`} textClassName="font-bold" />
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-baseline mb-0.5">
                       <h3 className={`text-sm truncate ${client.unread > 0 ? "font-black text-slate-900" : (activeClientId === client.id ? "font-bold text-slate-900" : "font-semibold text-slate-700")}`}>{client.name}</h3>
@@ -169,7 +197,7 @@ export default function AdminSupportChatPage() {
             <>
               <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0 bg-white">
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full bg-slate-900 flex items-center justify-center text-white shrink-0 font-bold uppercase">{activeClient.name.charAt(0)}</div>
+                  <UserAvatar name={activeClient.name} picture={activeClient.profilePicture} className="h-12 w-12 shrink-0" ringClassName="" fallbackClassName="bg-slate-900 text-white" textClassName="font-bold uppercase" />
                   <div>
                     <h2 className="text-lg font-bold text-slate-900 leading-tight">{activeClient.name}</h2>
                     <div className="flex items-center gap-1.5 mt-0.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-xs font-medium text-emerald-600">Active now</span></div>
@@ -191,7 +219,7 @@ export default function AdminSupportChatPage() {
                       )}
                       <div className={`flex items-start gap-3 ${msg.sender === "admin" ? "justify-end" : ""}`}>
                         {msg.sender === "client" && (
-                          <div className="w-8 h-8 rounded-full bg-slate-900 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-1 uppercase">{activeClient.name.charAt(0)}</div>
+                          <UserAvatar name={activeClient.name} picture={activeClient.profilePicture} className="h-8 w-8 shrink-0 mt-1" ringClassName="" fallbackClassName="bg-slate-900 text-white" textClassName="font-bold uppercase text-xs" />
                         )}
                         <div className={`flex flex-col gap-1 max-w-[75%] ${msg.sender === "admin" ? "items-end" : ""}`}>
                           <div className={`shadow-sm text-[15px] leading-relaxed flex flex-col gap-1.5 ${

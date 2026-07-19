@@ -190,13 +190,9 @@ export default function AdminPaymentsPage() {
     })
 
     return deduped.sort((a, b) => {
-      const getSortTime = (record: BookingRecord) => {
-        const t = record?.lastActivityAt || record?.paymentSubmittedAt || record?.updatedAt || record?.createdAt || record?.bookingDate
-        if (!t) return 0
-        const d = new Date(t).getTime()
-        return isNaN(d) ? 0 : d
-      }
-      return getSortTime(b) - getSortTime(a)
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0
+      return (isNaN(bTime) ? 0 : bTime) - (isNaN(aTime) ? 0 : aTime)
     })
   }, [bookingCtx.bookings, paymentRecords])
 

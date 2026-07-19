@@ -305,13 +305,9 @@ export default function AdminBookingsPage() {
           .some((f) => f && String(f).toLowerCase().includes(q))
       })
       .sort((a, b) => {
-        const getTime = (record: Booking) => {
-          const t = (record as any).lastActivityAt || record.createdAt
-          if (!t) return 0
-          const d = new Date(t).getTime()
-          return isNaN(d) ? 0 : d
-        }
-        return getTime(b) - getTime(a)
+        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0
+        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0
+        return (isNaN(bTime) ? 0 : bTime) - (isNaN(aTime) ? 0 : aTime)
       })
   }, [bookings, statusFilter, venueFilter, searchQuery])
 
@@ -2425,6 +2421,19 @@ function MaintenanceCalendarModal({
     return dates
   }, [maintenanceRecords, selectedSpaceId])
 
+  function matchesOfficeBooking(booking: Booking): boolean {
+    const match = selectedSpaceId.match(/^o(\d+)$/)
+    if (!match) return false
+    const roomNum = parseInt(match[1])
+    const group = roomNum >= 1 && roomNum <= 8 ? "A" : "B"
+    const buildingId = `office-${group === "A" ? "a" : "b"}`
+    const buildingName = `Office ${group}`
+    const localNum = group === "A" ? roomNum : roomNum - 8
+    if (booking.venueId === buildingId) return true
+    if (booking.venue?.includes(buildingName) && booking.venue?.includes(`Room ${localNum}`)) return true
+    return false
+  }
+
   const getDayStatus = (day: number) => {
     const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
     const todayStr = new Date().toISOString().split("T")[0]
@@ -2432,19 +2441,20 @@ function MaintenanceCalendarModal({
     if (spaceMaintDates.has(dateStr)) return "maintenance"
 
     const spaceName = currentSpaces.find(s => s.id === selectedSpaceId)?.name || ""
+    const officeMatch = (b: Booking) => b.venueId === selectedSpaceId || b.venue === spaceName || (selectedSpaceId?.startsWith("o") && matchesOfficeBooking(b))
     const dayBookings = (allBookings || []).filter(b =>
       b.date === dateStr &&
-      (b.venueId === selectedSpaceId || b.venue === spaceName) &&
+      officeMatch(b) &&
       ["approved", "confirmed", "completed", "contract_signing_required", "reservation_secured", "active_rental"].includes(b.status?.toLowerCase() || "")
     )
     const pendingBookings = (allBookings || []).filter(b =>
       b.date === dateStr &&
-      (b.venueId === selectedSpaceId || b.venue === spaceName) &&
+      officeMatch(b) &&
       ["pending", "verifying"].includes(b.status?.toLowerCase() || "")
     )
     const modRequestBookings = (allBookings || []).filter(b =>
       b.date === dateStr &&
-      (b.venueId === selectedSpaceId || b.venue === spaceName) &&
+      officeMatch(b) &&
       ["modification_under_review", "cancellation_requested"].includes(b.status?.toLowerCase() || "")
     )
 
@@ -2481,10 +2491,11 @@ function MaintenanceCalendarModal({
     }
 
     const spaceName = currentSpaces.find(s => s.id === selectedSpaceId)?.name || ""
+    const officeMatch = (b: Booking) => b.venueId === selectedSpaceId || b.venue === spaceName || (selectedSpaceId?.startsWith("o") && matchesOfficeBooking(b))
     const bookedDates = datesToAdd.filter(d => {
       const dayBookings = (allBookings || []).filter(b =>
         b.date === d &&
-        (b.venueId === selectedSpaceId || b.venue === spaceName) &&
+        officeMatch(b) &&
         ["approved", "confirmed", "completed", "contract_signing_required", "reservation_secured", "active_rental"].includes(b.status?.toLowerCase() || "")
       )
       return dayBookings.length > 0

@@ -28,6 +28,7 @@ export interface ChatMessageItem {
   senderAvatar?: string
   clientId?: string
   clientName?: string
+  clientProfilePicture?: string
   targetId?: string
   recipientId?: string
   timestamp: string | number | Date | any
@@ -110,8 +111,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           sender: data.sender || "client",
           senderId: data.senderId,
           senderName: data.senderName,
+          senderAvatar: data.senderAvatar || "",
           clientId: data.clientId,
           clientName: data.clientName,
+          clientProfilePicture: data.clientProfilePicture || "",
           targetId: data.targetId,
           recipientId: data.recipientId,
           timestamp: data.timestamp?.toDate?.()?.toISOString() || data.timestamp || new Date().toISOString(),
@@ -155,8 +158,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           normalizedRole === "client" || normalizedRole === "user"
             ? clientName || user?.name || "Guest"
             : "Admin",
+        senderAvatar:
+          normalizedRole === "client" || normalizedRole === "user"
+            ? user?.profilePicture || ""
+            : user?.profilePicture || "",
         clientId: resolvedClientId,
         clientName: clientName || null,
+        clientProfilePicture:
+          normalizedRole === "client" || normalizedRole === "user"
+            ? user?.profilePicture || ""
+            : "",
         targetId:
           normalizedRole === "client" || normalizedRole === "user" ? "admin" : resolvedClientId,
         recipientId:

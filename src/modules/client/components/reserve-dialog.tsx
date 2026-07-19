@@ -467,6 +467,16 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
   const isOffice = category === 'office';
 
 
+  function getOfficeRoomIds(venueId: string): string[] {
+    if (venueId === "office-a") {
+      return Array.from({ length: 8 }, (_, i) => `o${i + 1}`)
+    }
+    if (venueId === "office-b") {
+      return Array.from({ length: 8 }, (_, i) => `o${i + 9}`)
+    }
+    return []
+  }
+
   const isMaintenanceBlockedForSelectedSpace = (dateKey: string) => {
     if (!dateKey || !maintenanceDates?.length || !selectedItem) return false
 
@@ -476,6 +486,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
       selectedRoom && venueName ? `${venueName} - Room ${selectedRoom}` : ""
     const selectedRoomShortName =
       selectedRoom && venueName ? `${venueName} - Rm ${selectedRoom}` : ""
+    const officeRoomIds = getOfficeRoomIds(venueId)
 
     const acceptedKeys = new Set(
       [
@@ -484,6 +495,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
         venueName ? `${venueName}|${dateKey}` : "",
         selectedRoomName ? `${selectedRoomName}|${dateKey}` : "",
         selectedRoomShortName ? `${selectedRoomShortName}|${dateKey}` : "",
+        ...officeRoomIds.map((id) => `${id}|${dateKey}`),
       ].filter(Boolean),
     )
 
@@ -495,7 +507,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
       const [storedVenueKey, storedDateKey] = stored.split("|")
       if (storedDateKey !== dateKey) return false
 
-      return [venueId, venueName, selectedRoomName, selectedRoomShortName]
+      return [venueId, venueName, selectedRoomName, selectedRoomShortName, ...officeRoomIds]
         .filter(Boolean)
         .some((key) => key === storedVenueKey)
     })

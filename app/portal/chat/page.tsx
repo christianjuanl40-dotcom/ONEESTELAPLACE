@@ -5,6 +5,7 @@ import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { useChat } from "@/src/modules/shared/contexts/chat-context"
 import { Button } from "@/src/modules/shared/components/ui/button"
 import { ShieldCheck, Paperclip, Send, MessageCircle, X } from "lucide-react"
+import { UserAvatar } from "@/src/modules/shared/components/user-avatar"
 import { clearUnread, getUnreadCount, incrementUnread } from "@/src/modules/shared/lib/chat-unread"
 
 function formatMessageTime(timestamp?: string | number | Date, now: Date = new Date()): string {
@@ -162,7 +163,7 @@ export default function ClientSupportChatPage() {
                     </div>
                     <span className={`text-[10px] font-medium text-slate-400 ${msg.sender === "client" ? "mr-1" : "ml-1"}`}>{formatMessageTime(msg.timestamp, nowTick)}</span>
                   </div>
-                  {msg.sender === "client" && (<div className="w-8 h-8 rounded-full bg-slate-900 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-1 uppercase">{user?.name?.charAt(0) || "C"}</div>)}
+                  {msg.sender === "client" && (<UserAvatar name={user?.name || "Client"} picture={user?.profilePicture} className="h-8 w-8 shrink-0 mt-1" ringClassName="" fallbackClassName="bg-slate-900 text-white" textClassName="font-bold uppercase text-xs" />)}
                 </div>
               </div>
             )
