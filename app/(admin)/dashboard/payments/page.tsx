@@ -532,7 +532,7 @@ export default function AdminPaymentsPage() {
           open={!!selectedPayment}
           onOpenChange={(open) => !open && setSelectedPayment(null)}
         >
-          <DialogContent showCloseButton={false} className="w-[95vw] sm:max-w-2xl max-h-[90dvh] overflow-hidden rounded-3xl bg-white shadow-2xl">
+          <DialogContent aria-describedby={undefined} showCloseButton={false} className="w-[95vw] sm:max-w-2xl max-h-[90dvh] overflow-hidden rounded-3xl bg-white shadow-2xl">
             {selectedPayment && (
               <PaymentReviewModal
                 payment={selectedPayment}
@@ -595,7 +595,7 @@ function PaymentActionConfirmModal({
 
   return (
     <Dialog open={!!pendingAction} onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] overflow-hidden rounded-3xl bg-white shadow-2xl [&>button]:hidden">
+      <DialogContent aria-describedby={undefined} className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] overflow-hidden rounded-3xl bg-white shadow-2xl [&>button]:hidden">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="shrink-0 flex items-center gap-3 border-b border-slate-100 px-5 py-4">
             <div
@@ -1702,7 +1702,7 @@ function IncompletePaymentModal({
 
   return (
     <Dialog open={!!booking} onOpenChange={(open) => !open && onClose()}>
-        <DialogContent className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] overflow-hidden rounded-3xl bg-white shadow-2xl [&>button]:hidden">
+        <DialogContent aria-describedby={undefined} className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] overflow-hidden rounded-3xl bg-white shadow-2xl [&>button]:hidden">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {!confirmStep ? (
             <>
@@ -1940,7 +1940,7 @@ function OnsiteVerifyModal({
 
   return (
     <Dialog open={!!booking} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] overflow-hidden rounded-3xl bg-white shadow-2xl [&>button]:hidden">
+      <DialogContent aria-describedby={undefined} className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] overflow-hidden rounded-3xl bg-white shadow-2xl [&>button]:hidden">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {!confirmStep ? (
             <>

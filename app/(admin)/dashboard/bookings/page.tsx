@@ -98,7 +98,7 @@ function BalanceReminderModal({
 }) {
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
-      <DialogContent className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] rounded-2xl border-0 bg-white p-0 shadow-2xl [&>button]:hidden">
+      <DialogContent aria-describedby={undefined} className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] rounded-2xl border-0 bg-white p-0 shadow-2xl [&>button]:hidden">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 sm:px-7 sm:py-6">
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
@@ -688,12 +688,10 @@ function AdminBookingCard({
   onView: () => void
 }) {
   const isOfficeRental = isOfficeBooking(booking)
-  const startDate = formatDate(booking.date)
-  const endDate = (booking as any)?.endDate ? formatDate((booking as any).endDate) : startDate
 
   return (
-    <div className="group flex w-full max-w-full min-w-0 flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-4">
-      <div className="flex shrink-0 items-center gap-3 sm:w-[200px]">
+    <div className="group grid w-full max-w-full min-w-0 grid-cols-[1fr_1fr] gap-x-5 gap-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md sm:grid-cols-[220px_220px_200px_200px] sm:items-center sm:gap-x-6">
+      <div className="flex min-w-0 items-center gap-3 sm:col-start-1">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
           {isOfficeRental ? <FileText className="h-5 w-5" /> : <Calendar className="h-5 w-5" />}
         </div>
@@ -710,29 +708,18 @@ function AdminBookingCard({
         </div>
       </div>
 
-      <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-2 gap-y-1.5 sm:grid-cols-4 sm:gap-x-3">
-        <div className="min-w-0 max-w-full">
-          <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Customer</p>
-          <p className="whitespace-normal break-words text-xs font-black text-slate-800">{booking.userInfo?.name || "—"}</p>
-          <p className="whitespace-normal break-words text-[10px] font-bold text-slate-500">{booking.userInfo?.email || "—"}</p>
-        </div>
-        <div className="min-w-0 max-w-full">
-          <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
-          <p className="whitespace-normal break-words text-xs font-bold text-slate-800">{booking.venue || "N/A"}</p>
-        </div>
-        <div className="min-w-0 max-w-full">
-          <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
-            {isOfficeRental ? "Start Date" : "Event Date"}
-          </p>
-          <p className="whitespace-normal break-words text-xs font-bold text-slate-800">{startDate}</p>
-        </div>
-        <div className="min-w-0 max-w-full">
-          <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">End Date</p>
-          <p className="whitespace-normal break-words text-xs font-bold text-slate-800">{endDate}</p>
-        </div>
+      <div className="min-w-0 sm:col-start-2">
+        <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Customer</p>
+        <p className="whitespace-normal break-words text-xs font-black text-slate-800">{booking.userInfo?.name || "—"}</p>
+        <p className="whitespace-normal break-words text-[10px] font-bold text-slate-500">{booking.userInfo?.email || "—"}</p>
       </div>
 
-      <div className="flex shrink-0 items-center justify-between gap-2 sm:flex-col sm:items-end sm:gap-1">
+      <div className="min-w-0 sm:col-start-3">
+        <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
+        <p className="whitespace-normal break-words text-xs font-bold text-slate-800">{booking.venue || "N/A"}</p>
+      </div>
+
+      <div className="col-span-2 flex shrink-0 items-center justify-between gap-3 sm:col-span-1 sm:col-start-4 sm:flex-col sm:items-end sm:gap-2.5">
         <span
           className={cn(
             "rounded-md border px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.2em] whitespace-nowrap",
@@ -747,7 +734,7 @@ function AdminBookingCard({
               <Button
                 variant="outline"
                 onClick={onView}
-                className="h-8 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-2.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 active:scale-[0.97] transition-transform"
+                className="h-8 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-2.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 active:scale-[0.97] transition-transform sm:w-auto"
               >
                 View Details
               </Button>
@@ -889,7 +876,7 @@ function BookingDetailsModal({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent
+      <DialogContent aria-describedby={undefined}
         showCloseButton={false}
         className="w-[95vw] sm:max-w-[560px] max-h-[90dvh] overflow-hidden rounded-3xl bg-white shadow-2xl"
       >
@@ -1668,7 +1655,7 @@ function RecordOnsitePaymentModal({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] rounded-2xl border-0 p-0 shadow-2xl [&>button]:hidden bg-white">
+      <DialogContent aria-describedby={undefined} className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] rounded-2xl border-0 p-0 shadow-2xl [&>button]:hidden bg-white">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="min-h-0 flex-1 overflow-y-auto p-6 sm:p-7">
             {step === "form" ? (
@@ -1963,7 +1950,7 @@ function ContractSigningConfirmModal({
 }) {
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
-      <DialogContent className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] rounded-2xl border-0 bg-white p-0 shadow-2xl [&>button]:hidden">
+      <DialogContent aria-describedby={undefined} className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] rounded-2xl border-0 bg-white p-0 shadow-2xl [&>button]:hidden">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 sm:px-7 sm:py-6">
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
@@ -2036,7 +2023,7 @@ function ApproveCancellationConfirmModal({
 }) {
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
-      <DialogContent className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] rounded-2xl border-0 bg-white p-0 shadow-2xl [&>button]:hidden">
+      <DialogContent aria-describedby={undefined} className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] rounded-2xl border-0 bg-white p-0 shadow-2xl [&>button]:hidden">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 sm:px-7 sm:py-6">
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-50 text-rose-600">
@@ -2111,7 +2098,7 @@ function DeclineCancellationModal({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
-      <DialogContent className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] rounded-2xl border-0 bg-white p-0 shadow-2xl [&>button]:hidden">
+      <DialogContent aria-describedby={undefined} className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] rounded-2xl border-0 bg-white p-0 shadow-2xl [&>button]:hidden">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 sm:px-7 sm:py-6">
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
@@ -2167,7 +2154,7 @@ function ApproveModificationConfirmModal({
 }) {
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
-      <DialogContent className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] rounded-2xl border-0 bg-white p-0 shadow-2xl [&>button]:hidden">
+      <DialogContent aria-describedby={undefined} className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] rounded-2xl border-0 bg-white p-0 shadow-2xl [&>button]:hidden">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 sm:px-7 sm:py-6">
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
@@ -2249,7 +2236,7 @@ function DeclineModificationModal({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
-      <DialogContent className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] rounded-2xl border-0 bg-white p-0 shadow-2xl [&>button]:hidden">
+      <DialogContent aria-describedby={undefined} className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] rounded-2xl border-0 bg-white p-0 shadow-2xl [&>button]:hidden">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 sm:px-7 sm:py-6">
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
@@ -2305,7 +2292,7 @@ function MarkCompletedConfirmModal({
 }) {
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
-      <DialogContent className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] rounded-2xl border-0 bg-white p-0 shadow-2xl [&>button]:hidden">
+      <DialogContent aria-describedby={undefined} className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] rounded-2xl border-0 bg-white p-0 shadow-2xl [&>button]:hidden">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 sm:px-7 sm:py-6">
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
@@ -2508,9 +2495,9 @@ function MaintenanceCalendarModal({
           spaceId: selectedSpaceId,
           spaceName: space?.name || selectedSpaceId,
           date: d,
-          startDate: useRange ? startDate : undefined,
-          endDate: useRange ? endDate : undefined,
-          reason: reason || undefined,
+          startDate: useRange ? startDate : dateToUse,
+          endDate: useRange ? endDate : dateToUse,
+          reason: reason || "",
           status: "Active",
         })
       }
@@ -2532,7 +2519,7 @@ function MaintenanceCalendarModal({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent
+      <DialogContent aria-describedby={undefined}
         className="flex flex-col border-0 bg-white p-0 shadow-2xl gap-0 rounded-3xl w-[95vw] sm:max-w-[520px] max-h-[90dvh]"
       >
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -2809,9 +2796,9 @@ function MaintenanceCalendarModal({
             <Button
               onClick={handleSave}
               disabled={isSaving || (useRange ? !startDate || !endDate : !selectedDate) || !selectedSpaceId}
-              className="h-10 w-full rounded-xl bg-slate-900 text-sm font-black text-white hover:bg-slate-800 disabled:opacity-40"
+              className="h-11 w-full rounded-xl bg-slate-900 text-sm font-black text-white hover:bg-slate-800 disabled:opacity-40"
             >
-              {isSaving ? "Saving..." : "Block Maintenance"}
+              {isSaving ? "Saving..." : "Block Date"}
             </Button>
 
             {/* Existing records */}
@@ -2856,17 +2843,6 @@ function MaintenanceCalendarModal({
                 </div>
               </div>
             )}
-          </div>
-
-          {/* FOOTER */}
-          <div className="shrink-0 shrink-0 border-t border-slate-100 bg-white px-5 py-5">
-            <Button
-              onClick={onClose}
-              variant="outline"
-              className="h-10 w-full sm:w-auto rounded-xl border-slate-200 text-sm font-bold text-slate-700 hover:bg-slate-50"
-            >
-              Close
-            </Button>
           </div>
         </div>
       </DialogContent>

@@ -238,7 +238,7 @@ export function PublicLayout({ children }: PublicLayoutProps) {
               <li>
                 <button
                   type="button"
-                  onClick={() => scrollToSection("booking")}
+                  onClick={() => window.dispatchEvent(new Event("openLoginDialog"))}
                   className="transition-colors hover:text-orange-500"
                 >
                   Book an Event

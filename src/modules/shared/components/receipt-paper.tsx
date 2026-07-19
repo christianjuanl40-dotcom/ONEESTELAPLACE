@@ -38,12 +38,12 @@ function ReceiptPaperLine({
 }) {
   return (
     <div className="flex gap-2 text-sm sm:gap-4">
-      <span className="min-w-[9rem] shrink-0 font-semibold text-slate-500">
+      <span className="min-w-[6.5rem] max-w-[40%] shrink-0 break-words font-semibold text-slate-500 sm:min-w-[9rem]">
         {label}:
       </span>
       <span
         className={cn(
-          "break-words font-black",
+          "min-w-0 break-words font-black",
           highlight ? "text-orange-600" : "text-slate-950",
         )}
       >
@@ -130,11 +130,11 @@ export function ReceiptPaper({
           System-Generated E-Receipt
         </p>
         <div className="mx-auto mt-3 grid max-w-xl gap-1 text-xs font-bold text-slate-600 sm:grid-cols-2 sm:text-left">
-          <p>
+          <p className="break-words">
             <span className="text-slate-400">Receipt No:</span>{" "}
             <span className="text-slate-900">{receiptNo || "—"}</span>
           </p>
-          <p className="sm:text-right">
+          <p className="break-words sm:text-right">
             <span className="text-slate-400">Date Generated:</span>{" "}
             <span className="text-slate-900">
               {formatReceiptDate(generatedAt)}

@@ -477,11 +477,11 @@ function StatusCard({ booking, cmsData }: { booking: StatusBooking; cmsData?: an
                     Click to View
                   </span>
                 </div>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); setContractFileViewerOpen(true) }}
-                    className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-[10px] font-bold text-blue-700 hover:bg-blue-50 transition"
+                    className="inline-flex w-full items-center justify-center gap-1 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-[10px] font-bold text-blue-700 hover:bg-blue-50 transition"
                   >
                     <FileText className="h-3 w-3" /> View Contract
                   </button>
@@ -494,7 +494,7 @@ function StatusCard({ booking, cmsData }: { booking: StatusBooking; cmsData?: an
                       a.download = contractFile.fileName
                       a.click()
                     }}
-                    className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-[10px] font-bold text-blue-700 hover:bg-blue-50 transition"
+                    className="inline-flex w-full items-center justify-center gap-1 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-[10px] font-bold text-blue-700 hover:bg-blue-50 transition"
                   >
                     <Download className="h-3 w-3" /> Download Contract
                   </button>

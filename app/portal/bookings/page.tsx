@@ -438,6 +438,7 @@ function HorizontalBookingCard({
   const typeLabel = isOfficeRental
     ? "Office Space Rental"
     : booking.eventType || "Event Venue Rental"
+  const isUnpaid = String(booking.paymentStatus || "").toLowerCase() === "unpaid"
 
   return (
     <div className="group flex w-full min-w-0 flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-4">
@@ -460,7 +461,7 @@ function HorizontalBookingCard({
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
             {isOfficeRental ? "Rental" : "Event"}
           </p>
-          <p className="mt-0.5 flex items-center gap-1.5 text-sm font-semibold leading-snug text-slate-900">
+          <p className="mt-0.5 flex items-center gap-1.5 text-sm font-black leading-snug text-slate-900">
             <span className="line-clamp-2 min-w-0">{booking.eventName || "Untitled"}</span>
             <span className="shrink-0 whitespace-nowrap text-xs font-black text-slate-800">• {booking.id}</span>
           </p>
@@ -480,7 +481,7 @@ function HorizontalBookingCard({
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
             {isOfficeRental ? "Rental" : "Event"}
           </p>
-          <p className="break-words whitespace-normal text-sm font-semibold leading-snug text-slate-900 line-clamp-2 min-w-0">
+          <p className="break-words whitespace-normal text-sm font-black leading-snug text-slate-900 line-clamp-2 min-w-0">
             {booking.eventName || "Untitled"}
           </p>
           <p className="break-words whitespace-normal text-[11px] font-bold text-orange-600">
@@ -511,22 +512,24 @@ function HorizontalBookingCard({
           {getStatusLabel(booking.status)}
         </span>
         <div className="ml-auto flex flex-row flex-wrap items-center justify-end gap-2 sm:ml-0 sm:shrink-0">
-          <TooltipProvider delayDuration={400}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  onClick={() => onView(booking)}
-                  className="h-8 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-2.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 w-auto"
-                >
-                  View Details
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="left" className="text-[10px] font-semibold">
-                View full booking details
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          {!isUnpaid && (
+            <TooltipProvider delayDuration={400}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    onClick={() => onView(booking)}
+                    className="h-8 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-2.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 w-auto"
+                  >
+                    View Details
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left" className="text-[10px] font-semibold">
+                  View full booking details
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
       </div>
     </div>
@@ -544,6 +547,7 @@ function HistoryRow({
   const typeLabel = isOfficeRental
     ? "Office Space Rental"
     : booking.eventType || "Event Venue Rental"
+  const isUnpaid = String(booking.paymentStatus || "").toLowerCase() === "unpaid"
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 transition hover:border-orange-200 sm:flex-row sm:items-center sm:gap-3 md:gap-4">
@@ -603,22 +607,24 @@ function HistoryRow({
           {getStatusLabel(booking.status)}
         </span>
         <div className="flex flex-row flex-wrap items-center justify-end gap-2 sm:shrink-0">
-          <TooltipProvider delayDuration={400}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  onClick={() => onView(booking)}
-                  className="h-8 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-2.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 w-auto"
-                >
-                  View Details
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="left" className="text-[10px] font-semibold">
-                View full booking details
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          {!isUnpaid && (
+            <TooltipProvider delayDuration={400}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    onClick={() => onView(booking)}
+                    className="h-8 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-2.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 w-auto"
+                  >
+                    View Details
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left" className="text-[10px] font-semibold">
+                  View full booking details
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
       </div>
     </div>
@@ -886,12 +892,12 @@ function BookingDetailsModal({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent
+      <DialogContent aria-describedby={undefined}
         showCloseButton={false}
         plain
-        className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] overflow-y-auto rounded-3xl bg-white shadow-2xl"
+        className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] rounded-3xl bg-white shadow-2xl"
       >
-        <div className="flex h-full min-h-0 flex-col overflow-hidden">
+        <div className="flex max-h-[90dvh] min-h-0 flex-col overflow-hidden">
           <header className="shrink-0 border-b border-slate-100 px-5 py-4">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
@@ -901,7 +907,7 @@ function BookingDetailsModal({
                 <DialogTitle className="mt-1 break-words text-xl font-black text-slate-900 line-clamp-2">
                   {booking.eventName || "Untitled Booking"}
                 </DialogTitle>
-                <p className="mt-0.5 text-xs font-bold text-slate-500">
+                <p className="mt-0.5 break-words text-xs font-bold text-slate-500">
                   {typeLabel}{" "}
                   <span className="mx-1.5 text-slate-300">·</span> #
                   {booking.id}
@@ -1248,7 +1254,7 @@ function BookingDetailsModal({
 
                     {hasContract ? (
             <div className="space-y-4">
-                        <div className="flex gap-2">
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                           <Button
                             type="button"
                             variant="outline"
@@ -1256,7 +1262,7 @@ function BookingDetailsModal({
                               console.log("[View Contract] clicked")
                               setShowContractFile(true)
                             }}
-                            className="h-9 flex-1 rounded-lg border-slate-200 text-[10px] font-bold"
+                            className="h-9 w-full rounded-lg border-slate-200 text-[10px] font-bold"
                           >
                             <FileText className="mr-1.5 h-3.5 w-3.5" /> View Contract
                           </Button>
@@ -1269,7 +1275,7 @@ function BookingDetailsModal({
                               a.download = contract.fileName
                               a.click()
                             }}
-                            className="h-9 flex-1 rounded-lg border-slate-200 text-[10px] font-bold"
+                            className="h-9 w-full rounded-lg border-slate-200 text-[10px] font-bold"
                           >
                             <Download className="mr-1.5 h-3.5 w-3.5" /> Download Contract
                           </Button>
@@ -1541,7 +1547,7 @@ function ReceiptModal({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent
+      <DialogContent aria-describedby={undefined}
         showCloseButton={false}
         className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] overflow-y-auto rounded-3xl bg-white shadow-2xl"
       >
@@ -1554,7 +1560,7 @@ function ReceiptModal({
               <DialogTitle className="mt-1 font-mono text-lg font-black tracking-tight text-slate-900">
                 {receipt.receiptNumber}
               </DialogTitle>
-              <p className="mt-0.5 text-xs font-bold text-slate-500">
+              <p className="mt-0.5 break-words text-xs font-bold text-slate-500">
                 {receipt.bookingId}
               </p>
             </div>
@@ -1645,7 +1651,7 @@ const WriteReviewModal = ({
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
-      <DialogContent className="w-[95vw] sm:max-w-md max-h-[90dvh] overflow-y-auto rounded-3xl border-0 bg-white p-6 shadow-2xl">
+      <DialogContent aria-describedby={undefined} className="w-[95vw] sm:max-w-md max-h-[90dvh] overflow-y-auto rounded-3xl border-0 bg-white p-6 shadow-2xl">
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
           <DialogTitle className="shrink-0 text-xl font-black text-slate-900">
             Write a Review
@@ -1752,7 +1758,7 @@ const CancellationDialog = ({
 
   return (
     <Dialog open={!!booking} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent
+      <DialogContent aria-describedby={undefined}
         showCloseButton={false}
         className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] overflow-y-auto rounded-3xl bg-white shadow-2xl"
       >
@@ -2189,7 +2195,7 @@ function ModifyBookingFlowModal({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent
+      <DialogContent aria-describedby={undefined}
         showCloseButton={false}
         className={cn(
           "!flex !flex-col !gap-0 !p-0 overflow-y-auto max-h-[90dvh] bg-white rounded-none sm:rounded-[2rem] border-0 [&>button]:hidden shadow-2xl w-[95vw] sm:max-w-2xl",

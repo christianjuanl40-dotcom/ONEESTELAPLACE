@@ -80,7 +80,7 @@ export function ImageCropper({ open, imageUrl, onCrop, onClose }: ImageCropperPr
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
-      <DialogContent className="w-[95vw] overflow-y-auto max-h-[90dvh] sm:max-w-[440px] rounded-2xl">
+      <DialogContent aria-describedby={undefined} className="w-[95vw] overflow-y-auto max-h-[90dvh] sm:max-w-[440px] rounded-2xl">
         <DialogHeader>
           <DialogTitle className="text-xl font-black text-slate-900">Adjust Photo</DialogTitle>
         </DialogHeader>

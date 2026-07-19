@@ -1249,7 +1249,10 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       const prev = prevMap.get(id)
       if (!prev || JSON.stringify(prev) !== JSON.stringify(next)) {
         const { id: _id, ...data } = next
-        batch.set(doc(maintenanceRecordsRef, id), { ...data, updatedAt: new Date().toISOString() }, { merge: true })
+        const sanitized = Object.fromEntries(
+          Object.entries(data).filter(([, v]) => v !== undefined)
+        )
+        batch.set(doc(maintenanceRecordsRef, id), { ...sanitized, updatedAt: new Date().toISOString() }, { merge: true })
       }
     }
     for (const id of prevMap.keys()) {

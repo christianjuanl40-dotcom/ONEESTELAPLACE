@@ -55,8 +55,10 @@ export default function UsersPage() {
         console.log("[UsersPage] users loaded:", loaded.length)
         console.log("[UsersPage] final array:", JSON.stringify(loaded.map((u) => ({ uid: u.uid, email: u.email }))))
 
+        const clientUsers = loaded.filter((u) => u.role === "client")
+
         if (!cancelled) {
-          setUsers(loaded)
+          setUsers(clientUsers)
           setLoading(false)
         }
       } catch (err) {

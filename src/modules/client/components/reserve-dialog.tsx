@@ -157,7 +157,7 @@ function VenueReviewsDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
 
-      <DialogContent className="w-[95vw] overflow-hidden rounded-2xl border-slate-200 bg-white p-0 shadow-xl sm:max-w-lg [&>button]:hidden">
+      <DialogContent aria-describedby={undefined} className="w-[95vw] overflow-hidden rounded-2xl border-slate-200 bg-white p-0 shadow-xl sm:max-w-lg [&>button]:hidden">
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
           <div className="shrink-0 flex items-start justify-between border-b border-slate-100 p-5">
             <div>
@@ -289,7 +289,7 @@ function BookingConfirmationDialog({
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onEdit()}>
-      <DialogContent className="flex max-h-[calc(100dvh-2rem)] w-[95vw] sm:max-w-lg flex-col gap-0 overflow-hidden rounded-2xl border-slate-200 bg-white p-0 shadow-2xl [&>button]:hidden">
+      <DialogContent aria-describedby={undefined} className="flex max-h-[calc(100dvh-2rem)] w-[95vw] sm:max-w-lg flex-col gap-0 overflow-hidden rounded-2xl border-slate-200 bg-white p-0 shadow-2xl [&>button]:hidden">
         <div className="shrink-0 border-b border-slate-100 px-5 py-4">
           <DialogTitle className="text-xl md:text-2xl font-black text-slate-950">
             Confirm Booking Details
@@ -1552,7 +1552,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
         </div>
 
         <Dialog open={isTermsOpen} onOpenChange={setIsTermsOpen}>
-          <DialogContent showCloseButton={false} className="w-[92vw] overflow-hidden rounded-[2rem] border-0 bg-white p-0 shadow-2xl sm:max-w-2xl">
+          <DialogContent aria-describedby={undefined} showCloseButton={false} className="w-[92vw] overflow-hidden rounded-[2rem] border-0 bg-white p-0 shadow-2xl sm:max-w-2xl">
             <div className="flex h-full min-h-0 flex-col overflow-hidden">
               <div className="shrink-0 flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-4 md:px-8">
                 <div>
@@ -1620,7 +1620,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
     <Dialog open={isOpen} onOpenChange={(open) => { setIsOpen(open); if (!open) setTimeout(resetState, 300); }}>
       <DialogTrigger asChild>{children || <Button className="bg-[#ea580c] text-white">Book Now</Button>}</DialogTrigger>
       
-      <DialogContent showCloseButton={false} className={cn(
+      <DialogContent aria-describedby={undefined} showCloseButton={false} className={cn(
         "!flex !flex-col !gap-0 !p-0 overflow-hidden bg-white rounded-none sm:rounded-[2rem] border-0 shadow-2xl transition-all duration-300 ease-in-out w-full sm:max-h-[calc(100dvh-48px)]",
         step === 'category' && "!max-w-full sm:!max-w-[600px]",
         (step === 'list' || step === 'room') && "!max-w-full sm:!max-w-[95vw] lg:!max-w-[960px]",

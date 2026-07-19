@@ -144,7 +144,7 @@ export function VirtualTour({ open, onOpenChange }: VirtualTourProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* MOBILE-FIRST FULL SCREEN MODAL */}
-      <DialogContent className="max-w-[95vw] md:max-w-[90vw] w-full h-[100vh] h-[100dvh] md:h-[90vh] p-0 overflow-hidden border-none bg-black rounded-none md:rounded-[2rem] shadow-2xl z-[99999] [&>button]:hidden">
+      <DialogContent aria-describedby={undefined} className="max-w-[95vw] md:max-w-[90vw] w-full h-[100vh] h-[100dvh] md:h-[90vh] p-0 overflow-hidden border-none bg-black rounded-none md:rounded-[2rem] shadow-2xl z-[99999] [&>button]:hidden">
         <DialogTitle className="sr-only">Virtual Tour</DialogTitle>
         
         {/* ✨ THE 360 VIEWPORT CONTAINER ✨ */}

@@ -12,7 +12,6 @@ import {
 } from "@/src/modules/shared/components/ui/dialog"
 import { Input } from "@/src/modules/shared/components/ui/input"
 import { Label } from "@/src/modules/shared/components/ui/label"
-import { Checkbox } from "@/src/modules/shared/components/ui/checkbox"
 import { Eye, EyeOff, Loader2 } from "lucide-react"
 
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
@@ -28,10 +27,9 @@ export function LoginDialog({ className, children }: LoginDialogProps) {
   const [open, setOpen] = useState(false)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [rememberMe, setRememberMe] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [showForgotPassword, setShowForgotPassword] = useState(false)
-  
+
   const { login, isLoading } = useAuth()
   const { toast } = useToast()
 
@@ -54,7 +52,6 @@ export function LoginDialog({ className, children }: LoginDialogProps) {
     const rememberedEmail = window.localStorage.getItem("rememberedEmail")
     if (rememberedEmail) {
       setEmail(rememberedEmail)
-      setRememberMe(true)
     }
   }, [])
 
@@ -137,12 +134,7 @@ export function LoginDialog({ className, children }: LoginDialogProps) {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between pt-1">
-                <div className="flex items-center space-x-2">
-                  <Checkbox id="remember" checked={rememberMe} onCheckedChange={(checked) => setRememberMe(checked as boolean)} className="rounded border-slate-300 data-[state=checked]:bg-slate-900 data-[state=checked]:text-white" />
-                  <Label htmlFor="remember" className="text-xs font-bold text-slate-600 cursor-pointer">Remember me</Label>
-                </div>
-
+              <div className="flex items-center justify-end pt-1">
                 <Button type="button" variant="link" className="px-0 text-xs font-bold text-slate-600 hover:text-slate-900 h-auto" onClick={() => { setOpen(false); setShowForgotPassword(true); }}>
                   Forgot password?
                 </Button>

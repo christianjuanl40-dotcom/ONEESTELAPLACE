@@ -239,7 +239,7 @@ export function ChatWindow({ mode }: { mode: "widget" | "full" }) {
       {/* FULLSCREEN IMAGE VIEWER MODAL PARA KAY CLIENT */}
       <Dialog open={!!viewImage} onOpenChange={(open) => !open && setViewImage(null)}>
         {/* FIX: Ginaya yung modal size at style sa Payment View */}
-        <DialogContent className="w-[95vw] sm:max-w-5xl max-h-[90dvh] flex flex-col p-6 bg-white rounded-2xl border-none shadow-2xl z-[10001] overflow-y-auto">
+        <DialogContent aria-describedby={undefined} className="w-[95vw] sm:max-w-5xl max-h-[90dvh] flex flex-col p-6 bg-white rounded-2xl border-none shadow-2xl z-[10001] overflow-y-auto">
           <DialogHeader className="shrink-0 mb-4 flex flex-row items-center justify-between">
             <DialogTitle className="text-xl font-black text-slate-900 flex items-center gap-2">
               <FileImage className="w-5 h-5 text-[#ea580c]" /> Image Attachment

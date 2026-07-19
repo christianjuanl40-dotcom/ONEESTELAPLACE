@@ -556,11 +556,13 @@ function HistoryRow({
   expanded,
   onToggle,
   onView,
+  onPay,
 }: {
   booking: Booking;
   expanded: boolean;
   onToggle: () => void;
   onView: (b: Booking) => void;
+  onPay: (b: Booking) => void;
 }) {
   const isOfficeRental = isOfficeRentalBooking(booking);
   const total = (booking as any).totalPrice || 0;
@@ -638,14 +640,39 @@ function HistoryRow({
           </p>
         </div>
         <div className="flex items-center gap-1.5 min-w-0">
-          <span
-            className={cn(
+          <div className="flex flex-col items-end gap-1.5">
+            <span
+              className={cn(
                 "hidden rounded-md border px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.2em] whitespace-nowrap sm:inline-block",
                 getStatusBadgeClass(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance),
+              )}
+            >
+              {getStatusLabel(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance)}
+            </span>
+            {isUnpaid ? (
+              <Button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPay(booking);
+                }}
+                className="h-8 shrink-0 whitespace-nowrap rounded-lg bg-orange-600 px-2.5 text-[10px] font-bold text-white shadow-sm hover:bg-orange-700 w-auto"
+              >
+                <CreditCard className="mr-1 h-3 w-3" />
+                Pay Now
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onView(booking);
+                }}
+                className="h-8 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-2.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 w-auto"
+              >
+                View Details
+              </Button>
             )}
-          >
-            {getStatusLabel(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance)}
-          </span>
+          </div>
           {expanded ? (
             <ChevronDown className="h-4 w-4 -rotate-180 text-slate-400 transition" />
           ) : (
@@ -667,18 +694,26 @@ function HistoryRow({
           } />
           <DetailItem label="Type" value={isOfficeRental ? "Slot Reservation" : (booking as any).paymentType === "downpayment" ? "Down Payment" : "Full Payment"} />
           <DetailItem label="Amount Paid" value={formatMoney(amountPaid)} />
-          {!isUnpaid && (
-            <div className="sm:col-span-3 flex justify-end mt-1">
-                <Button
-                  variant="outline"
-                  onClick={() => onView(booking)}
-                  className="h-9 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-[11px] font-bold text-slate-700 hover:bg-white w-auto"
-                >
-                  <Receipt className="mr-1.5 h-3.5 w-3.5" />
-                  Open Full Details
-                </Button>
-            </div>
-          )}
+          <div className="sm:col-span-3 flex justify-end mt-1">
+            {isUnpaid ? (
+              <Button
+                onClick={() => onPay(booking)}
+                className="h-9 shrink-0 whitespace-nowrap rounded-lg bg-orange-600 px-4 text-[11px] font-bold text-white shadow-sm hover:bg-orange-700 w-auto"
+              >
+                <CreditCard className="mr-1.5 h-3.5 w-3.5" />
+                Pay Now
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                onClick={() => onView(booking)}
+                className="h-9 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-[11px] font-bold text-slate-700 hover:bg-white w-auto"
+              >
+                <Receipt className="mr-1.5 h-3.5 w-3.5" />
+                Open Full Details
+              </Button>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -1178,7 +1213,7 @@ function TransactionsContent() {
           open={isPaymentConfirmOpen}
           onOpenChange={setIsPaymentConfirmOpen}
         >
-          <DialogContent showCloseButton={false} className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] overflow-y-auto rounded-3xl bg-white shadow-2xl">
+          <DialogContent aria-describedby={undefined} showCloseButton={false} className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] overflow-y-auto rounded-3xl bg-white shadow-2xl">
             <div className="flex max-h-[90dvh] flex-col overflow-hidden">
               <header className="shrink-0 flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
                 <div className="flex items-center gap-3">
@@ -1890,7 +1925,7 @@ function TransactionsContent() {
                             {getStatusLabel(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance)}
                           </span>
                           <div className="ml-auto flex flex-row flex-wrap items-center justify-end gap-2 sm:shrink-0">
-                            {hasPaymentRecord(booking) && !showSettleAction && (
+                            {hasPaymentRecord(booking) && !showSettleAction && _paymentStatus !== "unpaid" && (
                               <Button
                                 variant="outline"
                                 onClick={() => setViewingReceipt(booking)}
@@ -1925,7 +1960,7 @@ function TransactionsContent() {
         open={!!viewingReceipt}
         onOpenChange={(v) => !v && setViewingReceipt(null)}
       >
-        <DialogContent
+        <DialogContent aria-describedby={undefined}
           showCloseButton={false}
           className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] overflow-y-auto rounded-3xl bg-white shadow-2xl">
           <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -2060,6 +2095,7 @@ function TransactionsContent() {
                       )
                     }
                     onView={(b) => setViewingReceipt(b)}
+                    onPay={(b) => setSelectedBookingToPay(b.id)}
                   />
                 ))}
                 <Pagination

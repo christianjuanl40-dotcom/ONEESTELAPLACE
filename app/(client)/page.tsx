@@ -585,6 +585,47 @@ function LandingPageContent() {
         </div>
       </section>
 
+      <section id="find-us" className="w-full border-t border-slate-100 bg-white py-20 overflow-x-hidden">
+        <div className="container mx-auto max-w-7xl px-4">
+          <div className="mb-12 text-center">
+            <p className="mb-2 text-xs font-black uppercase tracking-[0.2em] text-orange-600">
+              Location
+            </p>
+
+            <h2 className="text-4xl font-black tracking-tight text-slate-950">
+              Find Us
+            </h2>
+
+            <p className="mt-3 max-w-2xl mx-auto text-sm font-semibold leading-6 text-slate-500">
+              Visit One Estela Place at our location.
+            </p>
+          </div>
+
+          <div className="mx-auto max-w-5xl overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-50 shadow-sm">
+            <iframe
+              title="Map showing the location of One Estela Place at 82PJ+CMP, R. Magsaysay Ave, San Pedro, Laguna"
+              src="https://www.google.com/maps?q=82PJ%2BCMP%2C%20R.%20Magsaysay%20Ave%2C%20San%20Pedro%2C%20Laguna&output=embed"
+              className="h-[300px] w-full border-0 md:h-[380px] lg:h-[450px]"
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              allowFullScreen
+            />
+          </div>
+
+          <div className="mt-6 flex justify-center">
+            <a
+              href="https://www.google.com/maps/search/?api=1&query=82PJ%2BCMP%2C%20R.%20Magsaysay%20Ave%2C%20San%20Pedro%2C%20Laguna"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open One Estela Place location in Google Maps"
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-orange-600 px-7 text-sm font-black text-white shadow-sm transition hover:bg-orange-700"
+            >
+              📍 Open in Google Maps
+            </a>
+          </div>
+        </div>
+      </section>
+
       {galleryBooking && (
         <GalleryModal booking={galleryBooking} onClose={() => setGalleryBooking(null)} />
       )}

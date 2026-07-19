@@ -275,7 +275,7 @@ export function TourButton({ children, className, size = "lg" }: TourButtonProps
         </Button>
       </DialogTrigger>
 
-      <DialogContent showCloseButton={false} className="w-[95vw] sm:max-w-[1200px] max-h-[90dvh] overflow-hidden rounded-2xl border-0 bg-black p-0 shadow-2xl">
+      <DialogContent aria-describedby={undefined} showCloseButton={false} className="w-[95vw] sm:max-w-[1200px] max-h-[90dvh] overflow-hidden rounded-2xl border-0 bg-black p-0 shadow-2xl">
         <DialogTitle className="sr-only">360 Tour</DialogTitle>
 
         <div className="relative flex h-[calc(100dvh-32px)] flex-col overflow-hidden bg-black lg:grid lg:grid-cols-[1fr_380px]">

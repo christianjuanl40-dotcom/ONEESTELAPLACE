@@ -80,7 +80,7 @@ export function ContractPreviewModal({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent
+      <DialogContent aria-describedby={undefined}
         showCloseButton={false}
         className="flex max-h-[90dvh] w-[95vw] sm:max-w-2xl flex-col gap-0 overflow-hidden rounded-2xl border-0 bg-white p-0 shadow-xl"
       >
