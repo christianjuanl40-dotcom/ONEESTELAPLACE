@@ -603,8 +603,8 @@ function LandingPageContent() {
 
           <div className="mx-auto max-w-5xl overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-50 shadow-sm">
             <iframe
-              title="Map showing the location of One Estela Place at 82PJ+CMP, R. Magsaysay Ave, San Pedro, Laguna"
-              src="https://www.google.com/maps?q=82PJ%2BCMP%2C%20R.%20Magsaysay%20Ave%2C%20San%20Pedro%2C%20Laguna&output=embed"
+              title="Map showing the location of One Estela Place"
+              src="https://www.google.com/maps?q=One+Estela+Place%2C+San+Pedro%2C+Laguna&ll=14.336188%2C121.031604&z=17&output=embed"
               className="h-[300px] w-full border-0 md:h-[380px] lg:h-[450px]"
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
@@ -612,12 +612,16 @@ function LandingPageContent() {
             />
           </div>
 
+          <p className="mt-4 text-center text-sm font-bold text-slate-600">
+            One Estela Place · 82PJ+CMP, R. Magsaysay Ave, San Pedro, Laguna
+          </p>
+
           <div className="mt-6 flex justify-center">
             <a
-              href="https://www.google.com/maps/search/?api=1&query=82PJ%2BCMP%2C%20R.%20Magsaysay%20Ave%2C%20San%20Pedro%2C%20Laguna"
+              href="https://maps.app.goo.gl/6JQpnhMRxXMF5SgK6"
               target="_blank"
               rel="noopener noreferrer"
-              aria-label="Open One Estela Place location in Google Maps"
+              aria-label="Open the official One Estela Place business listing in Google Maps"
               className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-orange-600 px-7 text-sm font-black text-white shadow-sm transition hover:bg-orange-700"
             >
               📍 Open in Google Maps
