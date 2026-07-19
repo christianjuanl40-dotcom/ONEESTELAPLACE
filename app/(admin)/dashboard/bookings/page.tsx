@@ -277,8 +277,12 @@ export default function AdminBookingsPage() {
   }, [searchParams])
 
   const venueOptions = useMemo(() => {
-    const venues = new Set(bookings.map((b) => b.venue).filter(Boolean) as string[])
-    return ["all", ...Array.from(venues).sort()]
+    const hasOffice = bookings.some((b) => isOfficeBooking(b))
+    const hasEvent = bookings.some((b) => !isOfficeBooking(b))
+    const options: { value: string; label: string }[] = [{ value: "all", label: "All Venues" }]
+    if (hasOffice) options.push({ value: "office", label: "Office Rental" })
+    if (hasEvent) options.push({ value: "event", label: "Event Venue" })
+    return options
   }, [bookings])
 
   const filteredBookings = useMemo(() => {
@@ -293,7 +297,8 @@ export default function AdminBookingsPage() {
             if (b.status !== statusFilter) return false
           }
         }
-        if (venueFilter !== "all" && b.venue !== venueFilter) return false
+        if (venueFilter === "office" && !isOfficeBooking(b)) return false
+        if (venueFilter === "event" && isOfficeBooking(b)) return false
         if (!searchQuery) return true
         const q = searchQuery.toLowerCase()
         return [b.id, b.eventName, b.venue, b.userInfo?.name, b.userInfo?.email, b.userInfo?.phone, b.paymentMethod]
@@ -586,9 +591,10 @@ export default function AdminBookingsPage() {
                   </div>
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border-slate-200 shadow-xl">
-                  <SelectItem value="all" className="font-bold">All Venues</SelectItem>
-                  {venueOptions.filter((v) => v !== "all").map((v) => (
-                    <SelectItem key={v} value={v}>{v}</SelectItem>
+                  {venueOptions.map((v) => (
+                    <SelectItem key={v.value} value={v.value} className={v.value === "all" ? "font-bold" : ""}>
+                      {v.label}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -690,8 +696,8 @@ function AdminBookingCard({
   const isOfficeRental = isOfficeBooking(booking)
 
   return (
-    <div className="group grid w-full max-w-full min-w-0 grid-cols-[1fr_1fr] gap-x-5 gap-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md sm:grid-cols-[220px_220px_200px_200px] sm:items-center sm:gap-x-6">
-      <div className="flex min-w-0 items-center gap-3 sm:col-start-1">
+    <div className="group grid w-full max-w-full min-w-0 grid-cols-2 gap-x-4 gap-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md sm:flex sm:items-center sm:gap-6">
+      <div className="flex min-w-0 items-center gap-3 sm:flex-1">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
           {isOfficeRental ? <FileText className="h-5 w-5" /> : <Calendar className="h-5 w-5" />}
         </div>
@@ -699,30 +705,30 @@ function AdminBookingCard({
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
             {isOfficeRental ? "Rental" : "Event"}
           </p>
-          <p className="break-words whitespace-normal text-sm font-black text-slate-900">
+          <p className="break-words whitespace-normal text-sm font-black leading-snug text-slate-900 line-clamp-2">
             {booking.eventName || "Untitled"}
           </p>
-          <p className="break-words whitespace-normal text-[11px] font-bold text-orange-600">
+          <p className="break-words text-[11px] font-bold text-orange-600">
             {booking.id}
           </p>
         </div>
       </div>
 
-      <div className="min-w-0 sm:col-start-2">
+      <div className="min-w-0 sm:flex-1">
         <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Customer</p>
         <p className="whitespace-normal break-words text-xs font-black text-slate-800">{booking.userInfo?.name || "—"}</p>
         <p className="whitespace-normal break-words text-[10px] font-bold text-slate-500">{booking.userInfo?.email || "—"}</p>
       </div>
 
-      <div className="min-w-0 sm:col-start-3">
+      <div className="min-w-0 sm:flex-1">
         <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
         <p className="whitespace-normal break-words text-xs font-bold text-slate-800">{booking.venue || "N/A"}</p>
       </div>
 
-      <div className="col-span-2 flex shrink-0 items-center justify-between gap-3 sm:col-span-1 sm:col-start-4 sm:flex-col sm:items-end sm:gap-2.5">
+      <div className="col-span-2 flex shrink-0 flex-col gap-2.5 sm:col-span-1 sm:w-[160px] sm:items-end">
         <span
           className={cn(
-            "rounded-md border px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.2em] whitespace-nowrap",
+            "inline-flex w-full items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap sm:w-[160px]",
             getStatusBadgeClass(booking.status),
           )}
         >
@@ -734,7 +740,7 @@ function AdminBookingCard({
               <Button
                 variant="outline"
                 onClick={onView}
-                className="h-8 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-2.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 active:scale-[0.97] transition-transform sm:w-auto"
+                className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:w-[160px]"
               >
                 View Details
               </Button>
@@ -2354,7 +2360,7 @@ function MaintenanceCalendarModal({
   const [maintType, setMaintType] = useState<"venue" | "office">("venue")
   const [officeGroup, setOfficeGroup] = useState<"A" | "B" | "">("")
   const [selectedSpaceId, setSelectedSpaceId] = useState("")
-  const [selectedDate, setSelectedDate] = useState("")
+  const [selectedDates, setSelectedDates] = useState<string[]>([])
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
   const [useRange, setUseRange] = useState(false)
@@ -2370,8 +2376,21 @@ function MaintenanceCalendarModal({
       const firstVenue = venues[0]?.id || "v1"
       setSelectedSpaceId(maintType === "venue" ? firstVenue : "")
       setOfficeGroup("")
+      setSelectedDates([])
+      setStartDate("")
+      setEndDate("")
+      setReason("")
+      setUseRange(false)
     }
   }, [open, maintType, venues])
+
+  useEffect(() => {
+    if (useRange && startDate && endDate) {
+      setSelectedDates(getDatesInRange(startDate, endDate))
+    } else if (useRange) {
+      setSelectedDates([])
+    }
+  }, [useRange, startDate, endDate])
 
   const currentSpaces = maintType === "venue" ? venues : (officeGroup ? offices.filter(o => {
     const num = parseInt(o.id.slice(1))
@@ -2400,8 +2419,7 @@ function MaintenanceCalendarModal({
       if (rec.spaceId !== selectedSpaceId && rec.spaceName !== selectedSpaceId) continue
       if (rec.date) dates.add(rec.date)
       if (rec.startDate && rec.endDate) {
-        const rangeDates = getDatesInRange(rec.startDate, rec.endDate)
-        for (const d of rangeDates) dates.add(d)
+        for (const d of getDatesInRange(rec.startDate, rec.endDate)) dates.add(d)
       }
     }
     return dates
@@ -2446,9 +2464,11 @@ function MaintenanceCalendarModal({
   }
 
   const handleSave = () => {
-    const dateToUse = useRange ? startDate : selectedDate
-    if (!dateToUse) {
-      toast({ title: "Date Required", description: "Please select a date.", variant: "destructive" })
+    const datesToAdd = useRange && startDate && endDate
+      ? getDatesInRange(startDate, endDate)
+      : [...selectedDates]
+    if (datesToAdd.length === 0) {
+      toast({ title: "Date Required", description: "Please select at least one date.", variant: "destructive" })
       return
     }
     if (!selectedSpaceId) {
@@ -2459,10 +2479,6 @@ function MaintenanceCalendarModal({
       toast({ title: "Invalid Range", description: "End date must be after start date.", variant: "destructive" })
       return
     }
-
-    const datesToAdd = useRange && startDate && endDate
-      ? getDatesInRange(startDate, endDate)
-      : [dateToUse]
 
     const spaceName = currentSpaces.find(s => s.id === selectedSpaceId)?.name || ""
     const bookedDates = datesToAdd.filter(d => {
@@ -2485,6 +2501,7 @@ function MaintenanceCalendarModal({
     setIsSaving(true)
     const space = currentSpaces.find(s => s.id === selectedSpaceId)
 
+    let added = 0
     for (const d of datesToAdd) {
       const exists = maintenanceRecords.some(
         r => r.spaceId === selectedSpaceId && r.date === d
@@ -2495,23 +2512,24 @@ function MaintenanceCalendarModal({
           spaceId: selectedSpaceId,
           spaceName: space?.name || selectedSpaceId,
           date: d,
-          startDate: useRange ? startDate : dateToUse,
-          endDate: useRange ? endDate : dateToUse,
+          startDate: d,
+          endDate: d,
           reason: reason || "",
           status: "Active",
         })
+        added++
       }
     }
 
     setIsSaving(false)
-    setSelectedDate("")
+    setSelectedDates([])
     setStartDate("")
     setEndDate("")
     setReason("")
     setUseRange(false)
     toast({
       title: "Maintenance Saved",
-      description: `${datesToAdd.length} date(s) blocked for ${space?.name || selectedSpaceId}.`,
+      description: `Successfully blocked ${added} date${added === 1 ? "" : "s"} for ${space?.name || selectedSpaceId}.`,
     })
   }
 
@@ -2702,14 +2720,14 @@ function MaintenanceCalendarModal({
                     ))}
                     {daysInMonthArray.map((day) => {
                       const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-                      const isSel = selectedDate === dateStr
+                      const isSel = selectedDates.includes(dateStr)
                       const status = getDayStatus(day)
 
                       const statusStyles: Record<string, string> = {
                         booked: "cursor-not-allowed border-rose-300 bg-rose-100 text-rose-700",
                         pending: "cursor-not-allowed border-amber-300 bg-amber-100 text-amber-700",
                         modification_request: "cursor-not-allowed border-purple-300 bg-purple-100 text-purple-700",
-                        reserved: "cursor-not-allowed border-blue-300 bg-blue-100 text-blue-700",
+                        reserved: "cursor-not-allowed border-amber-300 bg-amber-100 text-amber-700",
                         maintenance: "cursor-not-allowed border-slate-900 bg-slate-900 text-slate-400",
                         past: "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-300 opacity-60",
                         available: "border-slate-200 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50",
@@ -2718,7 +2736,7 @@ function MaintenanceCalendarModal({
                         booked: "Fully Booked",
                         pending: "Pending",
                         modification_request: "Modification Request",
-                        reserved: "Reserved",
+                        reserved: "Few",
                         maintenance: "Maintenance",
                         past: "Past date",
                         available: "Available",
@@ -2737,8 +2755,11 @@ function MaintenanceCalendarModal({
                           key={day}
                           type="button"
                           title={statusTitles[status] || "Available"}
-                          disabled={isDisabled}
-                          onClick={() => !isDisabled && setSelectedDate(dateStr)}
+                          disabled={isDisabled || useRange}
+                          onClick={() => {
+                            if (isDisabled || useRange) return
+                            setSelectedDates([dateStr])
+                          }}
                           className={`flex h-7 w-7 2xl:h-8 2xl:w-8 items-center justify-center rounded-full border text-[10px] xl:text-[11px] font-black outline-none transition-all focus-visible:ring-2 focus-visible:ring-orange-300 ${dayClass}`}
                         >
                           {day}
@@ -2747,32 +2768,37 @@ function MaintenanceCalendarModal({
                     })}
                   </div>
 
-                  {/* Legend */}
-                  <div className="mt-3 grid grid-cols-4 gap-x-2 gap-y-1.5 border-t border-slate-100 pt-2.5">
-                    <div className="flex items-center justify-center gap-1.5">
-                      <div className="h-2.5 w-2.5 rounded-full border border-slate-200 bg-white" />
-                      <span className="text-[7px] font-black uppercase tracking-[0.08em] text-slate-400">Available</span>
-                    </div>
-                    <div className="flex items-center justify-center gap-1.5">
-                      <div className="h-2.5 w-2.5 rounded-full bg-rose-300" />
-                      <span className="text-[7px] font-black uppercase tracking-[0.08em] text-rose-600">Full Slot / Booked</span>
-                    </div>
-                    <div className="flex items-center justify-center gap-1.5">
-                      <div className="h-2.5 w-2.5 rounded-full bg-blue-300" />
-                      <span className="text-[7px] font-black uppercase tracking-[0.08em] text-blue-600">Reserved</span>
-                    </div>
-                    <div className="flex items-center justify-center gap-1.5">
-                      <div className="h-2.5 w-2.5 rounded-full bg-slate-900" />
-                      <span className="text-[7px] font-black uppercase tracking-[0.08em] text-slate-600">Maintenance</span>
-                    </div>
-                  </div>
+                   {/* Legend */}
+                   <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2.5">
+                      {[
+                        { dot: "bg-rose-300", label: "Booked", color: "text-rose-600" },
+                        { dot: "bg-amber-300", label: "Few", color: "text-amber-600" },
+                        { dot: "bg-slate-900", label: "Maintenance", color: "text-slate-600" },
+                        { dot: "bg-orange-600", label: "Selected", color: "text-orange-600" },
+                      ].map((it) => (
+                       <div key={it.label} className="flex items-center gap-1 whitespace-nowrap">
+                         <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${it.dot}`} />
+                         <span className={`text-[7px] font-black uppercase leading-none tracking-[0.08em] ${it.color}`}>{it.label}</span>
+                       </div>
+                     ))}
+                   </div>
 
-                  {/* Selected date display */}
-                  {selectedDate && (
-                    <div className="mt-2 rounded-lg bg-orange-50 border border-orange-100 px-3 py-2 text-center">
-                      <p className="text-[9px] font-bold text-orange-700">
-                        Selected: {new Date(selectedDate + "T00:00:00").toLocaleDateString("en-PH", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+                  {/* Selected dates summary */}
+                  {selectedDates.length > 0 && (
+                    <div className="mt-2 rounded-lg bg-orange-50 border border-orange-100 px-3 py-2">
+                      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-orange-700">
+                        Selected ({selectedDates.length} {selectedDates.length === 1 ? "Date" : "Dates"})
                       </p>
+                      <ul className="mt-1 space-y-0.5">
+                        {[...selectedDates]
+                          .sort()
+                          .map((d) => (
+                            <li key={d} className="flex items-center gap-1.5 text-[11px] font-bold text-orange-700">
+                              <span className="text-orange-400">•</span>
+                              {new Date(d + "T00:00:00").toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" })}
+                            </li>
+                          ))}
+                      </ul>
                     </div>
                   )}
                 </div>
@@ -2795,7 +2821,7 @@ function MaintenanceCalendarModal({
             {/* Save button */}
             <Button
               onClick={handleSave}
-              disabled={isSaving || (useRange ? !startDate || !endDate : !selectedDate) || !selectedSpaceId}
+              disabled={isSaving || (useRange ? !startDate || !endDate : selectedDates.length === 0) || !selectedSpaceId}
               className="h-11 w-full rounded-xl bg-slate-900 text-sm font-black text-white hover:bg-slate-800 disabled:opacity-40"
             >
               {isSaving ? "Saving..." : "Block Date"}
@@ -2849,12 +2875,19 @@ function MaintenanceCalendarModal({
     </Dialog>
   )
 
+  function formatLocalDate(d: Date): string {
+    const year = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, "0")
+    const day = String(d.getDate()).padStart(2, "0")
+    return `${year}-${month}-${day}`
+  }
+
   function getDatesInRange(start: string, end: string): string[] {
     const dates: string[] = []
     const current = new Date(start + "T00:00:00")
     const endDateObj = new Date(end + "T00:00:00")
     while (current <= endDateObj) {
-      dates.push(current.toISOString().split("T")[0])
+      dates.push(formatLocalDate(current))
       current.setDate(current.getDate() + 1)
     }
     return dates

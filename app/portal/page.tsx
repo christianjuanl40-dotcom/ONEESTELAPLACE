@@ -198,14 +198,11 @@ export default function ClientDashboardPage() {
   const { user } = useAuth()
   const { getUserBookings, bookings } = useBookings()
   const myBookings = useMemo(() => {
-    if (user) return getUserBookings(user.id)
+    if (user?.id) return getUserBookings(user.id)
     return bookings
-  }, [user, getUserBookings, bookings])
+  }, [user?.id, getUserBookings, bookings])
 
   const officeBookings = useMemo(() => myBookings.filter(isOfficeBooking), [myBookings])
-  const activeRental = useMemo(() => officeBookings.find(b => b.status === "active_rental"), [officeBookings])
-  const contractSigning = useMemo(() => officeBookings.find(b => b.status === "contract_signing_required"), [officeBookings])
-  const expiredRental = useMemo(() => officeBookings.find(b => b.status === "rental_expired"), [officeBookings])
 
   const sortedBookings = useMemo(() => {
     return [...myBookings].sort(
@@ -213,18 +210,47 @@ export default function ClientDashboardPage() {
     )
   }, [myBookings])
 
-  const currentBookingId = useMemo(() => {
-    const current = getCurrentBooking(sortedBookings)
-    return current?.id || ""
-  }, [sortedBookings])
+  const activeOfficeRental = useMemo(() => {
+    const current = getCurrentBooking(officeBookings)
+    return current || null
+  }, [officeBookings])
+
+  const eventBookings = useMemo(
+    () => myBookings.filter(b => !isOfficeBooking(b)),
+    [myBookings],
+  )
+
+  const activeEventBooking = useMemo(() => {
+    const current = getCurrentBooking(eventBookings)
+    return current || null
+  }, [eventBookings])
+
+  const activeRental = useMemo(
+    () => (activeOfficeRental && activeOfficeRental.status === "active_rental" ? activeOfficeRental : null),
+    [activeOfficeRental],
+  )
+  const contractSigning = useMemo(
+    () => (activeOfficeRental && activeOfficeRental.status === "contract_signing_required" ? activeOfficeRental : null),
+    [activeOfficeRental],
+  )
+  const expiredRental = useMemo(
+    () => (activeOfficeRental && activeOfficeRental.status === "rental_expired" ? activeOfficeRental : null),
+    [activeOfficeRental],
+  )
+
+  const excludedIds = useMemo(() => {
+    const ids = new Set<string>()
+    if (activeOfficeRental) ids.add(activeOfficeRental.id)
+    if (activeEventBooking) ids.add(activeEventBooking.id)
+    return ids
+  }, [activeOfficeRental, activeEventBooking])
 
   const otherBookings = useMemo(() => {
-    return sortedBookings.filter(b => b.id !== currentBookingId).slice(0, 5)
-  }, [sortedBookings, currentBookingId])
-
-  const topOther = useMemo(() => {
-    return sortedBookings.find(b => b.id === currentBookingId) || sortedBookings[0] || null
-  }, [sortedBookings, currentBookingId])
+    return sortedBookings
+      .filter(b => !excludedIds.has(b.id))
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+      .slice(0, 5)
+  }, [sortedBookings, excludedIds])
 
   const recentPayments = useMemo(() => {
     return [...myBookings]
@@ -296,7 +322,7 @@ export default function ClientDashboardPage() {
                         )}
                       </div>
                     </div>
-                    <Button variant="outline" className="shrink-0 rounded-lg border-slate-200 px-3 text-[10px] font-bold" asChild>
+                    <Button variant="outline" className="h-9 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold" asChild>
                       <Link href="/portal/bookings">View Details</Link>
                     </Button>
                   </div>
@@ -322,7 +348,7 @@ export default function ClientDashboardPage() {
                       </h3>
                       <p className="text-sm font-bold text-slate-500">{contractSigning.venue || "Office Space"}</p>
                     </div>
-                    <Button variant="outline" className="shrink-0 rounded-lg border-slate-200 px-3 text-[10px] font-bold" asChild>
+                    <Button variant="outline" className="h-9 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold" asChild>
                       <Link href="/portal/bookings">View Details</Link>
                     </Button>
                   </div>
@@ -348,7 +374,7 @@ export default function ClientDashboardPage() {
                       </h3>
                       <p className="text-sm font-bold text-slate-500">{expiredRental.venue || "Office Space"}</p>
                     </div>
-                    <Button variant="outline" className="shrink-0 rounded-lg border-slate-200 px-3 text-[10px] font-bold" asChild>
+                    <Button variant="outline" className="h-9 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold" asChild>
                       <Link href="/portal/bookings">View Details</Link>
                     </Button>
                   </div>
@@ -357,30 +383,35 @@ export default function ClientDashboardPage() {
             </div>
           )}
 
-          {topOther && !activeRental && !contractSigning && (
+          {activeEventBooking && (
             <div>
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">Your Next Event</h2>
+              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+                Active Event Booking
+              </h2>
               <Card className="rounded-2xl border-slate-200 shadow-sm overflow-hidden bg-white">
                 <CardContent className="p-4 sm:p-5">
                   <div className="flex flex-col gap-4">
                     <div className="flex flex-col sm:flex-row justify-between gap-4">
                       <div className="flex-1 min-w-0">
                         <Badge variant="outline" className="uppercase text-[10px] font-black tracking-[0.2em] px-2.5 py-1 rounded-full mb-3 border-emerald-100 bg-emerald-50 text-emerald-600 shadow-none">
-                          {topOther.status}
+                          {activeEventBooking.status}
                         </Badge>
                         <h3 className="text-xl font-black text-slate-950 tracking-tight leading-snug mb-3 line-clamp-2">
-                          {topOther.eventName || "Event"}
+                          {activeEventBooking.eventName || "Event"}
                         </h3>
                         <div className="flex flex-wrap gap-x-6 gap-y-1.5 text-xs text-slate-600 font-semibold bg-slate-50 p-3.5 rounded-xl border border-slate-100">
-                          {topOther.date && <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-orange-500 shrink-0" /> {formatDate(topOther.date)}</div>}
-                          {topOther.time && <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-orange-500 shrink-0" /> {topOther.time}</div>}
-                          {topOther.venue && <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-orange-500 shrink-0" /> {topOther.venue}</div>}
+                          {activeEventBooking.date && <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-orange-500 shrink-0" /> {formatDate(activeEventBooking.date)}</div>}
+                          {activeEventBooking.time && <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-orange-500 shrink-0" /> {activeEventBooking.time}</div>}
+                          {activeEventBooking.venue && <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-orange-500 shrink-0" /> {activeEventBooking.venue}</div>}
                         </div>
                       </div>
+                      <Button variant="outline" className="shrink-0 rounded-lg border-slate-200 px-3 text-[10px] font-bold self-start" asChild>
+                        <Link href="/portal/bookings">View Details</Link>
+                      </Button>
                     </div>
                     <div className="border-t border-slate-100 pt-4">
                       <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">Progress</p>
-                      <BookingProgressIndicator status={topOther.status} />
+                      <BookingProgressIndicator status={activeEventBooking.status} />
                     </div>
                   </div>
                 </CardContent>
@@ -388,7 +419,7 @@ export default function ClientDashboardPage() {
             </div>
           )}
 
-          {!activeRental && !contractSigning && !expiredRental && !topOther && (
+          {!activeRental && !contractSigning && !expiredRental && !activeEventBooking && (
             <div>
               <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">Your Next Event</h2>
               <Card className="rounded-2xl border-slate-200 shadow-sm overflow-hidden bg-white">

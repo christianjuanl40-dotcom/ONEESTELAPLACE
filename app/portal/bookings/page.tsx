@@ -444,12 +444,29 @@ function HorizontalBookingCard({
     <div className="group flex w-full min-w-0 flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-4">
       {/* ---- Mobile layout (hidden on sm+) ---- */}
       <div className="sm:hidden">
-        <p className="text-base font-black text-slate-900 line-clamp-2">
-          {booking.eventName || "Untitled"}
-        </p>
-        <p className="mt-0.5 text-sm font-bold text-orange-600">
-          {typeLabel}
-        </p>
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
+            {isOfficeRental ? <FileText className="h-5 w-5" /> : <Calendar className="h-5 w-5" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="break-words whitespace-normal text-base font-black leading-snug text-slate-900">
+              {booking.eventName || "Untitled"}
+            </p>
+            <p className="mt-0.5 text-sm font-bold text-orange-600">
+              {typeLabel}
+            </p>
+          </div>
+        </div>
+        <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+          <div className="min-w-0">
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Booking ID</p>
+            <p className="mt-0.5 break-all text-xs font-black text-slate-800">{booking.id}</p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
+            <p className="mt-0.5 break-words text-xs font-bold text-slate-800">{booking.venue || "N/A"}</p>
+          </div>
+        </div>
       </div>
 
       {/* ---- Tablet: grouped info block (sm to md) ---- */}
@@ -461,8 +478,8 @@ function HorizontalBookingCard({
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
             {isOfficeRental ? "Rental" : "Event"}
           </p>
-          <p className="mt-0.5 flex items-center gap-1.5 text-sm font-black leading-snug text-slate-900">
-            <span className="line-clamp-2 min-w-0">{booking.eventName || "Untitled"}</span>
+          <p className="mt-0.5 flex items-center gap-1.5 text-sm font-black text-slate-900">
+            <span className="break-words whitespace-normal min-w-0">{booking.eventName || "Untitled"}</span>
             <span className="shrink-0 whitespace-nowrap text-xs font-black text-slate-800">• {booking.id}</span>
           </p>
           <p className="mt-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
@@ -481,7 +498,7 @@ function HorizontalBookingCard({
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
             {isOfficeRental ? "Rental" : "Event"}
           </p>
-          <p className="break-words whitespace-normal text-sm font-black leading-snug text-slate-900 line-clamp-2 min-w-0">
+          <p className="break-words whitespace-normal text-sm font-black leading-snug text-slate-900 min-w-0">
             {booking.eventName || "Untitled"}
           </p>
           <p className="break-words whitespace-normal text-[11px] font-bold text-orange-600">
@@ -502,35 +519,24 @@ function HorizontalBookingCard({
       </div>
 
       {/* ---- RIGHT: Status + Actions ---- */}
-      <div className="flex flex-row items-center justify-end gap-3 mt-1 w-full sm:mt-0 sm:w-auto sm:shrink-0 md:ml-auto">
+      <div className="flex flex-col items-stretch gap-2.5 w-full sm:mt-0 sm:w-auto sm:shrink-0 sm:ml-auto sm:flex-col sm:items-end sm:gap-2.5">
         <span
           className={cn(
-            "hidden rounded-md border px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.2em] whitespace-nowrap w-fit sm:inline-block",
+            "inline-flex w-full items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap sm:w-auto",
             getStatusBadgeClass(booking.status),
           )}
         >
           {getStatusLabel(booking.status)}
         </span>
-        <div className="ml-auto flex flex-row flex-wrap items-center justify-end gap-2 sm:ml-0 sm:shrink-0">
-          {!isUnpaid && (
-            <TooltipProvider delayDuration={400}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    onClick={() => onView(booking)}
-                    className="h-8 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-2.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 w-auto"
-                  >
-                    View Details
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="left" className="text-[10px] font-semibold">
-                  View full booking details
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-        </div>
+        {!isUnpaid && (
+          <Button
+            variant="outline"
+            onClick={() => onView(booking)}
+            className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
+          >
+            View Details
+          </Button>
+        )}
       </div>
     </div>
   )
@@ -553,7 +559,7 @@ function HistoryRow({
     <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 transition hover:border-orange-200 sm:flex-row sm:items-center sm:gap-3 md:gap-4">
       {/* ---- Mobile layout ---- */}
       <div className="sm:hidden">
-        <p className="text-sm font-black text-slate-900 line-clamp-2">
+        <p className="break-words whitespace-normal text-sm font-black text-slate-900">
           {booking.eventName || "Untitled"}
         </p>
         <p className="mt-0.5 break-all text-[10px] font-semibold text-slate-500">
@@ -567,8 +573,8 @@ function HistoryRow({
           {isOfficeRental ? <FileText className="h-4 w-4" /> : <Calendar className="h-4 w-4" />}
         </div>
         <div className="min-w-0">
-          <p className="mt-0.5 flex items-center gap-1.5 truncate text-sm font-black text-slate-900">
-            <span className="min-w-0 truncate">{booking.eventName || "Untitled"}</span>
+          <p className="mt-0.5 flex items-center gap-1.5 text-sm font-black text-slate-900">
+            <span className="break-words whitespace-normal min-w-0">{booking.eventName || "Untitled"}</span>
             <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-slate-500">• {booking.id}</span>
           </p>
           <p className="mt-1 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
@@ -597,35 +603,24 @@ function HistoryRow({
       </div>
 
       {/* ---- Status + Actions ---- */}
-      <div className="flex flex-row items-center justify-end gap-2 mt-1 w-full sm:mt-0 sm:w-auto sm:shrink-0 sm:gap-3 md:gap-4">
+      <div className="flex flex-col items-stretch gap-2.5 w-full sm:mt-0 sm:w-auto sm:shrink-0 sm:ml-auto sm:flex-col sm:items-end sm:gap-2.5">
         <span
           className={cn(
-            "hidden rounded-md border px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.2em] whitespace-nowrap w-fit sm:inline-block",
+            "inline-flex w-full items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap sm:w-auto",
             getStatusBadgeClass(booking.status),
           )}
         >
           {getStatusLabel(booking.status)}
         </span>
-        <div className="flex flex-row flex-wrap items-center justify-end gap-2 sm:shrink-0">
-          {!isUnpaid && (
-            <TooltipProvider delayDuration={400}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    onClick={() => onView(booking)}
-                    className="h-8 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-2.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 w-auto"
-                  >
-                    View Details
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="left" className="text-[10px] font-semibold">
-                  View full booking details
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-        </div>
+        {!isUnpaid && (
+          <Button
+            variant="outline"
+            onClick={() => onView(booking)}
+            className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
+          >
+            View Details
+          </Button>
+        )}
       </div>
     </div>
   )
@@ -1787,7 +1782,7 @@ const CancellationDialog = ({
             <div className="space-y-3">
               <div className="rounded-2xl border border-slate-100 bg-white p-4">
                 <div className="flex items-center justify-between gap-4">
-                  <span className="truncate text-sm font-black text-slate-900">{booking.eventName || "Untitled"}</span>
+                  <span className="break-words whitespace-normal min-w-0 text-sm font-black text-slate-900">{booking.eventName || "Untitled"}</span>
                   <span className="shrink-0 text-[11px] font-bold text-slate-400">#{booking.id}</span>
                 </div>
                 <p className="mt-1 text-[11px] font-semibold text-slate-500">

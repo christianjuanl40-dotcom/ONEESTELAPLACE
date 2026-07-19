@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useContext, useCallback, useEffect, useMemo, useState } from "react";
 import { useToast } from "@/src/modules/shared/hooks/use-toast";
 import { useAuth } from "@/src/modules/shared/auth/auth-context";
 import { db } from "@/lib/firebase"
@@ -1093,6 +1093,13 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [officeRentals, setOfficeRentals] = useState<OfficeRental[]>([]);
   const [maintenanceRecords, setMaintenanceRecords] = useState<MaintenanceRecord[]>([]);
+  function formatLocalDate(d: Date): string {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, "0")
+    const day = String(d.getDate()).padStart(2, "0")
+    return `${y}-${m}-${day}`
+  }
+
   const maintenanceDates = useMemo(() => {
     const result: string[] = []
     for (const r of maintenanceRecords) {
@@ -1102,7 +1109,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         const end = new Date(r.endDate + "T00:00:00")
         const current = new Date(start)
         while (current <= end) {
-          const dateStr = current.toISOString().split("T")[0]
+          const dateStr = formatLocalDate(current)
           result.push(`${r.spaceId}|${dateStr}`)
           current.setDate(current.getDate() + 1)
         }
@@ -1532,13 +1539,13 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     saveBookings(bookings.filter((booking) => booking.id !== id));
   };
 
-  const getUserBookings = (userId: string) => {
+  const getUserBookings = useCallback((userId: string) => {
     return bookings.filter((booking) => booking.userId === userId);
-  };
+  }, [bookings]);
 
-  const getBookingById = (id: string) => {
+  const getBookingById = useCallback((id: string) => {
     return bookings.find((booking) => booking.id === id);
-  };
+  }, [bookings]);
 
   const modifyBooking = (id: string, updates: Partial<Booking>) => {
     saveBookings(

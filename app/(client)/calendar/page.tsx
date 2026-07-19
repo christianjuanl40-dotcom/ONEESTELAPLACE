@@ -135,14 +135,13 @@ export default function CalendarPreviewPage() {
 
                <div className="bg-slate-50 p-4 sm:p-5 rounded-2xl border border-slate-100 space-y-4">
                    <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2"><Info className="w-4 h-4 text-amber-600"/> Legend</h4>
-                   <div className="space-y-2.5">
-                      <div className="flex items-center gap-3"><div className="w-4 h-4 rounded-full bg-emerald-100 border border-emerald-300"></div><span className="text-sm font-semibold text-slate-600">🟢 Available</span></div>
-                      <div className="flex items-center gap-3"><div className="w-4 h-4 rounded-full bg-rose-100 border border-rose-300"></div><span className="text-sm font-semibold text-slate-600">🔴 Booked</span></div>
-                      <div className="flex items-center gap-3"><div className="w-4 h-4 rounded-full bg-amber-100 border border-amber-300"></div><span className="text-sm font-semibold text-slate-600">🟡 Pending</span></div>
-                      <div className="flex items-center gap-3"><div className="w-4 h-4 rounded-full bg-purple-100 border border-purple-300"></div><span className="text-sm font-semibold text-slate-600">🟣 Modification Request</span></div>
-                      <div className="flex items-center gap-3"><div className="w-4 h-4 rounded-full bg-blue-100 border border-blue-300"></div><span className="text-sm font-semibold text-slate-600">🔵 Reserved</span></div>
-                      <div className="flex items-center gap-3"><div className="w-4 h-4 rounded-full bg-slate-200 border border-slate-300"></div><span className="text-sm font-semibold text-slate-600">⚫ Maintenance</span></div>
-                   </div>
+                    <div className="space-y-2.5">
+                       <div className="flex items-center gap-3"><div className="w-4 h-4 rounded-full bg-rose-100 border border-rose-300"></div><span className="text-sm font-semibold text-slate-600">🔴 Booked</span></div>
+                       <div className="flex items-center gap-3"><div className="w-4 h-4 rounded-full bg-amber-100 border border-amber-300"></div><span className="text-sm font-semibold text-slate-600">🟡 Few</span></div>
+                       <div className="flex items-center gap-3"><div className="w-4 h-4 rounded-full bg-amber-100 border border-amber-300"></div><span className="text-sm font-semibold text-slate-600">🟡 Pending</span></div>
+                       <div className="flex items-center gap-3"><div className="w-4 h-4 rounded-full bg-purple-100 border border-purple-300"></div><span className="text-sm font-semibold text-slate-600">🟣 Modification Request</span></div>
+                       <div className="flex items-center gap-3"><div className="w-4 h-4 rounded-full bg-slate-200 border border-slate-300"></div><span className="text-sm font-semibold text-slate-600">⚫ Maintenance</span></div>
+                    </div>
                 </div>
 
                {/* PHASE 3: Trigger Pencil Booking */}
@@ -174,11 +173,10 @@ export default function CalendarPreviewPage() {
                     let bgClass = "bg-slate-50 text-slate-700 hover:border-amber-400";
                     if (status === "past") bgClass = "bg-white text-slate-300 opacity-50";
                     else if (status === "booked") bgClass = "bg-rose-50 text-rose-700 border-rose-300";
-                    else if (status === "reserved") bgClass = "bg-blue-50 text-blue-700 border-blue-300";
+                    else if (status === "reserved") bgClass = "bg-amber-50 text-amber-700 border-amber-300";
                     else if (status === "pending") bgClass = "bg-amber-50 text-amber-700 border-amber-300";
                     else if (status === "modification_request") bgClass = "bg-purple-50 text-purple-700 border-purple-300";
                     else if (status === "maintenance") bgClass = "bg-slate-200 text-slate-500 border-slate-400";
-                    else if (status === "available") bgClass = "bg-emerald-50 text-emerald-700 border-emerald-300";
 
                    return (
                      <div key={day} className="aspect-square flex items-center justify-center p-1">

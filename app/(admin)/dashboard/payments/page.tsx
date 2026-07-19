@@ -703,10 +703,10 @@ function PaymentCard({
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
               Payment
             </p>
-            <p className="truncate text-sm font-black text-slate-900">
+            <p className="break-words whitespace-normal text-sm font-black leading-snug text-slate-900 line-clamp-2">
               {payment.eventName || "Untitled"}
             </p>
-            <p className="truncate text-[11px] font-bold text-orange-600">
+            <p className="break-words text-[11px] font-bold text-orange-600">
               {payment.id}
             </p>
           </div>

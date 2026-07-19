@@ -1176,10 +1176,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
             })}
           </div>
 
-          <div className="mt-2 grid grid-cols-4 gap-1 border-t border-slate-100 pt-2">
-            <div className="flex items-center justify-center gap-1.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[7px] font-black uppercase tracking-[0.08em] text-emerald-600">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" /> Avail
-            </div>
+          <div className="mt-2 grid grid-cols-3 gap-1 border-t border-slate-100 pt-2">
             <div className="flex items-center justify-center gap-1.5 rounded-full bg-amber-50 px-1.5 py-0.5 text-[7px] font-black uppercase tracking-[0.08em] text-amber-600">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-300" /> Few
             </div>
