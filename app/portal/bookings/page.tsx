@@ -59,6 +59,7 @@ import {
 } from "@/src/modules/shared/components/receipt-paper"
 import { cn } from "@/src/modules/shared/lib/utils"
 import { getCurrentBooking, isActiveBooking } from "@/src/modules/shared/lib/booking-helpers"
+import { getRemainingDurationFromDates } from "@/src/modules/shared/lib/date-utils"
 import { useCMS } from "@/src/modules/admin/contexts/cms-context"
 import { getPublicSpacesFromData } from "@/src/modules/client/lib/venue-data"
 import { Progress } from "@/src/modules/shared/components/ui/progress"
@@ -189,20 +190,7 @@ function formatMoney(value?: number | string) {
 }
 
 function getRemainingDuration(endDate?: string, startDate?: string) {
-  if (!endDate) return null
-  const end = new Date(endDate + "T23:59:59")
-  const now = new Date()
-  if (isNaN(end.getTime())) return null
-  if (now > end) return "Expired"
-
-  const totalMs = end.getTime() - now.getTime()
-  const totalDays = Math.ceil(totalMs / (1000 * 60 * 60 * 24))
-  const totalMonths = Math.floor(totalDays / 30)
-  const remainingDays = totalDays % 30
-
-  if (totalDays <= 30) return `${totalDays} Days Remaining`
-  if (remainingDays === 0) return `${totalMonths} Months Remaining`
-  return `${totalMonths} Months, ${remainingDays} Days Remaining`
+  return getRemainingDurationFromDates(endDate, startDate)
 }
 
 function getRentalProgress(startDate?: string, endDate?: string) {
@@ -450,7 +438,6 @@ function HorizontalBookingCard({
   const typeLabel = isOfficeRental
     ? "Office Space Rental"
     : booking.eventType || "Event Venue Rental"
-  const startDate = formatDate(booking.date)
 
   return (
     <div className="group flex w-full min-w-0 flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-4">
@@ -464,8 +451,28 @@ function HorizontalBookingCard({
         </p>
       </div>
 
-      {/* ---- Desktop layout (hidden on mobile) ---- */}
-      <div className="hidden shrink-0 items-center gap-3 sm:flex sm:w-[220px]">
+      {/* ---- Tablet: grouped info block (sm to md) ---- */}
+      <div className="hidden min-w-0 items-center gap-3 sm:flex md:hidden">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
+          {isOfficeRental ? <FileText className="h-5 w-5" /> : <Calendar className="h-5 w-5" />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+            {isOfficeRental ? "Rental" : "Event"}
+          </p>
+          <p className="mt-0.5 flex items-center gap-1.5 text-sm font-semibold leading-snug text-slate-900">
+            <span className="line-clamp-2 min-w-0">{booking.eventName || "Untitled"}</span>
+            <span className="shrink-0 whitespace-nowrap text-xs font-black text-slate-800">• {booking.id}</span>
+          </p>
+          <p className="mt-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
+          <p className="mt-0.5 truncate text-xs font-bold text-slate-800">{booking.venue || "N/A"}</p>
+          <p className="mt-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Type</p>
+          <p className="mt-0.5 break-words text-[11px] font-bold text-orange-600">{typeLabel}</p>
+        </div>
+      </div>
+
+      {/* ---- Desktop: Event block + 3-col info grid (md+) ---- */}
+      <div className="hidden shrink-0 items-center gap-3 md:flex md:w-[220px]">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
           {isOfficeRental ? <FileText className="h-5 w-5" /> : <Calendar className="h-5 w-5" />}
         </div>
@@ -482,8 +489,7 @@ function HorizontalBookingCard({
         </div>
       </div>
 
-      {/* ---- Info grid ---- */}
-      <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-[1fr_1.6fr_1fr] sm:gap-x-8">
+      <div className="hidden min-w-0 flex-1 grid-cols-[1fr_1fr] gap-x-8 md:grid">
         <div className="min-w-0 max-w-full">
           <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Booking ID</p>
           <p className="whitespace-normal break-words text-xs font-black text-slate-800 truncate">{booking.id}</p>
@@ -492,16 +498,10 @@ function HorizontalBookingCard({
           <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
           <p className="whitespace-normal break-words text-xs font-bold text-slate-800">{booking.venue || "N/A"}</p>
         </div>
-        <div className="min-w-0 max-w-full">
-          <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
-            {isOfficeRental ? "Start Date" : "Event Date"}
-          </p>
-          <p className="whitespace-normal break-words text-xs font-bold text-slate-800">{startDate}</p>
-        </div>
       </div>
 
-      {/* ---- Status + Actions ---- */}
-      <div className="flex flex-row items-center justify-end gap-3 mt-1 w-full sm:mt-0 sm:ml-auto sm:w-auto sm:shrink-0">
+      {/* ---- RIGHT: Status + Actions ---- */}
+      <div className="flex flex-row items-center justify-end gap-3 mt-1 w-full sm:mt-0 sm:w-auto sm:shrink-0 md:ml-auto">
         <span
           className={cn(
             "hidden rounded-md border px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.2em] whitespace-nowrap w-fit sm:inline-block",
@@ -544,10 +544,9 @@ function HistoryRow({
   const typeLabel = isOfficeRental
     ? "Office Space Rental"
     : booking.eventType || "Event Venue Rental"
-  const startDate = formatDate(booking.date)
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 transition hover:border-orange-200 sm:flex-row sm:items-center sm:gap-3">
+    <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 transition hover:border-orange-200 sm:flex-row sm:items-center sm:gap-3 md:gap-4">
       {/* ---- Mobile layout ---- */}
       <div className="sm:hidden">
         <p className="text-sm font-black text-slate-900 line-clamp-2">
@@ -558,8 +557,25 @@ function HistoryRow({
         </p>
       </div>
 
-      {/* ---- Desktop layout ---- */}
-      <div className="hidden items-center gap-3 min-w-0 flex-1 sm:flex">
+      {/* ---- Tablet: grouped info block (sm to md) ---- */}
+      <div className="hidden items-center gap-3 min-w-0 sm:flex md:hidden">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
+          {isOfficeRental ? <FileText className="h-4 w-4" /> : <Calendar className="h-4 w-4" />}
+        </div>
+        <div className="min-w-0">
+          <p className="mt-0.5 flex items-center gap-1.5 truncate text-sm font-black text-slate-900">
+            <span className="min-w-0 truncate">{booking.eventName || "Untitled"}</span>
+            <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-slate-500">• {booking.id}</span>
+          </p>
+          <p className="mt-1 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
+          <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-700">{booking.venue || "N/A"}</p>
+          <p className="mt-1 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Type</p>
+          <p className="mt-0.5 whitespace-nowrap text-[10px] font-semibold text-orange-600">{typeLabel}</p>
+        </div>
+      </div>
+
+      {/* ---- Desktop layout (md+) ---- */}
+      <div className="hidden items-center gap-3 min-w-0 md:flex md:flex-1">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
           {isOfficeRental ? <FileText className="h-4 w-4" /> : <Calendar className="h-4 w-4" />}
         </div>
@@ -569,15 +585,15 @@ function HistoryRow({
           </p>
           <p className="truncate text-[10px] font-semibold text-slate-500 sm:text-[11px]">
             {booking.id}
-            <span className="hidden sm:inline">
-              {" · "}{typeLabel}{" · "}{booking.venue || "N/A"}{" · "}{startDate}
+            <span className="hidden md:inline">
+              {" · "}{typeLabel}{" · "}{booking.venue || "N/A"}
             </span>
           </p>
         </div>
       </div>
 
       {/* ---- Status + Actions ---- */}
-      <div className="flex flex-row items-center justify-between gap-2 mt-1 sm:mt-0 sm:gap-3">
+      <div className="flex flex-row items-center justify-end gap-2 mt-1 w-full sm:mt-0 sm:w-auto sm:shrink-0 sm:gap-3 md:gap-4">
         <span
           className={cn(
             "hidden rounded-md border px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.2em] whitespace-nowrap w-fit sm:inline-block",
@@ -586,7 +602,7 @@ function HistoryRow({
         >
           {getStatusLabel(booking.status)}
         </span>
-        <div className="ml-auto flex flex-row flex-wrap items-center justify-end gap-2 sm:shrink-0">
+        <div className="flex flex-row flex-wrap items-center justify-end gap-2 sm:shrink-0">
           <TooltipProvider delayDuration={400}>
             <Tooltip>
               <TooltipTrigger asChild>

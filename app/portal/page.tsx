@@ -17,6 +17,7 @@ import Link from "next/link"
 import { UserAvatar } from "@/src/modules/shared/components/user-avatar"
 import { useBookings, type Booking } from "@/src/modules/client/contexts/booking-context"
 import { getCurrentBooking } from "@/src/modules/shared/lib/booking-helpers"
+import { getRemainingDurationFromDates } from "@/src/modules/shared/lib/date-utils"
 import { cn } from "@/src/modules/shared/lib/utils"
 
 function isOfficeBooking(booking: Booking) {
@@ -30,7 +31,13 @@ function getBookingProgress(status?: string) {
   const s = String(status || "").toLowerCase()
   if (s === "cancelled" || s === "declined") return "cancelled"
   if (s === "completed" || s === "complete") return "completed"
-  if (s === "confirmed" || s === "reservation_secured" || s === "slot_secured") return "confirmed"
+  if (
+    s === "confirmed" ||
+    s === "reservation_secured" ||
+    s === "slot_secured" ||
+    s === "active_rental" ||
+    s === "contract_signing_required"
+  ) return "confirmed"
   if (s === "verifying" || s === "for_review") return "verifying"
   return "pending"
 }
@@ -139,19 +146,8 @@ function BookingProgressIndicator({ status }: { status?: string }) {
   )
 }
 
-function getRemainingDuration(endDate?: string) {
-  if (!endDate) return null
-  const end = new Date(endDate + "T23:59:59")
-  const now = new Date()
-  if (isNaN(end.getTime())) return null
-  if (now > end) return "Expired"
-  const totalMs = end.getTime() - now.getTime()
-  const totalDays = Math.ceil(totalMs / (1000 * 60 * 60 * 24))
-  const totalMonths = Math.floor(totalDays / 30)
-  const remainingDays = totalDays % 30
-  if (totalDays <= 30) return `${totalDays} Days Remaining`
-  if (remainingDays === 0) return `${totalMonths} Months Remaining`
-  return `${totalMonths} Months, ${remainingDays} Days Remaining`
+function getRemainingDuration(endDate?: string, startDate?: string) {
+  return getRemainingDurationFromDates(endDate, startDate)
 }
 
 function formatDate(date?: string) {
@@ -168,7 +164,7 @@ function formatDate(date?: string) {
 function getOfficeStatusDisplay(booking: Booking) {
   const status = booking.status
   if (status === "active_rental") {
-    const remaining = getRemainingDuration((booking as any).endDate)
+    const remaining = getRemainingDuration((booking as any).endDate, booking.date)
     return {
       badge: "ACTIVE RENTAL",
       badgeClass: "border-emerald-100 bg-emerald-50 text-emerald-700",
@@ -230,10 +226,15 @@ export default function ClientDashboardPage() {
     return sortedBookings.find(b => b.id === currentBookingId) || sortedBookings[0] || null
   }, [sortedBookings, currentBookingId])
 
-  const recentPayments = useMemo(() => myBookings.filter(b => {
-    const ps = String(b.paymentStatus || "").toLowerCase()
-    return ["verified", "paid", "slot_verified", "partial"].includes(ps)
-  }).slice(0, 3), [myBookings])
+  const recentPayments = useMemo(() => {
+    return [...myBookings]
+      .filter(b => {
+        const ps = String(b.paymentStatus || "").toLowerCase()
+        return ["verified", "paid", "slot_verified", "partial"].includes(ps)
+      })
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+      .slice(0, 3)
+  }, [myBookings])
 
   return (
     <TooltipProvider delayDuration={400}>
@@ -287,7 +288,7 @@ export default function ClientDashboardPage() {
                       <p className="text-sm font-bold text-slate-500 mb-3">{activeRental.venue || "Office Space"}</p>
                       <div className="flex flex-wrap gap-3 text-xs font-semibold text-slate-600 bg-slate-50 p-3.5 rounded-xl border border-slate-100">
                         {(() => {
-                          const remaining = getRemainingDuration((activeRental as any).endDate)
+                          const remaining = getRemainingDuration((activeRental as any).endDate, activeRental.date)
                           return remaining ? <span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-emerald-500" /> {remaining}</span> : null
                         })()}
                         {(activeRental as any).endDate && (

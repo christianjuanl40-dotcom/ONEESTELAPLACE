@@ -48,6 +48,7 @@ import {
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { cn } from "@/src/modules/shared/lib/utils"
+import { getRemainingDurationFromDates, getContractDurationLabel } from "@/src/modules/shared/lib/date-utils"
 import { useBookings, type Booking } from "@/src/modules/client/contexts/booking-context"
 import { createNotification } from "@/src/modules/shared/lib/notifications"
 import { getPaymentMethodLabel } from "@/src/modules/shared/lib/labels"
@@ -1238,15 +1239,8 @@ function BookingDetailsModal({
             const daysUsed = endMs > startMs && startMs > 0 ? Math.max(0, Math.min(totalDays, Math.ceil((now - startMs) / 86400000))) : 0
             const progressPct = totalDays > 0 ? Math.min(100, Math.round((daysUsed / totalDays) * 100)) : 0
             const remainingDuration = () => {
-              const remainingMs = endMs - now
-              if (remainingMs <= 0) return "Expired"
-              const days = Math.ceil(remainingMs / 86400000)
-              if (days >= 30) {
-                const months = Math.floor(days / 30)
-                const remainingDays = days % 30
-                return remainingDays > 0 ? `${months}mo ${remainingDays}d` : `${months}mo`
-              }
-              return `${days}d`
+              if (!booking.date || !(booking as any).endDate) return "—"
+              return getRemainingDurationFromDates((booking as any).endDate, booking.date) || "—"
             }
             return (
               <section className="py-5 first:pt-0">
@@ -1262,6 +1256,10 @@ function BookingDetailsModal({
                   <div className="flex justify-between">
                     <span className="text-slate-400">End Date</span>
                     <span className="font-bold text-slate-900">{endDate}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Contract Duration</span>
+                    <span className="font-bold text-slate-900">{getContractDurationLabel(booking.date, (booking as any).endDate) || "—"}</span>
                   </div>
                   {bookingStatus === "active_rental" && (
                     <>

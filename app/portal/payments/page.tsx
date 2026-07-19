@@ -420,7 +420,6 @@ function CurrentTransactionCard({
   onSettle: (b: Booking) => void;
   onView: (b: Booking) => void;
 }) {
-  const isOfficeRental = isOfficeRentalBooking(booking);
   const total = (booking as any).totalPrice || 0;
   const amountPaid = (booking as any).amountPaid ?? 0;
   const remaining = (booking as any).remainingBalance ?? Math.max(total - amountPaid, 0);
@@ -463,8 +462,32 @@ function CurrentTransactionCard({
         </p>
       </div>
 
-      {/* ---- Desktop layout (hidden on mobile) ---- */}
-      <div className="hidden shrink-0 items-center gap-3 sm:flex sm:w-[260px]">
+      {/* ---- Tablet: grouped info block (sm to md) ---- */}
+      <div className="hidden min-w-0 items-center gap-3 sm:flex md:hidden">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
+          <Receipt className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+            Current Transaction
+          </p>
+          <p className="mt-0.5 flex items-center gap-1.5 text-sm font-black text-slate-900">
+            <span className="line-clamp-2 min-w-0">{booking.eventName || "Untitled"}</span>
+            <span className="shrink-0 whitespace-nowrap text-xs font-semibold text-slate-500">• {booking.id}</span>
+          </p>
+          <p className="mt-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Method</p>
+          <p className="mt-0.5 truncate text-xs font-bold text-slate-800">
+            {getPaymentMethodLabel(booking.paymentMethod)}
+          </p>
+          <p className="mt-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Amount</p>
+          <p className="mt-0.5 truncate text-[11px] font-bold text-orange-600">
+            {formatMoney(getTransactionDisplayAmount(booking))}
+          </p>
+        </div>
+      </div>
+
+      {/* ---- Desktop: Event block + 2-col info grid (md+) ---- */}
+      <div className="hidden shrink-0 items-center gap-3 md:flex md:w-[260px]">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
           <Receipt className="h-5 w-5" />
         </div>
@@ -481,8 +504,7 @@ function CurrentTransactionCard({
         </div>
       </div>
 
-      {/* ---- Info grid ---- */}
-      <div className="grid min-w-0 flex-1 grid-cols-1 gap-y-2 gap-x-3 sm:grid-cols-3">
+      <div className="hidden min-w-0 flex-1 grid-cols-[1fr_1fr] gap-x-8 md:grid">
         <div className="min-w-0">
           <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Booking ID</p>
           <p className="mt-0.5 break-all text-xs font-black text-slate-800 truncate">{booking.id}</p>
@@ -493,22 +515,16 @@ function CurrentTransactionCard({
             {getPaymentMethodLabel(booking.paymentMethod)}
           </p>
         </div>
-        <div className="min-w-0">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Type</p>
-          <p className="mt-0.5 break-words text-xs font-bold text-slate-800">
-            {isOfficeRental ? "Slot Reservation" : (booking as any).paymentType === "downpayment" ? "Down Payment" : "Full Payment"}
-          </p>
-        </div>
       </div>
 
       {/* ---- Timer + actions ---- */}
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2 sm:ml-auto md:ml-0">
         {booking.status === "pending" && !isCashPending && !isExpired && (
           <p className="rounded-md bg-orange-50 px-2 py-1 text-[10px] font-black text-orange-700 self-end sm:self-auto sm:text-right">
             Time left: {formatCountdown(remainingMs)}
           </p>
         )}
-        <div className="flex flex-row items-center justify-between gap-2 sm:gap-3">
+        <div className="flex flex-row items-center justify-end gap-2 sm:gap-3">
           <span
             className={cn(
               "hidden rounded-md border px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.2em] whitespace-nowrap w-fit sm:inline-block",
@@ -517,8 +533,8 @@ function CurrentTransactionCard({
           >
             {getStatusLabel(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance)}
           </span>
-          <div className="ml-auto flex flex-row flex-wrap items-center justify-end gap-2 sm:shrink-0">
-            {hasPaymentRecord(booking) && !showSettleAction && (
+          <div className="ml-2 flex flex-row flex-wrap items-center justify-end gap-2 sm:ml-3 sm:shrink-0">
+            {hasPaymentRecord(booking) && !showSettleAction && paymentStatus !== "unpaid" && (
               <Button
                 variant="outline"
                 onClick={() => onView(booking)}
@@ -552,6 +568,7 @@ function HistoryRow({
     String(booking.status).toLowerCase() === "cancelled" ||
     String(booking.status).toLowerCase() === "declined";
   const displayTotal = isCancelled ? 0 : total;
+  const isUnpaid = String(booking.paymentStatus || "").toLowerCase() === "unpaid";
   const amountPaid =
     typeof (booking as any).amountPaid === "number" && (booking as any).amountPaid > 0
       ? (booking as any).amountPaid
@@ -566,26 +583,57 @@ function HistoryRow({
       <button
         type="button"
         onClick={onToggle}
-        className="grid w-full min-w-0 grid-cols-[1fr_auto] items-center gap-3 p-3 text-left transition hover:bg-slate-50 sm:grid-cols-[2fr_1fr_1fr_auto]"
+        className="grid w-full min-w-0 grid-cols-[1fr_auto] items-center gap-3 p-3 text-left transition hover:bg-slate-50 md:grid-cols-[2.5fr_1.2fr_1fr_auto] md:gap-4"
       >
         <div className="min-w-0">
-          <p className="truncate text-sm font-black text-slate-900">
+          {/* Tablet: Event Name • BK (sm to md) */}
+          <p className="mt-0.5 hidden items-center gap-1.5 truncate text-sm font-black text-slate-900 sm:flex md:hidden">
+            <span className="min-w-0 truncate">{booking.eventName || "Untitled"}</span>
+            <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-slate-500">• {booking.id}</span>
+          </p>
+          {/* Desktop: Event Name only */}
+          <p className="hidden truncate text-sm font-black text-slate-900 md:block">
             {booking.eventName || "Untitled"}
           </p>
-          <p className="mt-0.5 truncate text-[11px] font-bold text-slate-500">
-            {booking.id}
-            <span className="hidden sm:inline"> · {booking.venue || "N/A"}</span>
+          {/* Tablet grouped + labeled (sm to md) */}
+          <div className="mt-0.5 hidden flex-col gap-1 sm:flex md:hidden">
+            <div className="min-w-0">
+              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
+              <p className="truncate text-[11px] font-semibold text-slate-700">{booking.venue || "N/A"}</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="min-w-0">
+                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Method</p>
+                <p className="whitespace-nowrap text-[11px] font-bold text-slate-700">
+                  {getPaymentMethodLabel(booking.paymentMethod)}
+                </p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Amount</p>
+                <p className="whitespace-nowrap text-[11px] font-black text-slate-900">
+                  {formatMoney(displayTotal)}
+                </p>
+              </div>
+            </div>
+          </div>
+          {/* Desktop inline: ID · venue (md+) */}
+          <p className="mt-0.5 hidden truncate text-[11px] font-bold text-slate-500 md:inline-block">
+            <span className="inline-block whitespace-nowrap align-bottom">{booking.id}</span>
+            <span className="hidden md:inline">
+              {" · "}
+              <span className="inline-block max-w-[200px] align-bottom truncate">{booking.venue || "N/A"}</span>
+            </span>
           </p>
         </div>
-        <div className="hidden text-left sm:block">
+        <div className="hidden text-left md:block min-w-0">
           <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Method</p>
-          <p className="text-[11px] font-bold text-slate-700">
+          <p className="whitespace-nowrap text-[11px] font-bold text-slate-700">
             {getPaymentMethodLabel(booking.paymentMethod)}
           </p>
         </div>
-        <div className="hidden text-left sm:block">
+        <div className="hidden text-left md:block min-w-0">
           <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Amount</p>
-          <p className="text-[11px] font-black text-slate-900">
+          <p className="whitespace-nowrap text-[11px] font-black text-slate-900">
             {formatMoney(displayTotal)}
           </p>
         </div>
@@ -619,16 +667,18 @@ function HistoryRow({
           } />
           <DetailItem label="Type" value={isOfficeRental ? "Slot Reservation" : (booking as any).paymentType === "downpayment" ? "Down Payment" : "Full Payment"} />
           <DetailItem label="Amount Paid" value={formatMoney(amountPaid)} />
-          <div className="sm:col-span-3 flex justify-end mt-1">
-              <Button
-                variant="outline"
-                onClick={() => onView(booking)}
-                className="h-9 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-[11px] font-bold text-slate-700 hover:bg-white w-auto"
-              >
-                <Receipt className="mr-1.5 h-3.5 w-3.5" />
-                Open Full Details
-              </Button>
-          </div>
+          {!isUnpaid && (
+            <div className="sm:col-span-3 flex justify-end mt-1">
+                <Button
+                  variant="outline"
+                  onClick={() => onView(booking)}
+                  className="h-9 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-[11px] font-bold text-slate-700 hover:bg-white w-auto"
+                >
+                  <Receipt className="mr-1.5 h-3.5 w-3.5" />
+                  Open Full Details
+                </Button>
+            </div>
+          )}
         </div>
       )}
     </div>
