@@ -416,13 +416,18 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
   const occupiedRoomNums = useMemo(() => {
     if (!selectedItem) return new Set<number>()
     const occupyingStatuses = ["reservation_secured", "contract_signing_required", "active_rental", "confirmed"]
+    const today = new Date()
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
     const occupied = new Set<number>()
     for (const b of bookings) {
       const s = String(b.status || "").toLowerCase()
       if (!occupyingStatuses.includes(s)) continue
       const venue = String(b.venue || "")
       const roomMatch = venue.match(/Room\s+(\d+)/i)
-      if (roomMatch && b.venueId === selectedItem.id) {
+      if (!roomMatch || b.venueId !== selectedItem.id) continue
+      const startStr = b.date
+      const endStr = b.endDate || b.date
+      if (todayStr >= startStr && todayStr <= endStr) {
         occupied.add(Number(roomMatch[1]))
       }
     }

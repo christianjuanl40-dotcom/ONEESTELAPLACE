@@ -2429,15 +2429,20 @@ function MaintenanceCalendarModal({
     return dates
   }, [maintenanceRecords, selectedSpaceId])
 
+  function isDateInRange(targetDate: string, booking: Booking): boolean {
+    const start = new Date(booking.date + "T00:00:00")
+    const end = booking.endDate ? new Date(booking.endDate + "T00:00:00") : start
+    const check = new Date(targetDate + "T00:00:00")
+    return check >= start && check <= end
+  }
+
   function matchesOfficeBooking(booking: Booking): boolean {
     const match = selectedSpaceId.match(/^o(\d+)$/)
     if (!match) return false
     const roomNum = parseInt(match[1])
     const group = roomNum >= 1 && roomNum <= 8 ? "A" : "B"
-    const buildingId = `office-${group === "A" ? "a" : "b"}`
     const buildingName = `Office ${group}`
     const localNum = group === "A" ? roomNum : roomNum - 8
-    if (booking.venueId === buildingId) return true
     if (booking.venue?.includes(buildingName) && booking.venue?.includes(`Room ${localNum}`)) return true
     return false
   }
@@ -2451,17 +2456,17 @@ function MaintenanceCalendarModal({
     const spaceName = currentSpaces.find(s => s.id === selectedSpaceId)?.name || ""
     const officeMatch = (b: Booking) => b.venueId === selectedSpaceId || b.venue === spaceName || (selectedSpaceId?.startsWith("o") && matchesOfficeBooking(b))
     const dayBookings = (allBookings || []).filter(b =>
-      b.date === dateStr &&
+      isDateInRange(dateStr, b) &&
       officeMatch(b) &&
       ["approved", "confirmed", "completed", "contract_signing_required", "reservation_secured", "active_rental"].includes(b.status?.toLowerCase() || "")
     )
     const pendingBookings = (allBookings || []).filter(b =>
-      b.date === dateStr &&
+      isDateInRange(dateStr, b) &&
       officeMatch(b) &&
       ["pending", "verifying"].includes(b.status?.toLowerCase() || "")
     )
     const modRequestBookings = (allBookings || []).filter(b =>
-      b.date === dateStr &&
+      isDateInRange(dateStr, b) &&
       officeMatch(b) &&
       ["modification_under_review", "cancellation_requested"].includes(b.status?.toLowerCase() || "")
     )
@@ -2496,7 +2501,7 @@ function MaintenanceCalendarModal({
     const officeMatch = (b: Booking) => b.venueId === selectedSpaceId || b.venue === spaceName || (selectedSpaceId?.startsWith("o") && matchesOfficeBooking(b))
     const bookedDates = datesToAdd.filter(d => {
       const dayBookings = (allBookings || []).filter(b =>
-        b.date === d &&
+        isDateInRange(d, b) &&
         officeMatch(b) &&
         ["approved", "confirmed", "completed", "contract_signing_required", "reservation_secured", "active_rental"].includes(b.status?.toLowerCase() || "")
       )
