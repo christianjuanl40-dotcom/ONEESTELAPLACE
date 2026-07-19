@@ -211,6 +211,10 @@ function StatusCard({ booking, cmsData }: { booking: StatusBooking; cmsData?: an
   const isCompleted =
     String(booking.status).toLowerCase() === "completed" ||
     String(booking.status).toLowerCase() === "complete"
+  const isConfirmed =
+    String(booking.status).toLowerCase() === "confirmed" ||
+    String(booking.status).toLowerCase() === "reservation_secured" ||
+    String(booking.status).toLowerCase() === "slot_secured"
 
   const cancellationStatus = String(
     booking.cancellationStatus || "",
@@ -267,46 +271,46 @@ function StatusCard({ booking, cmsData }: { booking: StatusBooking; cmsData?: an
           </p>
           <div className="mt-3">
             <StatusTimelineRow
-              label="Booking placed"
+              label="Pending"
               status="done"
               date={formatDate(booking.createdAt)}
               active
             />
             <StatusTimelineRow
-              label="Payment verification"
+              label="For Verification"
               status={
                 isCancelled
                   ? "rejected"
-                  : booking.paymentStatus === "verified" ||
-                      booking.paymentStatus === "paid" ||
-                      booking.paymentStatus === "slot_verified"
+                  : isCompleted || isConfirmed
                     ? "done"
-                    : isCompleted
+                    : String(booking.status).toLowerCase() === "verifying"
                       ? "done"
-                      : "current"
+                      : "pending"
               }
-              active
+              active={
+                isCancelled
+                  ? true
+                  : isCompleted || isConfirmed || String(booking.status).toLowerCase() === "verifying"
+              }
             />
             <StatusTimelineRow
-              label={isOfficeRental ? "Slot secured" : "Confirmed by admin"}
+              label={isOfficeRental ? "Slot Secured" : "Confirmed / Secured"}
               status={
                 isCancelled
                   ? "rejected"
                   : isCompleted
                     ? "done"
-                    : ["confirmed", "reservation_secured", "slot_secured"].includes(
-                          String(booking.status).toLowerCase(),
-                        )
-                      ? "current"
+                    : isConfirmed
+                      ? "done"
                       : "pending"
               }
-              active
+              active={isCancelled ? true : isCompleted || isConfirmed}
             />
             <StatusTimelineRow
-              label={isCompleted ? "Completed" : "Event completed"}
-              status={isCompleted ? "current" : "pending"}
+              label="Completed"
+              status={isCancelled ? "pending" : isCompleted || isConfirmed ? "current" : "pending"}
               isLast
-              active
+              active={isCompleted || isConfirmed}
             />
           </div>
         </div>

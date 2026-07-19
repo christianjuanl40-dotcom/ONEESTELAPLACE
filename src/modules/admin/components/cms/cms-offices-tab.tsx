@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ChevronDown, Eye, EyeOff, Pencil, Plus, Save, Trash2, X } from "lucide-react"
+import { ChevronDown, Pencil, Plus, Save, Trash2, X } from "lucide-react"
 import { Button } from "@shared/components/ui/button"
 import { Input } from "@shared/components/ui/input"
 import { Textarea } from "@shared/components/ui/textarea"
@@ -24,7 +24,6 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
   const [form, setForm] = useState<OfficeForm>(EMPTY_FORM)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [floorFilter, setFloorFilter] = useState<"all" | "ground" | "second">("all")
-
   const resetForm = () => { setForm(EMPTY_FORM); setEditingId(null); setShowModal(false) }
   const openNew = () => { resetForm(); setShowModal(true) }
   const openEdit = (o: any) => { setEditingId(o.id); setForm({ name: o.name || "", capacity: o.capacity || "", price: o.price ?? "", description: o.description || "", image: o.image || "", panoImage: o.panoImage || "", floor: o.floor || "ground" }); setShowModal(true) }
@@ -96,7 +95,6 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
                     <td className="px-4 py-2.5 text-right">
                       <div className="flex items-center justify-end gap-0.5">
                         <button type="button" onClick={() => openEdit(o)} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"><Pencil className="h-3.5 w-3.5" /></button>
-                        <button type="button" onClick={() => updateOffice(o.id, { isHidden: !o.isHidden, updatedAt: new Date().toISOString() })} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700">{o.isHidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}</button>
                         <button type="button" onClick={() => setConfirmDelete(o.id)} className="flex h-7 w-7 items-center justify-center rounded-md text-rose-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 className="h-3.5 w-3.5" /></button>
                       </div>
                     </td>

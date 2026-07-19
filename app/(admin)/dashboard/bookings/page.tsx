@@ -574,7 +574,7 @@ export default function AdminBookingsPage() {
                 className="h-10 shrink-0 whitespace-nowrap rounded-xl border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-orange-600 gap-1.5 self-start sm:self-auto"
               >
                 <Wrench className="h-3.5 w-3.5" />
-                Calendar
+                Maintenance Calendar
               </Button>
             </div>
 
@@ -2357,11 +2357,9 @@ function MaintenanceCalendarModal({
   const [officeGroup, setOfficeGroup] = useState<"A" | "B" | "">("")
   const [selectedSpaceId, setSelectedSpaceId] = useState("")
   const [selectedDates, setSelectedDates] = useState<string[]>([])
-  const [startDate, setStartDate] = useState("")
-  const [endDate, setEndDate] = useState("")
-  const [useRange, setUseRange] = useState(false)
   const [reason, setReason] = useState("")
   const [isSaving, setIsSaving] = useState(false)
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false)
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), 1)
@@ -2373,20 +2371,9 @@ function MaintenanceCalendarModal({
       setSelectedSpaceId(maintType === "venue" ? firstVenue : "")
       setOfficeGroup("")
       setSelectedDates([])
-      setStartDate("")
-      setEndDate("")
       setReason("")
-      setUseRange(false)
     }
   }, [open, maintType, venues])
-
-  useEffect(() => {
-    if (useRange && startDate && endDate) {
-      setSelectedDates(getDatesInRange(startDate, endDate))
-    } else if (useRange) {
-      setSelectedDates([])
-    }
-  }, [useRange, startDate, endDate])
 
   const currentSpaces = maintType === "venue" ? venues : (officeGroup ? offices.filter(o => {
     const num = parseInt(o.id.slice(1))
@@ -2474,19 +2461,13 @@ function MaintenanceCalendarModal({
   }
 
   const handleSave = () => {
-    const datesToAdd = useRange && startDate && endDate
-      ? getDatesInRange(startDate, endDate)
-      : [...selectedDates]
+    const datesToAdd = [...selectedDates]
     if (datesToAdd.length === 0) {
       toast({ title: "Date Required", description: "Please select at least one date.", variant: "destructive" })
       return
     }
     if (!selectedSpaceId) {
       toast({ title: "Space Required", description: "Please select a space.", variant: "destructive" })
-      return
-    }
-    if (useRange && startDate && endDate && endDate < startDate) {
-      toast({ title: "Invalid Range", description: "End date must be after start date.", variant: "destructive" })
       return
     }
 
@@ -2534,19 +2515,29 @@ function MaintenanceCalendarModal({
 
     setIsSaving(false)
     setSelectedDates([])
-    setStartDate("")
-    setEndDate("")
     setReason("")
-    setUseRange(false)
     toast({
       title: "Maintenance Saved",
       description: `Successfully blocked ${added} date${added === 1 ? "" : "s"} for ${space?.name || selectedSpaceId}.`,
     })
   }
 
+  const handleDeleteAll = () => {
+    for (const rec of spaceFilteredRecords) {
+      removeMaintenanceRecord(rec.id)
+    }
+    setConfirmDeleteAll(false)
+    const spaceName = currentSpaces.find(s => s.id === selectedSpaceId)?.name || selectedSpaceId
+    toast({
+      title: "Maintenance Cleared",
+      description: `All maintenance records for ${spaceName} have been removed.`,
+    })
+  }
+
   const todayStr = new Date().toISOString().split("T")[0]
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent aria-describedby={undefined}
         className="flex flex-col border-0 bg-white p-0 shadow-2xl gap-0 rounded-3xl w-[95vw] sm:max-w-[520px] max-h-[90dvh]"
@@ -2650,41 +2641,11 @@ function MaintenanceCalendarModal({
             <div>
               <div className="flex items-center justify-between">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
-                  {useRange ? "Date Range" : "Select Date"}
+                  Select Dates
                 </label>
-                <button
-                  type="button"
-                  onClick={() => setUseRange(!useRange)}
-                  className={`text-[9px] font-bold uppercase tracking-[0.2em] px-2 py-0.5 rounded-lg transition-all ${
-                    useRange
-                      ? "bg-slate-900 text-white"
-                      : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                  }`}
-                >
-                  {useRange ? "Single Date" : "Date Range"}
-                </button>
               </div>
 
-              {useRange ? (
-                <div className="mt-1.5 space-y-2">
-                  <Input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    min={todayStr}
-                    className="h-10 rounded-xl border-slate-200 text-xs font-bold"
-                    placeholder="Start date"
-                  />
-                  <Input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    min={startDate || todayStr}
-                    className="h-10 rounded-xl border-slate-200 text-xs font-bold"
-                    placeholder="End date"
-                  />
-                </div>
-              ) : !selectedSpaceId ? (
+              {!selectedSpaceId ? (
                 <div className="mt-2 flex min-h-[160px] items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50">
                   <p className="text-[11px] font-bold text-slate-400 text-center px-4">
                     Select a space first before choosing a maintenance date.
@@ -2766,10 +2727,14 @@ function MaintenanceCalendarModal({
                           key={day}
                           type="button"
                           title={statusTitles[status] || "Available"}
-                          disabled={isDisabled || useRange}
+                          disabled={isDisabled}
                           onClick={() => {
-                            if (isDisabled || useRange) return
-                            setSelectedDates([dateStr])
+                            if (isDisabled) return
+                            setSelectedDates(prev =>
+                              prev.includes(dateStr)
+                                ? prev.filter(d => d !== dateStr)
+                                : [...prev, dateStr]
+                            )
                           }}
                           className={`flex h-7 w-7 2xl:h-8 2xl:w-8 items-center justify-center rounded-full border text-[10px] xl:text-[11px] font-black outline-none transition-all focus-visible:ring-2 focus-visible:ring-orange-300 ${dayClass}`}
                         >
@@ -2797,9 +2762,18 @@ function MaintenanceCalendarModal({
                   {/* Selected dates summary */}
                   {selectedDates.length > 0 && (
                     <div className="mt-2 rounded-lg bg-orange-50 border border-orange-100 px-3 py-2">
-                      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-orange-700">
-                        Selected ({selectedDates.length} {selectedDates.length === 1 ? "Date" : "Dates"})
-                      </p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-orange-700">
+                          Selected ({selectedDates.length} {selectedDates.length === 1 ? "Date" : "Dates"})
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDates([])}
+                          className="rounded-md px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.2em] text-rose-600 hover:bg-rose-100 transition-colors"
+                        >
+                          Clear All
+                        </button>
+                      </div>
                       <ul className="mt-1 space-y-0.5">
                         {[...selectedDates]
                           .sort()
@@ -2832,7 +2806,7 @@ function MaintenanceCalendarModal({
             {/* Save button */}
             <Button
               onClick={handleSave}
-              disabled={isSaving || (useRange ? !startDate || !endDate : selectedDates.length === 0) || !selectedSpaceId}
+              disabled={isSaving || selectedDates.length === 0 || !selectedSpaceId}
               className="h-11 w-full rounded-xl bg-slate-900 text-sm font-black text-white hover:bg-slate-800 disabled:opacity-40"
             >
               {isSaving ? "Saving..." : "Block Date"}
@@ -2841,9 +2815,19 @@ function MaintenanceCalendarModal({
             {/* Existing records */}
             {spaceFilteredRecords.length > 0 && (
               <div>
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
-                  Existing Maintenance
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                    Existing Maintenance
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteAll(true)}
+                    className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.2em] text-rose-500 hover:bg-rose-50 hover:text-rose-700 transition-colors"
+                  >
+                    <Trash2 className="h-2.5 w-2.5" />
+                    Delete All
+                  </button>
+                </div>
                 <div className="mt-1.5 space-y-1.5 max-h-[220px] overflow-y-auto">
                   {spaceFilteredRecords.map((rec) => {
                     const space = (maintType === "venue" ? venues : offices).find(
@@ -2884,6 +2868,35 @@ function MaintenanceCalendarModal({
         </div>
       </DialogContent>
     </Dialog>
+
+      <Dialog open={confirmDeleteAll} onOpenChange={(v) => !v && setConfirmDeleteAll(false)}>
+        <DialogContent showCloseButton={false} plain className="max-w-sm rounded-xl border border-slate-200 bg-white p-5 shadow-xl">
+          <h3 className="text-base font-black text-slate-900">Delete all maintenance records?</h3>
+          <p className="mt-1 text-sm font-semibold text-slate-500">
+            This will remove all maintenance records for{" "}
+            {currentSpaces.find(s => s.id === selectedSpaceId)?.name || selectedSpaceId}.
+          </p>
+          <div className="mt-4 flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmDeleteAll(false)}
+              className="h-9 flex-1 rounded-lg border-slate-200 text-xs font-bold"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleDeleteAll}
+              className="h-9 flex-1 rounded-lg bg-rose-600 text-xs font-bold text-white hover:bg-rose-700"
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              Delete All
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 
   function formatLocalDate(d: Date): string {

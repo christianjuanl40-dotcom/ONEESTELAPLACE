@@ -60,11 +60,7 @@ function BookingProgressIndicator({ status }: { status?: string }) {
     )
   }
   const currentIdx = STAGES.findIndex(s => s.key === progress)
-  const getLineColor = (i: number) => {
-    if (i < currentIdx) return "bg-emerald-300"
-    if (i === currentIdx) return "bg-orange-300"
-    return "bg-slate-200"
-  }
+  const showCompletedOrange = currentIdx >= 2
   return (
     <>
       {/* Vertical timeline — mobile only */}
@@ -72,13 +68,14 @@ function BookingProgressIndicator({ status }: { status?: string }) {
         {STAGES.map((stage, idx) => {
           const isDone = idx < currentIdx
           const isCurrent = idx === currentIdx
+          const isCompletedStage = stage.key === "completed"
           return (
             <div key={stage.key} className="flex items-stretch gap-3">
               <div className="flex flex-col items-center">
                 <div className={cn(
                   "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-black",
-                  isDone ? "bg-emerald-500 text-white" :
-                  isCurrent ? "bg-orange-500 text-white" :
+                  isDone || (isCurrent && !isCompletedStage) ? "bg-emerald-500 text-white" :
+                  isCompletedStage && showCompletedOrange ? "bg-orange-500 text-white" :
                   "bg-slate-200 text-slate-400"
                 )}>
                   {isDone ? <CheckCircle2 className="w-3.5 h-3.5" /> : idx + 1}
@@ -86,14 +83,14 @@ function BookingProgressIndicator({ status }: { status?: string }) {
                 {idx < STAGES.length - 1 && (
                   <div className={cn(
                     "w-px flex-1 min-h-[1.5rem]",
-                    isDone ? "bg-emerald-300" : isCurrent ? "bg-orange-300" : "bg-slate-200"
+                    isDone ? "bg-emerald-300" : "bg-slate-200"
                   )} />
                 )}
               </div>
               <span className={cn(
                 "text-[11px] font-bold leading-tight pt-0.5 pb-3",
-                isDone ? "text-emerald-600" :
-                isCurrent ? "text-orange-600" :
+                isCompletedStage && showCompletedOrange ? "text-orange-600" :
+                isDone || isCurrent ? "text-emerald-600" :
                 "text-slate-400"
               )}>
                 {stage.label}
@@ -108,18 +105,19 @@ function BookingProgressIndicator({ status }: { status?: string }) {
         {STAGES.map((stage, idx) => {
           const isDone = idx < currentIdx
           const isCurrent = idx === currentIdx
+          const isCompletedStage = stage.key === "completed"
           return (
             <div key={stage.key} className="flex-1 flex flex-col items-center gap-1">
               <div className="flex items-center w-full">
                 <div className={cn(
                   "flex-1 h-px",
                   idx === 0 && "invisible",
-                  getLineColor(idx - 1)
+                  idx - 1 < currentIdx ? "bg-emerald-300" : "bg-slate-200"
                 )} />
                 <div className={cn(
                   "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-black",
-                  isDone ? "bg-emerald-500 text-white" :
-                  isCurrent ? "bg-orange-500 text-white" :
+                  isDone || (isCurrent && !isCompletedStage) ? "bg-emerald-500 text-white" :
+                  isCompletedStage && showCompletedOrange ? "bg-orange-500 text-white" :
                   "bg-slate-200 text-slate-400"
                 )}>
                   {isDone ? <CheckCircle2 className="w-3.5 h-3.5" /> : idx + 1}
@@ -127,13 +125,13 @@ function BookingProgressIndicator({ status }: { status?: string }) {
                 <div className={cn(
                   "flex-1 h-px",
                   idx === STAGES.length - 1 && "invisible",
-                  getLineColor(idx)
+                  idx < currentIdx ? "bg-emerald-300" : "bg-slate-200"
                 )} />
               </div>
               <span className={cn(
                 "text-[9px] font-bold leading-tight text-center px-0.5 break-words max-w-full min-w-0",
-                isDone ? "text-emerald-600" :
-                isCurrent ? "text-orange-600" :
+                isCompletedStage && showCompletedOrange ? "text-orange-600" :
+                isDone || isCurrent ? "text-emerald-600" :
                 "text-slate-400"
               )}>
                 {stage.label}
@@ -405,7 +403,7 @@ export default function ClientDashboardPage() {
                           {activeEventBooking.venue && <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-orange-500 shrink-0" /> {activeEventBooking.venue}</div>}
                         </div>
                       </div>
-                      <Button variant="outline" className="shrink-0 rounded-lg border-slate-200 px-3 text-[10px] font-bold self-start" asChild>
+                      <Button variant="outline" className="h-9 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold" asChild>
                         <Link href="/portal/bookings">View Details</Link>
                       </Button>
                     </div>

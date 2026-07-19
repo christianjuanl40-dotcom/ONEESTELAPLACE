@@ -1970,12 +1970,16 @@ function ModifyBookingFlowModal({
     if (!dateKey || !maintenanceDates?.length || !booking) return false
     const venueId = booking.venueId || ""
     const venueName = (booking.venue || "").toLowerCase().trim()
+
+    const roomId = venueId?.startsWith("o") ? venueId : ""
+
     return maintenanceDates.some((storedValue) => {
       const stored = String(storedValue || "").trim()
       if (!stored) return false
       if (stored === dateKey) return true
       const [storedVenueKey, storedDateKey] = stored.split("|")
       if (storedDateKey !== dateKey) return false
+      if (roomId && storedVenueKey === roomId) return true
       if (storedVenueKey === venueId) return true
       return storedVenueKey && storedVenueKey.toLowerCase().trim() === venueName
     })

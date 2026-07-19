@@ -189,7 +189,12 @@ export function ReserveDialog({ open, onOpenChange, selectedVenueId, onBackToVen
       return
     }
 
-    if (activeMaint.some(m => m.endsWith(date) || m === date)) {
+    if (activeMaint.some(m => {
+      if (m === date) return true
+      const [storedId, storedDate] = m.split("|")
+      if (storedDate !== date) return false
+      return storedId === selectedVenueId
+    })) {
       toast({
         title: "Date Unavailable",
         description: "This space is under maintenance on the selected date. Please choose another date.",
@@ -272,7 +277,12 @@ export function ReserveDialog({ open, onOpenChange, selectedVenueId, onBackToVen
 
   const getDayStatus = (d: number) => {
     const iterDateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-    if (activeMaint.some(m => m.endsWith(iterDateStr) || m === iterDateStr)) return "maintenance"
+    if (activeMaint.some(m => {
+      if (m === iterDateStr) return true
+      const [storedId, storedDate] = m.split("|")
+      if (storedDate !== iterDateStr) return false
+      return storedId === selectedVenueId
+    })) return "maintenance"
 
     const iterDate = new Date(year, month, d)
     if (iterDate < minBookableDate) return "past"

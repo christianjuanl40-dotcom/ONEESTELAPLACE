@@ -1102,15 +1102,16 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
 
   const maintenanceDates = useMemo(() => {
     const result: string[] = []
+    const today = formatLocalDate(new Date())
     for (const r of maintenanceRecords) {
-      if (r.date) result.push(`${r.spaceId}|${r.date}`)
+      if (r.date && r.date >= today) result.push(`${r.spaceId}|${r.date}`)
       if (r.startDate && r.endDate) {
         const start = new Date(r.startDate + "T00:00:00")
         const end = new Date(r.endDate + "T00:00:00")
         const current = new Date(start)
         while (current <= end) {
           const dateStr = formatLocalDate(current)
-          result.push(`${r.spaceId}|${dateStr}`)
+          if (dateStr >= today) result.push(`${r.spaceId}|${dateStr}`)
           current.setDate(current.getDate() + 1)
         }
       }

@@ -2,9 +2,26 @@
 
 import * as React from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
+import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
 import { XIcon } from 'lucide-react'
 
 import { cn } from '@shared/lib/utils'
+
+function hasChildType(children: React.ReactNode, type: React.ElementType): boolean {
+  let found = false
+  React.Children.forEach(children, (child) => {
+    if (found || !React.isValidElement(child)) return
+    if (child.type === type) {
+      found = true
+      return
+    }
+    const childProps = child.props as { children?: React.ReactNode }
+    if (childProps?.children) {
+      if (hasChildType(childProps.children, type)) found = true
+    }
+  })
+  return found
+}
 
 function Dialog({
   ...props
@@ -64,6 +81,19 @@ function DialogContent({
     }
   }, [])
 
+  const hasTitle = hasChildType(children, DialogTitle)
+  const hasDescription = hasChildType(children, DialogDescription)
+  const needsA11yFallback = !hasTitle || !hasDescription
+
+  const a11yFallback = needsA11yFallback ? (
+    <VisuallyHidden.Root>
+      {!hasTitle && <DialogTitle>Dialog</DialogTitle>}
+      {!hasDescription && (
+        <DialogDescription>This dialog contains important information.</DialogDescription>
+      )}
+    </VisuallyHidden.Root>
+  ) : null
+
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
@@ -76,10 +106,14 @@ function DialogContent({
         {...props}
       >
         {plain ? (
-          children
+          <>
+            {children}
+            {a11yFallback}
+          </>
         ) : (
           <div className="relative flex max-h-[90dvh] min-h-0 w-full flex-col overflow-hidden rounded-2xl bg-white shadow-lg">
             {children}
+            {a11yFallback}
             {showCloseButton && (
               <DialogPrimitive.Close
                 data-slot="dialog-close"

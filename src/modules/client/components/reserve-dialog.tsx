@@ -488,14 +488,16 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
       selectedRoom && venueName ? `${venueName} - Rm ${selectedRoom}` : ""
     const officeRoomIds = getOfficeRoomIds(venueId)
 
+    const specificRoomId = selectedRoom ? officeRoomIds[selectedRoom - 1] : ""
+
+    const checkKeys = specificRoomId
+      ? [specificRoomId, selectedRoomName, selectedRoomShortName].filter(Boolean)
+      : [venueId, venueName, ...officeRoomIds, selectedRoomName, selectedRoomShortName].filter(Boolean)
+
     const acceptedKeys = new Set(
       [
         dateKey,
-        venueId ? `${venueId}|${dateKey}` : "",
-        venueName ? `${venueName}|${dateKey}` : "",
-        selectedRoomName ? `${selectedRoomName}|${dateKey}` : "",
-        selectedRoomShortName ? `${selectedRoomShortName}|${dateKey}` : "",
-        ...officeRoomIds.map((id) => `${id}|${dateKey}`),
+        ...checkKeys.map((key) => `${key}|${dateKey}`),
       ].filter(Boolean),
     )
 
@@ -507,9 +509,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
       const [storedVenueKey, storedDateKey] = stored.split("|")
       if (storedDateKey !== dateKey) return false
 
-      return [venueId, venueName, selectedRoomName, selectedRoomShortName, ...officeRoomIds]
-        .filter(Boolean)
-        .some((key) => key === storedVenueKey)
+      return checkKeys.some((key) => key === storedVenueKey)
     })
   }
 
