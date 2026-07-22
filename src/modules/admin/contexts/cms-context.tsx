@@ -88,6 +88,14 @@ export interface PaymentInfo {
   qrCodeUrl?: string
 }
 
+export interface OfficeRoom {
+  id: string
+  name: string
+  isArchived?: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
 export interface CMSData {
   homepage: HomepageContent
   footer: {
@@ -129,6 +137,11 @@ type CMSContextType = {
   updateOfficeRoom: (id: string, data: any) => void
   addOfficeRoom: (data: any) => void
   deleteOfficeRoom: (id: string) => void
+  addRoomToOffice: (officeId: string, room: Omit<OfficeRoom, "id" | "createdAt">) => void
+  addRoomsToOffice: (officeId: string, rooms: Omit<OfficeRoom, "id" | "createdAt">[]) => void
+  updateRoomInOffice: (officeId: string, roomId: string, data: Partial<OfficeRoom>) => void
+  deleteRoomFromOffice: (officeId: string, roomId: string) => void
+  getOfficeRooms: (officeId: string) => OfficeRoom[]
 
   faqs: FAQ[]
   addFAQ: (data: Omit<FAQ, "id" | "createdAt" | "updatedAt">) => void
@@ -300,6 +313,16 @@ const defaultCMSData: CMSData = {
       image: "/images/venue-interior.jpg",
       panoImage: "",
       description: "Premium office wing with 8 individual private rooms.",
+      rooms: [
+        { id: "office-a-room-1", name: "Room 1" },
+        { id: "office-a-room-2", name: "Room 2" },
+        { id: "office-a-room-3", name: "Room 3" },
+        { id: "office-a-room-4", name: "Room 4" },
+        { id: "office-a-room-5", name: "Room 5" },
+        { id: "office-a-room-6", name: "Room 6" },
+        { id: "office-a-room-7", name: "Room 7" },
+        { id: "office-a-room-8", name: "Room 8" },
+      ],
     },
     {
       id: "office-b",
@@ -310,6 +333,16 @@ const defaultCMSData: CMSData = {
       image: "/images/venue-interior.jpg",
       panoImage: "",
       description: "Executive office wing with 8 individual private rooms.",
+      rooms: [
+        { id: "office-b-room-1", name: "Room 1" },
+        { id: "office-b-room-2", name: "Room 2" },
+        { id: "office-b-room-3", name: "Room 3" },
+        { id: "office-b-room-4", name: "Room 4" },
+        { id: "office-b-room-5", name: "Room 5" },
+        { id: "office-b-room-6", name: "Room 6" },
+        { id: "office-b-room-7", name: "Room 7" },
+        { id: "office-b-room-8", name: "Room 8" },
+      ],
     },
   ],
   faqs: DEFAULT_FAQS,
@@ -349,6 +382,11 @@ const defaultContextValue: CMSContextType = {
   updateOfficeRoom: () => {},
   addOfficeRoom: () => {},
   deleteOfficeRoom: () => {},
+  addRoomToOffice: () => {},
+  addRoomsToOffice: () => {},
+  updateRoomInOffice: () => {},
+  deleteRoomFromOffice: () => {},
+  getOfficeRooms: () => [],
 
   faqs: defaultCMSData.faqs,
   addFAQ: () => {},
@@ -420,6 +458,26 @@ function stripUndefined<T>(value: T): T {
   return value
 }
 
+const BUILTIN_OFFICE_DEFAULT_ROOMS: Record<string, string[]> = {
+  "office-a": ["Room 1", "Room 2", "Room 3", "Room 4", "Room 5", "Room 6", "Room 7", "Room 8"],
+  "office-b": ["Room 1", "Room 2", "Room 3", "Room 4", "Room 5", "Room 6", "Room 7", "Room 8"],
+}
+
+function ensureBuiltinOfficeRooms(offices: any[]): any[] {
+  return offices.map((office) => {
+    if (!BUILTIN_OFFICE_DEFAULT_ROOMS[office.id]) return office
+    if (Array.isArray(office.rooms) && office.rooms.length > 0) return office
+    const defaultRoomNames = BUILTIN_OFFICE_DEFAULT_ROOMS[office.id]
+    return {
+      ...office,
+      rooms: defaultRoomNames.map((name, i) => ({
+        id: `${office.id}-room-${i + 1}`,
+        name,
+      })),
+    }
+  })
+}
+
 function normalizeCMSData(parsed: Partial<CMSData> | null): CMSData {
   if (!parsed) return defaultCMSData
 
@@ -453,7 +511,9 @@ function normalizeCMSData(parsed: Partial<CMSData> | null): CMSData {
       ...(parsed.footer || {}),
     },
     venues: Array.isArray(parsed.venues) ? parsed.venues : defaultCMSData.venues,
-    offices: Array.isArray(parsed.offices) ? parsed.offices : defaultCMSData.offices,
+    offices: ensureBuiltinOfficeRooms(
+      Array.isArray(parsed.offices) ? parsed.offices : defaultCMSData.offices
+    ),
     faqs: mergedFaqs,
     pastClientBookings: Array.isArray(parsed.pastClientBookings)
       ? parsed.pastClientBookings.map(normalizePastClientBooking)
@@ -832,6 +892,85 @@ export const CMSProvider = ({ children }: { children: React.ReactNode }) => {
     })
   }
 
+  const addRoomToOffice: CMSContextType["addRoomToOffice"] = (officeId, room) => {
+    const newRoom: OfficeRoom = {
+      id: `${officeId}-room-${Date.now()}`,
+      ...room,
+      createdAt: new Date().toISOString(),
+    }
+    saveCMSData({
+      ...cmsData,
+      offices: cmsData.offices.map((office) =>
+        office.id === officeId
+          ? {
+              ...office,
+              rooms: [...(office.rooms || []), newRoom],
+              updatedAt: new Date().toISOString(),
+            }
+          : office
+      ),
+    })
+  }
+
+  const addRoomsToOffice: CMSContextType["addRoomsToOffice"] = (officeId, roomsData) => {
+    const newRooms: OfficeRoom[] = roomsData.map((room, i) => ({
+      id: `${officeId}-room-${Date.now()}-${i}`,
+      ...room,
+      createdAt: new Date().toISOString(),
+    }))
+    saveCMSData({
+      ...cmsData,
+      offices: cmsData.offices.map((office) =>
+        office.id === officeId
+          ? {
+              ...office,
+              rooms: [...(office.rooms || []), ...newRooms],
+              updatedAt: new Date().toISOString(),
+            }
+          : office
+      ),
+    })
+  }
+
+  const updateRoomInOffice: CMSContextType["updateRoomInOffice"] = (officeId, roomId, data) => {
+    saveCMSData({
+      ...cmsData,
+      offices: cmsData.offices.map((office) =>
+        office.id === officeId
+          ? {
+              ...office,
+              rooms: (office.rooms || []).map((room: OfficeRoom) =>
+                room.id === roomId
+                  ? { ...room, ...data, updatedAt: new Date().toISOString() }
+                  : room
+              ),
+              updatedAt: new Date().toISOString(),
+            }
+          : office
+      ),
+    })
+  }
+
+  const deleteRoomFromOffice: CMSContextType["deleteRoomFromOffice"] = (officeId, roomId) => {
+    saveCMSData({
+      ...cmsData,
+      offices: cmsData.offices.map((office) =>
+        office.id === officeId
+          ? {
+              ...office,
+              rooms: (office.rooms || []).filter((room: OfficeRoom) => room.id !== roomId),
+              updatedAt: new Date().toISOString(),
+            }
+          : office
+      ),
+    })
+  }
+
+  const getOfficeRooms: CMSContextType["getOfficeRooms"] = (officeId) => {
+    const office = cmsData.offices.find((o) => o.id === officeId)
+    return (office?.rooms || []).filter((r: OfficeRoom) => !r.isArchived)
+  }
+
   return (
     <CMSContext.Provider
       value={{
@@ -853,6 +992,11 @@ export const CMSProvider = ({ children }: { children: React.ReactNode }) => {
         updateOfficeRoom,
         addOfficeRoom,
         deleteOfficeRoom,
+        addRoomToOffice,
+        addRoomsToOffice,
+        updateRoomInOffice,
+        deleteRoomFromOffice,
+        getOfficeRooms,
 
         faqs: cmsData.faqs,
         addFAQ,

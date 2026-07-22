@@ -18,6 +18,8 @@ export type PublicSpace = {
   type?: string
   panoImage?: string
   isHidden?: boolean
+  downPaymentPercentage?: number
+  rooms?: any[]
 }
 
 export type PublicSpacesResult = {
@@ -73,6 +75,8 @@ function normalizeItem(item: any, category: "venue" | "office"): PublicSpace {
     panoramaUrl: String(item.panoramaUrl || item.panoImage || item.panorama || item.tourImage || ""),
     panoImage: String(item.panoImage || item.panoramaUrl || item.panorama || item.tourImage || ""),
     isHidden: item.isHidden === true,
+    downPaymentPercentage: Number(item.downPaymentPercentage) || 50,
+    rooms: Array.isArray(item.rooms) ? item.rooms.filter((r: any) => !r.isArchived) : [],
   }
 }
 
@@ -95,9 +99,12 @@ export function getPublicSpacesFromData(cmsData: any): PublicSpacesResult {
 
   return {
     eventVenues: mergeSpaces(rawVenues, DEFAULT_VENUES)
+      .filter((v: any) => !v.isArchived)
       .map((v: any) => normalizeItem(v, "venue"))
       .filter((v) => !NON_BOOKABLE_VENUE_NAMES.includes(v.name)),
-    officeSpaces: mergeSpaces(rawOffices, DEFAULT_OFFICES).map((o: any) => normalizeItem(o, "office")),
+    officeSpaces: mergeSpaces(rawOffices, DEFAULT_OFFICES)
+      .filter((o: any) => !o.isArchived)
+      .map((o: any) => normalizeItem(o, "office")),
   }
 }
 

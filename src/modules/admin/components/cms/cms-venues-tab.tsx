@@ -13,8 +13,8 @@ import { CMSStatusBadge, EmptyState } from "./cms-status-badge"
 import { toPrice } from "@/src/modules/shared/lib/number-utils"
 import { getImageSource } from "@/src/modules/shared/lib/file-utils"
 
-type VenueForm = { name: string; capacity: string; price: number | string; description: string; image: string; panoImage: string }
-const EMPTY_FORM: VenueForm = { name: "", capacity: "", price: "", description: "", image: "", panoImage: "" }
+type VenueForm = { name: string; capacity: string; price: number | string; downPaymentPercentage: number | string; description: string; image: string; panoImage: string }
+const EMPTY_FORM: VenueForm = { name: "", capacity: "", price: "", downPaymentPercentage: 50, description: "", image: "", panoImage: "" }
 
 export function CMSVenuesTab({ onNavigate }: { onNavigate: (tab: string) => void }) {
   const { venues, updateVenue, addVenue, deleteVenue } = useCMS()
@@ -27,12 +27,12 @@ export function CMSVenuesTab({ onNavigate }: { onNavigate: (tab: string) => void
 
   const resetForm = () => { setForm(EMPTY_FORM); setEditingId(null); setShowModal(false) }
   const openNew = () => { resetForm(); setShowModal(true) }
-  const openEdit = (v: any) => { setEditingId(v.id); setForm({ name: v.name || "", capacity: v.capacity || "", price: v.price ?? "", description: v.description || "", image: v.image || "", panoImage: v.panoImage || "" }); setShowModal(true) }
+  const openEdit = (v: any) => { setEditingId(v.id); setForm({ name: v.name || "", capacity: v.capacity || "", price: v.price ?? "", downPaymentPercentage: v.downPaymentPercentage ?? 50, description: v.description || "", image: v.image || "", panoImage: v.panoImage || "" }); setShowModal(true) }
 
   const handleSave = () => {
     if (!form.name.trim()) { toast({ title: "Name required", description: "Enter a venue name.", variant: "destructive" }); return }
     const pano = form.panoImage || ""
-    const data = { name: form.name.trim(), capacity: form.capacity?.trim() || "", price: toPrice(form.price), description: form.description || "", image: form.image || "/placeholder.jpg", panoImage: pano, panoramaUrl: pano, updatedAt: new Date().toISOString() }
+    const data = { name: form.name.trim(), capacity: form.capacity?.trim() || "", price: toPrice(form.price), downPaymentPercentage: Math.min(100, Math.max(0, Number(form.downPaymentPercentage) || 50)), description: form.description || "", image: form.image || "/placeholder.jpg", panoImage: pano, panoramaUrl: pano, updatedAt: new Date().toISOString() }
     if (editingId) { updateVenue(editingId, data); toast({ title: "Venue updated", description: "Changes saved.", className: "bg-emerald-500 text-white border-none" }) }
     else { addVenue({ ...data, type: "venue" }); toast({ title: "Venue added", description: "New venue created.", className: "bg-emerald-500 text-white border-none" }) }
     resetForm()
@@ -127,6 +127,10 @@ export function CMSVenuesTab({ onNavigate }: { onNavigate: (tab: string) => void
                 <div>
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Price (₱)</label>
                   <Input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="15000" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Down Payment (%)</label>
+                  <Input type="number" min="0" max="100" value={form.downPaymentPercentage} onChange={(e) => setForm({ ...form, downPaymentPercentage: e.target.value })} placeholder="50" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div>
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Status</label>

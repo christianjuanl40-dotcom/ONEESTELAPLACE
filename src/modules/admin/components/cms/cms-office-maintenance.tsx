@@ -6,7 +6,7 @@ import { Button } from "@shared/components/ui/button"
 import { Input } from "@shared/components/ui/input"
 import { useToast } from "@shared/hooks/use-toast"
 import { useBookings } from "@/src/modules/client/contexts/booking-context"
-import { getAllOffices } from "@/lib/central-data"
+import { useCMS } from "@/src/modules/admin/contexts/cms-context"
 
 interface Props {
   buildingName: string
@@ -14,25 +14,23 @@ interface Props {
   onClose: () => void
 }
 
-function getRoomGroup(name: string): "A" | "B" {
-  const v = name.toLowerCase()
-  if (v.includes("a") || v.includes("1") || v === "ground") return "A"
-  return "B"
-}
-
 export function CMSOfficeMaintenance({ buildingName, open, onClose }: Props) {
   const { maintenanceRecords, addMaintenanceRecord, removeMaintenanceRecord } = useBookings()
+  const { offices, getOfficeRooms } = useCMS()
   const { toast } = useToast()
 
-  const group = getRoomGroup(buildingName)
-
   const buildingRooms = useMemo(() => {
-    const allOffices = getAllOffices()
-    return allOffices.filter((o) => {
-      const num = parseInt(o.id.slice(1))
-      return group === "A" ? num >= 1 && num <= 8 : num >= 9 && num <= 16
-    })
-  }, [group])
+    const office = offices.find((o: any) => o.name === buildingName || o.id === buildingName)
+    if (!office) return []
+    return getOfficeRooms(office.id).map((room) => ({
+      id: room.id,
+      name: room.name,
+      type: "office" as const,
+      price: office.price,
+      minPax: 1,
+      maxPax: 10,
+    }))
+  }, [offices, buildingName, getOfficeRooms])
 
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null)
   const [startDate, setStartDate] = useState("")
@@ -142,8 +140,7 @@ export function CMSOfficeMaintenance({ buildingName, open, onClose }: Props) {
 
         <div className="p-5 space-y-5">
           {buildingRooms.map((room) => {
-            const roomNum = parseInt(room.id.slice(1))
-            const localNum = group === "A" ? roomNum : roomNum - 8
+            const localNum = buildingRooms.indexOf(room) + 1
             const records = allRoomRecords.get(room.id) || []
             const hasActiveMaint = records.length > 0
             const isActive = activeRoomId === room.id

@@ -104,8 +104,14 @@ function loadPannellum() {
 export function TourButton({ children, className, size = "lg" }: TourButtonProps) {
   const { cmsData } = useCMS()
 
-  const venues = useMemo(() => normalizeSpaces(cmsData?.venues), [cmsData?.venues])
-  const offices = useMemo(() => normalizeSpaces(cmsData?.offices), [cmsData?.offices])
+  const venues = useMemo(
+    () => normalizeSpaces((cmsData?.venues || []).filter((v: any) => !v.isArchived)),
+    [cmsData?.venues]
+  )
+  const offices = useMemo(
+    () => normalizeSpaces((cmsData?.offices || []).filter((o: any) => !o.isArchived)),
+    [cmsData?.offices]
+  )
 
   const [open, setOpen] = useState(false)
   const [activeType, setActiveType] = useState<SpaceType>("venues")

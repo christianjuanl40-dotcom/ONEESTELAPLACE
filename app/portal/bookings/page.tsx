@@ -438,7 +438,6 @@ function HorizontalBookingCard({
   const typeLabel = isOfficeRental
     ? "Office Space Rental"
     : booking.eventType || "Event Venue Rental"
-  const isUnpaid = String(booking.paymentStatus || "").toLowerCase() === "unpaid"
 
   return (
     <div className="group flex w-full min-w-0 flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-4">
@@ -528,15 +527,13 @@ function HorizontalBookingCard({
         >
           {getStatusLabel(booking.status)}
         </span>
-        {!isUnpaid && (
-          <Button
-            variant="outline"
-            onClick={() => onView(booking)}
-            className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
-          >
-            View Details
-          </Button>
-        )}
+        <Button
+          variant="outline"
+          onClick={() => onView(booking)}
+          className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
+        >
+          View Details
+        </Button>
       </div>
     </div>
   )
@@ -553,7 +550,6 @@ function HistoryRow({
   const typeLabel = isOfficeRental
     ? "Office Space Rental"
     : booking.eventType || "Event Venue Rental"
-  const isUnpaid = String(booking.paymentStatus || "").toLowerCase() === "unpaid"
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 transition hover:border-orange-200 sm:flex-row sm:items-center sm:gap-3 md:gap-4">
@@ -612,15 +608,13 @@ function HistoryRow({
         >
           {getStatusLabel(booking.status)}
         </span>
-        {!isUnpaid && (
-          <Button
-            variant="outline"
-            onClick={() => onView(booking)}
-            className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
-          >
-            View Details
-          </Button>
-        )}
+        <Button
+          variant="outline"
+          onClick={() => onView(booking)}
+          className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
+        >
+          View Details
+        </Button>
       </div>
     </div>
   )

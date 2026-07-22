@@ -54,7 +54,8 @@ import { createNotification } from "@/src/modules/shared/lib/notifications"
 import { getPaymentMethodLabel } from "@/src/modules/shared/lib/labels"
 import { Textarea } from "@/src/modules/shared/components/ui/textarea"
 import { Label } from "@/src/modules/shared/components/ui/label"
-import { getAllVenues, getAllOffices } from "@/lib/central-data"
+import { getAllVenues } from "@/lib/central-data"
+import { useCMS } from "@/src/modules/admin/contexts/cms-context"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/src/modules/shared/components/ui/tabs"
 
 function formatDate(date?: string) {
@@ -1607,6 +1608,7 @@ function RecordOnsitePaymentModal({
     const num = Number(String(amountReceived || "0").replace(/[^0-9.-]+/g, ""))
     return Number.isFinite(num) ? num : 0
   })()
+  const isOverPayment = enteredAmount > remainingBalance
 
   const getNewPaymentSummary = () => {
     if (paymentType === "full_payment") {
@@ -1736,6 +1738,11 @@ function RecordOnsitePaymentModal({
                       placeholder="Enter amount received"
                       className="mt-1.5 h-10 w-full rounded-xl border-slate-200 text-xs font-bold focus-visible:ring-emerald-600"
                     />
+                    {isOverPayment && enteredAmount > 0 && (
+                      <p className="mt-1.5 text-[11px] font-semibold text-rose-600">
+                        Amount received cannot exceed the remaining balance of ₱{remainingBalance.toLocaleString()}.
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -1819,7 +1826,7 @@ function RecordOnsitePaymentModal({
                   Cancel
                 </Button>
                 <Button
-                  disabled={enteredAmount <= 0}
+                  disabled={enteredAmount <= 0 || isOverPayment}
                   onClick={() => setStep("confirm")}
                   className="h-11 w-full sm:w-auto rounded-xl bg-emerald-600 text-sm font-black text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
@@ -2351,7 +2358,27 @@ function MaintenanceCalendarModal({
   const { toast } = useToast()
 
   const venues = useMemo(() => getAllVenues(), [])
-  const offices = useMemo(() => getAllOffices(), [])
+  const { offices: cmsOffices, getOfficeRooms } = useCMS()
+  const offices = useMemo(() => {
+    const result: any[] = []
+    for (const office of cmsOffices) {
+      if (office.isArchived) continue
+      const rooms = getOfficeRooms(office.id)
+      for (const room of rooms) {
+        result.push({
+          id: room.id,
+          name: room.name,
+          type: "office",
+          price: office.price,
+          minPax: 1,
+          maxPax: 10,
+          officeId: office.id,
+          officeName: office.name,
+        })
+      }
+    }
+    return result
+  }, [cmsOffices, getOfficeRooms])
 
   const [maintType, setMaintType] = useState<"venue" | "office">("venue")
   const [officeGroup, setOfficeGroup] = useState<"A" | "B" | "">("")
@@ -2378,10 +2405,7 @@ function MaintenanceCalendarModal({
     }
   }, [open, maintType, venues])
 
-  const currentSpaces = maintType === "venue" ? venues : (officeGroup ? offices.filter(o => {
-    const num = parseInt(o.id.slice(1))
-    return officeGroup === "A" ? num >= 1 && num <= 8 : num >= 9 && num <= 16
-  }) : [])
+  const currentSpaces = maintType === "venue" ? venues : (officeGroup ? offices.filter((o: any) => o.officeName === `Office ${officeGroup}`) : [])
 
   const filteredRecords = maintenanceRecords.filter(
     r => r.type === maintType
@@ -2401,10 +2425,9 @@ function MaintenanceCalendarModal({
     if (maintType === "venue") {
       for (const v of venues) opts.push({ value: v.id, label: v.name })
     } else {
-      const groupA = offices.filter(o => { const n = parseInt(o.id.slice(1)); return n >= 1 && n <= 8 })
-      const groupB = offices.filter(o => { const n = parseInt(o.id.slice(1)); return n >= 9 && n <= 16 })
-      for (const o of groupA) opts.push({ value: o.id, label: `Room ${parseInt(o.id.slice(1))}`, group: "Office A" })
-      for (const o of groupB) opts.push({ value: o.id, label: `Room ${parseInt(o.id.slice(1)) - 8}`, group: "Office B" })
+      for (const o of offices) {
+        opts.push({ value: o.id, label: o.name, group: o.officeName })
+      }
     }
     return opts
   }, [maintType, venues, offices])
@@ -2437,13 +2460,12 @@ function MaintenanceCalendarModal({
   }
 
   function matchesOfficeBooking(booking: Booking): boolean {
-    const match = selectedSpaceId.match(/^o(\d+)$/)
-    if (!match) return false
-    const roomNum = parseInt(match[1])
-    const group = roomNum >= 1 && roomNum <= 8 ? "A" : "B"
-    const buildingName = `Office ${group}`
-    const localNum = group === "A" ? roomNum : roomNum - 8
-    if (booking.venue?.includes(buildingName) && booking.venue?.includes(`Room ${localNum}`)) return true
+    if (!selectedSpaceId) return false
+    const room = offices.find((o: any) => o.id === selectedSpaceId)
+    if (!room) return false
+    const buildingName = room.officeName
+    const roomName = room.name
+    if (booking.venue?.includes(buildingName) && booking.venue?.includes(roomName)) return true
     return false
   }
 
@@ -2649,14 +2671,11 @@ function MaintenanceCalendarModal({
                       className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
                     >
                       <option value="" disabled>Select room</option>
-                      {currentSpaces.map((s) => {
-                        const roomNum = officeGroup === "A" ? parseInt(s.id.slice(1)) : parseInt(s.id.slice(1)) - 8
-                        return (
+                      {currentSpaces.map((s: any) => (
                           <option key={s.id} value={s.id}>
-                            Room {roomNum}
+                            {s.name}
                           </option>
-                        )
-                      })}
+                        ))}
                     </select>
                   </div>
                 )}

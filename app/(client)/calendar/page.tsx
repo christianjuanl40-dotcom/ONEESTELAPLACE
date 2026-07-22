@@ -212,7 +212,7 @@ export default function CalendarPreviewPage() {
                 Cancel
               </button>
               <button className="w-full sm:w-auto h-11 px-6 py-3 rounded-xl border-2 border-amber-600 text-amber-700 font-bold text-sm hover:bg-amber-50 transition-colors">
-                Pay Downpayment (50%)
+                Pay Downpayment
               </button>
               <button className="w-full sm:w-auto h-11 px-6 py-3 rounded-xl bg-amber-600 text-white font-bold text-sm hover:bg-amber-700 shadow-md transition-colors">
                 Pay Full Amount

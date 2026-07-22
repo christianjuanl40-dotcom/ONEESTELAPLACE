@@ -97,11 +97,12 @@ function StatusPill({
 
 function getBookingStatusTone(status?: string): "emerald" | "amber" | "rose" | "blue" | "orange" | "slate" {
   const v = String(status || "").toLowerCase()
-  if (["confirmed", "reservation_secured", "slot_secured"].includes(v)) return "emerald"
+  if (["confirmed", "reservation_secured", "slot_secured", "active_rental"].includes(v)) return "emerald"
   if (["completed", "complete"].includes(v)) return "blue"
   if (["pending", "verifying"].includes(v)) return "orange"
+  if (["contract_signing_required"].includes(v)) return "amber"
   if (["cancellation_requested", "cancellation requested"].includes(v)) return "amber"
-  if (["cancelled", "declined"].includes(v)) return "rose"
+  if (["cancelled", "declined", "rental_expired"].includes(v)) return "rose"
   return "slate"
 }
 
@@ -116,6 +117,9 @@ function getBookingStatusLabel(status?: string) {
   if (v === "cancellation_requested" || v === "cancellation requested")
     return "Cancellation Under Review"
   if (v === "reservation_secured") return "Reservation Secured"
+  if (v === "contract_signing_required") return "Contract Signing Required"
+  if (v === "active_rental") return "Active Rental"
+  if (v === "rental_expired") return "Rental Expired"
   return v
     ? v.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
     : "Unknown"

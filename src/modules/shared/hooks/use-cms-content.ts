@@ -35,7 +35,7 @@ export interface OfficeRoom {
   floor: 'ground' | 'second'
   name: string
   description: string
-  capacity: number
+  capacity: number | string
   images: string[]
   features: string[]
   available: boolean

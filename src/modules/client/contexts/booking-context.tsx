@@ -15,6 +15,8 @@ import {
   query,
   orderBy,
   onSnapshot,
+  runTransaction,
+  increment,
 } from "firebase/firestore"
 
 export type BookingStatus =
@@ -233,6 +235,8 @@ export interface Booking {
   receipt?: BookingReceipt;
 
   totalPrice: number;
+  downPaymentPercentage?: number;
+  downPaymentAmount?: number;
   bookingCategory?: "venue" | "office";
   isOfficeRental?: boolean;
   officeRentalTerm?: OfficeRentalTerm;
@@ -456,6 +460,23 @@ const officeRentalsRef = collection(db, "officeRentals")
 const maintenanceRecordsRef = collection(db, "maintenanceRecords")
 const paymentsRef = collection(db, "payments")
 const receiptsRef = collection(db, "receipts")
+const cmsDocRef = doc(db, "cms", "data")
+
+function formatBookingNumber(num: number): string {
+  return num < 10 ? `BK0${num}` : `BK${num}`
+}
+
+async function getNextBookingNumber(): Promise<string> {
+  const nextNum = await runTransaction(db, async (transaction) => {
+    const counterDoc = await transaction.get(cmsDocRef)
+    const raw = counterDoc.exists() ? counterDoc.data().bookingCounter : undefined
+    const current = typeof raw === "number" && Number.isFinite(raw) ? raw : 0
+    const next = current + 1
+    transaction.set(cmsDocRef, { bookingCounter: next }, { merge: true })
+    return next
+  })
+  return formatBookingNumber(nextNum)
+}
 
 function stripHeavyBookingFields(booking: any) {
   const {
@@ -634,7 +655,11 @@ function getBookingEventDate(booking: Booking) {
 }
 
 function getDownpaymentAmount(booking: Booking) {
-  return getSafePrice(booking.totalPrice) * 0.5;
+  const total = getSafePrice(booking.totalPrice);
+  const pct = typeof booking.downPaymentPercentage === "number" && booking.downPaymentPercentage > 0
+    ? booking.downPaymentPercentage
+    : 50;
+  return total * (pct / 100);
 }
 
 function getSelectedDownpaymentAmount(booking: Booking) {
@@ -1272,11 +1297,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addBooking = async (bookingData: Omit<Booking, "id" | "createdAt">) => {
-    const newId =
-      "BK" +
-      Math.floor(Math.random() * 10000)
-        .toString()
-        .padStart(4, "0");
+    const newId = await getNextBookingNumber();
 
     const newBooking: Booking = {
       ...bookingData,
@@ -1290,7 +1311,9 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       refundStatus: bookingData.refundStatus || "Not Applicable",
       paymentStatus: bookingData.paymentStatus || "unpaid",
       amountPaid: bookingData.amountPaid || 0,
-      selectedDownpaymentAmount: 0,
+      downPaymentPercentage: bookingData.downPaymentPercentage ?? 50,
+      downPaymentAmount: bookingData.downPaymentAmount ?? getSafePrice(bookingData.totalPrice) * ((bookingData.downPaymentPercentage ?? 50) / 100),
+      selectedDownpaymentAmount: bookingData.selectedDownpaymentAmount ?? bookingData.downPaymentAmount ?? getSafePrice(bookingData.totalPrice) * ((bookingData.downPaymentPercentage ?? 50) / 100),
       downpaymentPaid: 0,
       downpaymentRemaining: 0,
       paymentStage: "Initial Payment",
@@ -2095,24 +2118,28 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (isOfficeBooking(booking)) {
-        const reservationFee = getOfficeReservationFee(booking);
+        const total = getSafePrice(booking.totalPrice);
         const currentAmountPaid = typeof booking.amountPaid === "number" ? booking.amountPaid : 0;
+        const paidAmount = total - currentAmountPaid;
+        const newAmountPaid = currentAmountPaid + paidAmount;
+        const isFullyPaid = newAmountPaid >= total;
 
         return attachAutoReceipt({
           ...booking,
-          status: "contract_signing_required" as BookingStatus,
-          bookingStatus: "Contract Signing Required",
-          isSlotSecured: true,
-          paymentStatus: "slot_verified" as PaymentStatus,
-          paymentType: "slot_reservation" as const,
+          status: isFullyPaid ? "reservation_secured" : ("verifying" as BookingStatus),
+          bookingStatus: isFullyPaid ? "Slot Secured" : "Pending Verification",
+          isSlotSecured: isFullyPaid,
+          paymentStatus: isFullyPaid ? ("paid" as PaymentStatus) : ("partial" as PaymentStatus),
+          paymentType: isFullyPaid ? "slot_reservation" as const : booking.paymentType,
           paymentMethod: "cash" as const,
-          amountPaid: currentAmountPaid + reservationFee,
-          remainingBalance: 0,
-          remainingBalancePaid: true,
-          contractSigningRequired: true,
-          officeReservationStatus:
-            "reservation_secured" as OfficeReservationStatus,
-          officeContractSigningRequired: true,
+          amountPaid: newAmountPaid,
+          remainingBalance: Math.max(total - newAmountPaid, 0),
+          remainingBalancePaid: isFullyPaid,
+          contractSigningRequired: isFullyPaid,
+          officeReservationStatus: isFullyPaid
+            ? "reservation_secured" as OfficeReservationStatus
+            : booking.officeReservationStatus || "pending_verification" as OfficeReservationStatus,
+          officeContractSigningRequired: isFullyPaid,
           verifiedByAdmin: true,
           verifiedAt: new Date().toISOString(),
           paymentVerifiedAt: new Date().toISOString(),
@@ -2120,8 +2147,10 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           updatedAt: new Date().toISOString(),
           adminLogs: makeAdminLog(
             booking,
-            "VERIFY_OFFICE_SLOT_CASH_PAYMENT",
-            "Admin verified office slot reservation payment paid at the office. Contract signing required. Future payments are onsite check payments tracked by admin.",
+            "VERIFY_OFFICE_CASH_PAYMENT",
+            isFullyPaid
+              ? "Admin verified full office cash payment. Reservation secured. Contract signing required. Future payments are onsite check payments tracked by admin."
+              : `Admin verified office cash payment of ₱${paidAmount.toLocaleString()}. Remaining reservation fee: ₱${Math.max(total - newAmountPaid, 0).toLocaleString()}.`,
           ),
         });
       }
@@ -2264,7 +2293,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       } else {
         const downpaymentTarget = typeof booking.selectedDownpaymentAmount === "number" && booking.selectedDownpaymentAmount > 0
           ? booking.selectedDownpaymentAmount
-          : total * 0.5;
+          : getDownpaymentAmount(booking);
         const currentDownpaymentPaid = typeof booking.downpaymentPaid === "number" ? booking.downpaymentPaid : 0;
         newDownpaymentPaid = currentDownpaymentPaid + amountReceived;
         newAmountPaid = currentAmountPaid + amountReceived;
@@ -2297,7 +2326,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         downpaymentRemaining: Math.max(
           (typeof booking.selectedDownpaymentAmount === "number" && booking.selectedDownpaymentAmount > 0
             ? booking.selectedDownpaymentAmount
-            : total * 0.5) - newDownpaymentPaid,
+            : getDownpaymentAmount(booking)) - newDownpaymentPaid,
           0,
         ),
         remainingBalance: newRemainingBalance,
@@ -2316,10 +2345,18 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         paymentVerifiedBy: paymentData.adminName || "Administrator",
         verifiedByAdmin: true,
         verifiedAt: new Date().toISOString(),
-        status: newRemainingBalance === 0 ? "confirmed" as BookingStatus : "confirmed" as BookingStatus,
-        bookingStatus: "Confirmed",
-        isSlotSecured: true,
-        contractSigningRequired: true,
+        status: isOfficeBooking(booking)
+          ? (newRemainingBalance === 0 ? "reservation_secured" as BookingStatus : "verifying" as BookingStatus)
+          : (newRemainingBalance === 0 ? "confirmed" as BookingStatus : "confirmed" as BookingStatus),
+        bookingStatus: isOfficeBooking(booking)
+          ? (newRemainingBalance === 0 ? "Slot Secured" : "Pending Verification")
+          : "Confirmed",
+        isSlotSecured: isOfficeBooking(booking)
+          ? newRemainingBalance === 0
+          : true,
+        contractSigningRequired: isOfficeBooking(booking)
+          ? newRemainingBalance === 0
+          : true,
         contractSigned: booking.contractSigned || false,
         contractStatus: booking.contractSigned ? "Signed" as ContractStatus : "Pending Signature" as ContractStatus,
         lastActivityAt: new Date().toISOString(),
@@ -2412,37 +2449,42 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (isOfficeBooking(booking)) {
-        const reservationFee = getOfficeReservationFee(booking);
+        const total = getSafePrice(booking.totalPrice);
         const currentAmountPaid = typeof booking.amountPaid === "number" ? booking.amountPaid : 0;
-        const verifiedAmount = reviewData?.verifiedAmount || reservationFee;
+        const verifiedAmount = reviewData?.verifiedAmount || (typeof booking.paymentAmount === "number" ? booking.paymentAmount : total);
+        const newAmountPaid = currentAmountPaid + verifiedAmount;
+        const isFullyPaid = newAmountPaid >= total;
 
         return attachAutoReceipt({
           ...booking,
-          status: "contract_signing_required" as BookingStatus,
-          bookingStatus: "Contract Signing Required",
-          isSlotSecured: true,
-          paymentStatus: "slot_verified" as PaymentStatus,
-          paymentType: "slot_reservation" as const,
-          amountPaid: currentAmountPaid + verifiedAmount,
+          status: isFullyPaid ? "reservation_secured" : ("verifying" as BookingStatus),
+          bookingStatus: isFullyPaid ? "Slot Secured" : "Pending Verification",
+          isSlotSecured: isFullyPaid,
+          paymentStatus: isFullyPaid ? ("paid" as PaymentStatus) : ("partial" as PaymentStatus),
+          paymentType: isFullyPaid ? "slot_reservation" as const : booking.paymentType,
+          amountPaid: newAmountPaid,
           lastPaymentAmount: verifiedAmount,
-          remainingBalance: 0,
-          remainingBalancePaid: true,
+          remainingBalance: Math.max(total - newAmountPaid, 0),
+          remainingBalancePaid: isFullyPaid,
           hasActivePaymentSubmission: false,
           paymentVerifiedAt: new Date().toISOString(),
           paymentVerifiedBy: reviewData?.adminName || "Administrator",
           paymentVerifiedAmount: verifiedAmount,
-          contractSigningRequired: true,
-          officeReservationStatus:
-            "reservation_secured" as OfficeReservationStatus,
-          officeContractSigningRequired: true,
+          contractSigningRequired: isFullyPaid,
+          officeReservationStatus: isFullyPaid
+            ? "reservation_secured" as OfficeReservationStatus
+            : booking.officeReservationStatus || "pending_verification" as OfficeReservationStatus,
+          officeContractSigningRequired: isFullyPaid,
           verifiedByAdmin: true,
           verifiedAt: new Date().toISOString(),
           lastActivityAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           adminLogs: makeAdminLog(
             booking,
-            "VERIFY_OFFICE_SLOT_PAYMENT",
-            `Admin verified office slot reservation payment. Reservation is secured. Contract signing required.${reviewData?.adminNote ? ` Note: ${reviewData.adminNote}` : ""}`,
+            "VERIFY_OFFICE_PAYMENT",
+            isFullyPaid
+              ? `Admin verified full office payment of ₱${verifiedAmount.toLocaleString()}. Reservation secured. Contract signing required.${reviewData?.adminNote ? ` Note: ${reviewData.adminNote}` : ""}`
+              : `Admin verified office payment of ₱${verifiedAmount.toLocaleString()}. Total paid: ₱${newAmountPaid.toLocaleString()}. Remaining reservation fee: ₱${Math.max(total - newAmountPaid, 0).toLocaleString()}.${reviewData?.adminNote ? ` Note: ${reviewData.adminNote}` : ""}`,
           ),
         });
       }
@@ -2650,7 +2692,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       const newDownpaymentPaid = isDownpayment ? currentDownpaymentPaid + data.verifiedAmount : currentDownpaymentPaid;
       const selectedDP = typeof booking.selectedDownpaymentAmount === "number" && booking.selectedDownpaymentAmount > 0
         ? booking.selectedDownpaymentAmount
-        : total * 0.5;
+        : getDownpaymentAmount(booking);
       const newDPRemaining = isDownpayment ? Math.max(selectedDP - newDownpaymentPaid, 0) : 0;
       const isFullyPaidAfter = newAmountPaid >= total;
       const paymentStage = isDownpayment ? "Complete Downpayment" : (isFullyPaidAfter ? "Fully Paid" : "Settle Remaining Balance");
@@ -2658,8 +2700,12 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
 
       return {
         ...booking,
-        status: (isFullyPaidAfter ? "confirmed" : "verifying") as BookingStatus,
-        bookingStatus: (isFullyPaidAfter ? "Confirmed" : "Pending Verification") as BookingStatusLabel,
+        status: (isOfficeBooking(booking)
+          ? (isFullyPaidAfter ? "reservation_secured" : "verifying")
+          : (isFullyPaidAfter ? "confirmed" : "verifying")) as BookingStatus,
+        bookingStatus: (isOfficeBooking(booking)
+          ? (isFullyPaidAfter ? "Slot Secured" : "Pending Verification")
+          : (isFullyPaidAfter ? "Confirmed" : "Pending Verification")) as BookingStatusLabel,
         isSlotSecured: isFullyPaidAfter,
         amountPaid: newAmountPaid,
         lastPaymentAmount: data.verifiedAmount,
@@ -3114,9 +3160,11 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     const advanceAmount = monthlyRent;
     const depositAmount = monthlyRent * 2;
 
+    const newId = await getNextBookingNumber();
+
     const newOfficeRental: OfficeRental = {
       ...rentalData,
-      id: createLocalId("OFFICE"),
+      id: newId,
       monthlyRent,
       advanceMonths: 1,
       depositMonths: 2,

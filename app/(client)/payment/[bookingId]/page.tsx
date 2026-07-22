@@ -42,8 +42,9 @@ export default function ClientPaymentPage() {
   }
 
   // Fallback to 0 if totalPrice is undefined, but assuming it exists
-  const totalPrice = booking.totalPrice || 15000; 
-  const downpaymentAmount = totalPrice * 0.50; // 50% DP
+  const totalPrice = booking.totalPrice || 15000;
+  const dpPct = typeof booking.downPaymentPercentage === "number" && booking.downPaymentPercentage > 0 ? booking.downPaymentPercentage : 50;
+  const downpaymentAmount = booking.downPaymentAmount ?? totalPrice * (dpPct / 100);
   const amountToPay = paymentType === "full" ? totalPrice : downpaymentAmount;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -137,7 +138,7 @@ export default function ClientPaymentPage() {
                                 {paymentType === "downpayment" && <CheckCircle2 className="w-6 h-6 text-[#ea580c]" />}
                             </div>
                             <p className="text-3xl font-black text-[#ea580c]">₱{downpaymentAmount.toLocaleString()}</p>
-                            <p className="text-[10px] text-rose-500 mt-2 font-bold bg-rose-50 px-2 py-1 rounded w-fit uppercase tracking-[0.2em] border border-rose-100">Non-Refundable 50%</p>
+                            <p className="text-[10px] text-rose-500 mt-2 font-bold bg-rose-50 px-2 py-1 rounded w-fit uppercase tracking-[0.2em] border border-rose-100">Non-Refundable {dpPct}%</p>
                         </button>
                     </div>
                 </div>

@@ -160,8 +160,8 @@ function formatDate(date?: string) {
 }
 
 function getOfficeStatusDisplay(booking: Booking) {
-  const status = booking.status
-  if (status === "active_rental") {
+  const s = String(booking.status || "").toLowerCase()
+  if (s === "active_rental") {
     const remaining = getRemainingDuration((booking as any).endDate, booking.date)
     return {
       badge: "ACTIVE RENTAL",
@@ -171,7 +171,7 @@ function getOfficeStatusDisplay(booking: Booking) {
       endDate: (booking as any).endDate ? formatDate((booking as any).endDate) : null,
     }
   }
-  if (status === "contract_signing_required") {
+  if (s === "contract_signing_required") {
     return {
       badge: "CONTRACT SIGNING REQUIRED",
       badgeClass: "border-yellow-100 bg-yellow-50 text-yellow-700",
@@ -180,7 +180,7 @@ function getOfficeStatusDisplay(booking: Booking) {
       endDate: null,
     }
   }
-  if (status === "rental_expired") {
+  if (s === "rental_expired") {
     return {
       badge: "RENTAL EXPIRED",
       badgeClass: "border-red-100 bg-red-50 text-red-700",
@@ -189,7 +189,58 @@ function getOfficeStatusDisplay(booking: Booking) {
       endDate: null,
     }
   }
-  return null
+  if (s === "pending") {
+    return {
+      badge: "PENDING",
+      badgeClass: "border-orange-100 bg-orange-50 text-orange-700",
+      icon: "🟠",
+      remaining: null,
+      endDate: null,
+    }
+  }
+  if (s === "verifying" || s === "for_verification") {
+    return {
+      badge: "FOR VERIFICATION",
+      badgeClass: "border-orange-100 bg-orange-50 text-orange-700",
+      icon: "🟠",
+      remaining: null,
+      endDate: null,
+    }
+  }
+  if (s === "reservation_secured") {
+    return {
+      badge: "RESERVATION SECURED",
+      badgeClass: "border-emerald-100 bg-emerald-50 text-emerald-700",
+      icon: "🟢",
+      remaining: null,
+      endDate: null,
+    }
+  }
+  if (s === "completed" || s === "complete") {
+    return {
+      badge: "COMPLETED",
+      badgeClass: "border-blue-100 bg-blue-50 text-blue-700",
+      icon: "🔵",
+      remaining: null,
+      endDate: null,
+    }
+  }
+  if (s === "cancelled" || s === "declined") {
+    return {
+      badge: "CANCELLED",
+      badgeClass: "border-rose-100 bg-rose-50 text-rose-700",
+      icon: "🔴",
+      remaining: null,
+      endDate: null,
+    }
+  }
+  return {
+    badge: String(booking.status || "UNKNOWN").replace(/_/g, " ").toUpperCase(),
+    badgeClass: "border-slate-200 bg-slate-50 text-slate-600",
+    icon: "⚪",
+    remaining: null,
+    endDate: null,
+  }
 }
 
 export default function ClientDashboardPage() {
@@ -235,6 +286,13 @@ export default function ClientDashboardPage() {
     () => (activeOfficeRental && activeOfficeRental.status === "rental_expired" ? activeOfficeRental : null),
     [activeOfficeRental],
   )
+  const earlyStageRental = useMemo(() => {
+    if (!activeOfficeRental) return null
+    if (activeOfficeRental.status === "active_rental") return null
+    if (activeOfficeRental.status === "contract_signing_required") return null
+    if (activeOfficeRental.status === "rental_expired") return null
+    return activeOfficeRental
+  }, [activeOfficeRental])
 
   const excludedIds = useMemo(() => {
     const ids = new Set<string>()
@@ -381,6 +439,41 @@ export default function ClientDashboardPage() {
             </div>
           )}
 
+          {earlyStageRental && (() => {
+            const display = getOfficeStatusDisplay(earlyStageRental)
+            if (!display) return null
+            return (
+              <div>
+                <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+                  Office Rental
+                </h2>
+                <Card className="rounded-2xl border-slate-200 bg-white shadow-sm overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-md">
+                  <CardContent className="p-4 sm:p-5">
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <Badge variant="outline" className={cn("uppercase text-[10px] font-black tracking-[0.2em] px-2.5 py-1 rounded-full mb-3 shadow-none", display.badgeClass)}>
+                          {display.badge}
+                        </Badge>
+                        <h3 className="text-xl font-black text-slate-950 tracking-tight leading-snug mb-1 line-clamp-2">
+                          {earlyStageRental.eventName || "Office Rental"}
+                        </h3>
+                        <p className="text-sm font-bold text-slate-500 mb-3">{earlyStageRental.venue || "Office Space"}</p>
+                        <div className="flex flex-wrap gap-3 text-xs font-semibold text-slate-600 bg-slate-50 p-3.5 rounded-xl border border-slate-100">
+                          {earlyStageRental.date && (
+                            <span className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 text-orange-500" /> {formatDate(earlyStageRental.date)}</span>
+                          )}
+                        </div>
+                      </div>
+                      <Button variant="outline" className="h-9 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold" asChild>
+                        <Link href="/portal/bookings">View Details</Link>
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )
+          })()}
+
           {activeEventBooking && (
             <div>
               <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
@@ -417,7 +510,7 @@ export default function ClientDashboardPage() {
             </div>
           )}
 
-          {!activeRental && !contractSigning && !expiredRental && !activeEventBooking && (
+          {!activeRental && !contractSigning && !expiredRental && !earlyStageRental && !activeEventBooking && (
             <div>
               <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">Your Next Event</h2>
               <Card className="rounded-2xl border-slate-200 shadow-sm overflow-hidden bg-white">

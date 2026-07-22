@@ -177,7 +177,7 @@ function getTransactionDisplayAmount(booking: Booking): number {
       return dpRemaining;
     }
 
-    return Number(b.selectedDownpaymentAmount || totalPrice * 0.5 || 0);
+    return Number(b.selectedDownpaymentAmount || (Number(b.downPaymentPercentage || 50) / 100) * totalPrice || 0);
   }
 
   return totalPrice;
@@ -298,15 +298,17 @@ function getStatusLabel(paymentStatus?: string, _status?: string, paymentStage?:
 
 function getBookingStatusBadgeClass(status?: string) {
   const v = String(status || "").toLowerCase();
-  if (["confirmed", "reservation_secured", "slot_secured"].includes(v))
+  if (["confirmed", "reservation_secured", "slot_secured", "active_rental"].includes(v))
     return "border-emerald-100 bg-emerald-50 text-emerald-700";
   if (["completed", "complete"].includes(v))
     return "border-blue-100 bg-blue-50 text-blue-700";
   if (["pending", "verifying"].includes(v))
     return "border-orange-100 bg-orange-50 text-orange-700";
+  if (["contract_signing_required"].includes(v))
+    return "border-yellow-100 bg-yellow-50 text-yellow-700";
   if (["cancellation_requested", "cancellation requested"].includes(v))
     return "border-amber-100 bg-amber-50 text-amber-700";
-  if (["cancelled", "declined"].includes(v))
+  if (["cancelled", "declined", "rental_expired"].includes(v))
     return "border-rose-100 bg-rose-50 text-rose-700";
   return "border-slate-200 bg-slate-50 text-slate-600";
 }
@@ -322,6 +324,9 @@ function getBookingStatusLabel(status?: string) {
   if (v === "cancellation_requested" || v === "cancellation requested")
     return "Cancel Req";
   if (v === "reservation_secured") return "Secured";
+  if (v === "contract_signing_required") return "Contract Signing Required";
+  if (v === "active_rental") return "Active Rental";
+  if (v === "rental_expired") return "Rental Expired";
   return v ? v.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "—";
 }
 
@@ -591,7 +596,7 @@ function HistoryRow({
       : ["paid", "verified", "slot_verified"].includes(
           String(booking.paymentStatus).toLowerCase(),
         )
-        ? (booking as any).paymentType === "downpayment" ? displayTotal * 0.5 : displayTotal
+        ? (booking as any).paymentType === "downpayment" ? displayTotal * (Number((booking as any).downPaymentPercentage || 50) / 100) : displayTotal
         : 0;
 
   return (
@@ -1033,7 +1038,7 @@ function TransactionsContent() {
     const bs = String((booking as any).balanceStatus || "").toLowerCase();
     const paymentStage = String((booking as any).paymentStage || "").toLowerCase();
     const totalPrice = booking.totalPrice || 15000;
-    const selectedDP = Number((booking as any).selectedDownpaymentAmount || totalPrice * 0.5);
+    const selectedDP = Number((booking as any).selectedDownpaymentAmount || Number((booking as any).downPaymentPercentage || 50) / 100 * totalPrice);
     const downpaymentRemaining = Number((booking as any).downpaymentRemaining || Math.max(selectedDP - Number((booking as any).downpaymentPaid || 0), 0));
     const isSettlingBalance =
       !isOfficeRental &&
@@ -1049,7 +1054,7 @@ function TransactionsContent() {
     const isOfficeRemainingPayment =
       isOfficeRental && currentAmountPaid > 0 && remainingBalance > 0;
     const officeReservationFee = getOfficeReservationFee(booking) || totalPrice;
-    const downpaymentAmount = totalPrice * 0.5;
+    const downpaymentAmount = Number((booking as any).downPaymentPercentage || 50) / 100 * totalPrice;
     const isCompletingDownpayment = paymentStage === "complete downpayment" || (isSettlingBalance && downpaymentRemaining > 0);
     const amountToPay = isOfficeRental
       ? (currentAmountPaid > 0 ? remainingBalance : officeReservationFee)

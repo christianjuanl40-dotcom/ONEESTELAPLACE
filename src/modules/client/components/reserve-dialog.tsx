@@ -405,6 +405,8 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
   const [category, setCategory] = useState<'venue' | 'office' | null>(null)
   const [selectedItem, setSelectedItem] = useState<any>(null)
   const [selectedRoom, setSelectedRoom] = useState<number | null>(null) 
+  const [roomPage, setRoomPage] = useState(1)
+  const ROOMS_PER_PAGE = 8
   
   const minBookableDate = useMemo(() => {
     const d = new Date();
@@ -468,11 +470,8 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
 
 
   function getOfficeRoomIds(venueId: string): string[] {
-    if (venueId === "office-a") {
-      return Array.from({ length: 8 }, (_, i) => `o${i + 1}`)
-    }
-    if (venueId === "office-b") {
-      return Array.from({ length: 8 }, (_, i) => `o${i + 9}`)
+    if (selectedItem?.rooms && Array.isArray(selectedItem.rooms)) {
+      return selectedItem.rooms.filter((r: any) => !r.isArchived).map((r: any) => r.id)
     }
     return []
   }
@@ -551,7 +550,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
   }, [isOpen]);
 
   const resetState = () => {
-    setStep('category'); setCategory(null); setSelectedItem(null); setSelectedRoom(null);
+    setStep('category'); setCategory(null); setSelectedItem(null); setSelectedRoom(null); setRoomPage(1);
     setSelectedDate(null); setSelectedDuration(null);
     setEventName(""); setEventType(""); setCustomEventType(""); setGuests(""); setNotes(""); setAgreed(false);
     setPendingBookingPayload(null); setIsBookingConfirmOpen(false); setIsSubmitting(false);
@@ -840,6 +839,10 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
       remainingBalance: isOfficeBooking ? 0 : selectedItem.price,
       remainingBalancePaid: false,
       totalPrice: selectedItem.price,
+      downPaymentPercentage: (selectedItem as any).downPaymentPercentage ?? 50,
+      downPaymentAmount: (selectedItem as any).downPaymentPercentage
+        ? selectedItem.price * ((selectedItem as any).downPaymentPercentage / 100)
+        : selectedItem.price * 0.5,
       specialRequests: notes.trim(),
       userInfo: {
         name: user.name || "Client",
@@ -1009,28 +1012,62 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
     )
   }
 
-  const renderRoomSelect = () => (
-    <div className="flex-1 overflow-y-auto p-6 xl:p-8 flex flex-col justify-center bg-slate-50 min-h-0">
-      <div className="max-w-3xl xl:max-w-3xl mx-auto w-full text-center pb-8 pb-[env(safe-area-inset-bottom)]">
+  const renderRoomSelect = () => {
+    const officeRooms = (selectedItem?.rooms && Array.isArray(selectedItem.rooms))
+      ? selectedItem.rooms.filter((r: any) => !r.isArchived)
+      : []
+    const totalPages = Math.max(1, Math.ceil(officeRooms.length / ROOMS_PER_PAGE))
+    const safePage = Math.min(roomPage, totalPages)
+    const startIdx = (safePage - 1) * ROOMS_PER_PAGE
+    const pageRooms = officeRooms.slice(startIdx, startIdx + ROOMS_PER_PAGE)
+    return (
+    <div className="flex-1 p-6 xl:p-8 flex flex-col bg-slate-50 min-h-0">
+      <div className="max-w-3xl xl:max-w-3xl mx-auto w-full text-center flex-1 flex flex-col">
         <div className="w-16 h-16 xl:w-12 xl:h-12 bg-orange-50 text-[#ea580c] rounded-full flex items-center justify-center mx-auto mb-6 xl:mb-4"><DoorOpen className="w-8 h-8 xl:w-6 xl:h-6" /></div>
         <h2 className="text-2xl md:text-3xl xl:text-2xl font-black text-slate-900 tracking-tight mb-3 xl:mb-2">{selectedItem?.name} Rooms</h2>
         <p className="text-slate-500 mb-8 xl:mb-6 text-sm xl:text-xs max-w-xl mx-auto">Choose an available private room in this wing. All rooms share the same layout and premium amenities.</p>
         
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 xl:gap-4">
-          {Array.from({ length: 8 }, (_, i) => i + 1).map((roomNum) => {
-            const isBooked = occupiedRoomNums.has(roomNum);
-            return (
-              <button aria-label={`Select Room ${roomNum}`} key={roomNum} disabled={isBooked} onClick={() => { setSelectedRoom(roomNum); setStep('schedule') }}
-                className={`p-6 xl:p-6 rounded-[1.5rem] xl:rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-2 min-h-[120px] xl:min-h-[100px] focus-visible:ring-2 focus-visible:ring-orange-300 outline-none ${isBooked ? 'opacity-40 grayscale cursor-not-allowed bg-slate-50 border-slate-200' : 'bg-white hover:border-[#ea580c] hover:shadow-md border-slate-100 shadow-sm'}`}>
-                <div className="text-3xl xl:text-2xl font-black text-slate-900">0{roomNum}</div>
-                <div className={`text-[10px] xl:text-[9px] font-bold uppercase tracking-[0.2em] ${isBooked ? 'text-rose-500' : 'text-emerald-500'}`}>{isBooked ? 'Booked' : 'Available'}</div>
-              </button>
-            )
-          })}
-        </div>
+        {officeRooms.length === 0 ? (
+          <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-white p-8 text-center">
+            <DoorOpen className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+            <p className="text-sm font-semibold text-slate-500">No rooms available</p>
+            <p className="text-xs text-slate-400 mt-1">Please contact admin to add rooms.</p>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 xl:gap-4">
+              {pageRooms.map((room: any, idx: number) => {
+                const roomNum = startIdx + idx + 1
+                const isBooked = occupiedRoomNums.has(roomNum);
+                return (
+                  <button aria-label={`Select ${room.name}`} key={room.id} disabled={isBooked} onClick={() => { setSelectedRoom(roomNum); setStep('schedule') }}
+                    className={`p-6 xl:p-6 rounded-[1.5rem] xl:rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-2 min-h-[120px] xl:min-h-[100px] focus-visible:ring-2 focus-visible:ring-orange-300 outline-none ${isBooked ? 'opacity-40 grayscale cursor-not-allowed bg-slate-50 border-slate-200' : 'bg-white hover:border-[#ea580c] hover:shadow-md border-slate-100 shadow-sm'}`}>
+                    <div className="text-3xl xl:text-2xl font-black text-slate-900">{roomNum < 10 ? `0${roomNum}` : roomNum}</div>
+                    <div className={`text-[10px] xl:text-[9px] font-bold uppercase tracking-[0.2em] ${isBooked ? 'text-rose-500' : 'text-emerald-500'}`}>{isBooked ? 'Booked' : 'Available'}</div>
+                  </button>
+                )
+              })}
+            </div>
+
+            {totalPages > 1 && (
+              <div className="mt-8 flex items-center justify-center gap-4">
+                <button type="button" disabled={safePage <= 1} onClick={() => setRoomPage(safePage - 1)}
+                  className={`h-9 px-4 rounded-lg text-xs font-bold transition-colors ${safePage <= 1 ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm'}`}>
+                  ← Previous
+                </button>
+                <span className="text-xs font-bold text-slate-500">{safePage} / {totalPages}</span>
+                <button type="button" disabled={safePage >= totalPages} onClick={() => setRoomPage(safePage + 1)}
+                  className={`h-9 px-4 rounded-lg text-xs font-bold transition-colors ${safePage >= totalPages ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm'}`}>
+                  Next →
+                </button>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
     )
+  }
 
   const renderSchedule = () => {
     const year = calendarMonth.getFullYear();

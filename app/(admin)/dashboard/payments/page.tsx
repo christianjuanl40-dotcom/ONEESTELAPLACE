@@ -795,7 +795,7 @@ function PaymentReviewModal({
   const amountPaid = getAmountPaid(payment)
   const transactionAmount = getSafePrice(payment.pendingPaymentAmount || payment.paymentAmount || amountPaid)
   const remainingBalance = Math.max(totalAmount - amountPaid, 0)
-  const dpTarget = getSafePrice(payment.selectedDownpaymentAmount) || (payment.paymentType === "downpayment" ? totalAmount * 0.5 : 0)
+  const dpTarget = getSafePrice(payment.selectedDownpaymentAmount) || (payment.paymentType === "downpayment" ? totalAmount * (Number(payment.downPaymentPercentage || 50) / 100) : 0)
   const acceptedDPPaid = getSafePrice(payment.downpaymentPaid)
   const thisSubmission = getSafePrice(payment.pendingPaymentAmount || payment.paymentAmount)
   const isActionable = isForReviewPayment(payment)
@@ -1214,7 +1214,7 @@ function getBankReferenceNumber(payment: BookingRecord) {
 
 function getPaymentTypeLabel(type?: string) {
   if (type === "full") return "Full Payment"
-  if (type === "downpayment") return "50% Downpayment"
+  if (type === "downpayment") return "Downpayment"
   if (type === "slot_reservation") return "Slot Reservation Only"
   return "Payment Type"
 }
@@ -1390,25 +1390,30 @@ function buildVerifiedPaymentBooking(booking: BookingRecord) {
   const currentAmountPaid = getSafePrice(booking.amountPaid)
   const currentDownpaymentPaid = getSafePrice(booking.downpaymentPaid)
   const newAmountPaid = currentAmountPaid + paymentAmount
-  const selectedDP = getSafePrice(booking.selectedDownpaymentAmount) || (isDownpayment ? totalAmount * 0.5 : 0)
+  const selectedDP = getSafePrice(booking.selectedDownpaymentAmount) || (isDownpayment ? totalAmount * (Number(booking.downPaymentPercentage || 50) / 100) : 0)
 
   if (office) {
     const officeNewPaid = currentAmountPaid + paymentAmount
+    const officeFullyPaid = officeNewPaid >= totalAmount
     return {
       ...booking,
-      status: "reservation_secured",
-      bookingStatus: "Slot Secured",
-      paymentStatus: "slot_verified",
-      isSlotSecured: true,
+      status: officeFullyPaid ? "reservation_secured" : "verifying",
+      bookingStatus: officeFullyPaid ? "Slot Secured" : "Pending Verification",
+      paymentStatus: officeFullyPaid ? "slot_verified" : "partial",
+      isSlotSecured: officeFullyPaid,
       amountPaid: officeNewPaid,
       remainingBalance: Math.max(totalAmount - officeNewPaid, 0),
       paymentVerifiedAt: new Date().toISOString(),
       verifiedAt: new Date().toISOString(),
       verifiedByAdmin: true,
-      contractStatus: "Pending Signature",
+      contractStatus: officeFullyPaid ? "Pending Signature" : undefined,
       hasActivePaymentSubmission: false,
       updatedAt: new Date().toISOString(),
-      adminLogs: appendAdminLog(booking, "PAYMENT_VERIFIED", "Admin verified the office slot reservation payment. Succeeding payments are onsite check payments."),
+      adminLogs: appendAdminLog(booking, "PAYMENT_VERIFIED",
+        officeFullyPaid
+          ? "Admin verified the office slot reservation payment. Succeeding payments are onsite check payments."
+          : `Admin verified office payment. Remaining reservation fee: ₱${Math.max(totalAmount - officeNewPaid, 0).toLocaleString()}.`
+      ),
     }
   }
 
@@ -1547,7 +1552,7 @@ function buildIncompletePaymentBooking(booking: BookingRecord, note: string, ver
   const isDownpayment = String(booking.paymentType || "").toLowerCase() === "downpayment"
   const currentDpPaid = getAmountValue(booking.downpaymentPaid)
   const newDpPaid = isDownpayment && verifiedAmount ? currentDpPaid + verifiedAmount : currentDpPaid
-  const selectedDP = getAmountValue(booking.selectedDownpaymentAmount) || (isDownpayment ? total * 0.5 : 0)
+  const selectedDP = getAmountValue(booking.selectedDownpaymentAmount) || (isDownpayment ? total * (Number(booking.downPaymentPercentage || 50) / 100) : 0)
   const newDPRemaining = isDownpayment ? Math.max(selectedDP - newDpPaid, 0) : 0
 
   return {
@@ -1627,11 +1632,9 @@ function IncompletePaymentModal({
   const totalAmount = getAmountValue(
     (booking as any).totalAmount || booking.totalPrice || (booking as any).amount || (booking as any).price
   )
-  const selectedDP = getAmountValue(booking.selectedDownpaymentAmount) || (isDownpayment ? totalAmount * 0.5 : 0)
-  const expectedAmount = office
-    ? getAmountValue((booking as any).expectedAmount || (booking as any).paymentAmount || (booking as any).amount || (booking as any).amountPaid || totalAmount)
-    : isDownpayment ? selectedDP : totalAmount
+  const selectedDP = getAmountValue(booking.selectedDownpaymentAmount) || (isDownpayment ? totalAmount * (Number(booking.downPaymentPercentage || 50) / 100) : 0)
   const currentAmountPaid = typeof (booking as any).amountPaid === "number" ? (booking as any).amountPaid : 0
+  const expectedAmount = Math.max(totalAmount - currentAmountPaid, 0)
   const currentDownpaymentPaid = getAmountValue(booking.downpaymentPaid)
   const enteredAmount = getAmountValue(verifiedAmount)
   const newAmountPaid = currentAmountPaid + enteredAmount
@@ -1752,7 +1755,7 @@ function IncompletePaymentModal({
                     </p>
                   ) : isEqualOrOver ? (
                     <p className="mt-1.5 text-[11px] font-semibold text-rose-600">
-                      Amount equals or exceeds the expected amount. Use Verify Payment instead.
+                      Amount received cannot exceed the remaining balance of ₱{expectedAmount.toLocaleString()}.
                     </p>
                   ) : (
                     <p className="mt-1.5 text-[11px] font-semibold text-amber-700">
@@ -1873,8 +1876,10 @@ function OnsiteVerifyModal({
 
   useEffect(() => {
     if (booking) {
-      const defaultAmount = getAmountValue((booking as any).paymentAmount || (booking as any).pendingPaymentAmount || 0)
-      setAmountReceived(defaultAmount > 0 ? String(defaultAmount) : "")
+      const totalAmt = getAmountValue(booking.totalAmount || booking.totalPrice || booking.amount || booking.price)
+      const paidAmt = typeof booking.amountPaid === "number" ? booking.amountPaid : 0
+      const remaining = Math.max(totalAmt - paidAmt, 0)
+      setAmountReceived(remaining > 0 ? String(remaining) : "")
       setAdminNote("")
       setConfirmStep(false)
     }
@@ -1884,12 +1889,14 @@ function OnsiteVerifyModal({
 
   const totalAmount = getAmountValue(booking.totalAmount || booking.totalPrice || booking.amount || booking.price)
   const currentAmountPaid = typeof booking.amountPaid === "number" ? booking.amountPaid : 0
+  const remainingBefore = Math.max(totalAmount - currentAmountPaid, 0)
   const enteredAmount = getAmountValue(amountReceived)
   const newAmountPaid = currentAmountPaid + enteredAmount
   const newRemainingBalance = Math.max(totalAmount - newAmountPaid, 0)
+  const isOverPayment = enteredAmount > remainingBefore
   const isDownpayment = String(booking.paymentType || "").toLowerCase() === "downpayment"
   const currentDownpaymentPaid = getAmountValue(booking.downpaymentPaid)
-  const selectedDP = getAmountValue(booking.selectedDownpaymentAmount) || (isDownpayment ? totalAmount * 0.5 : 0)
+  const selectedDP = getAmountValue(booking.selectedDownpaymentAmount) || (isDownpayment ? totalAmount * (Number(booking.downPaymentPercentage || 50) / 100) : 0)
 
   const isFullyPaidAfter = newAmountPaid >= totalAmount
 
@@ -1897,15 +1904,20 @@ function OnsiteVerifyModal({
     if (enteredAmount <= 0) return
 
     const office = isOfficeRental(booking)
-    const nextStatus = office ? "reservation_secured" : "confirmed"
+    const nextStatus = office
+      ? (isFullyPaidAfter ? "reservation_secured" : "verifying")
+      : "confirmed"
+    const nextBookingStatus = office
+      ? (isFullyPaidAfter ? "Slot Secured" : "Pending Verification")
+      : "Confirmed"
     const newDownpaymentPaid = currentDownpaymentPaid + enteredAmount
     const newDPRemaining = isDownpayment ? Math.max(selectedDP - newDownpaymentPaid, 0) : 0
 
     const updatedBooking: BookingRecord = {
       ...booking,
       status: nextStatus,
-      bookingStatus: office ? "Slot Secured" : "Confirmed",
-      isSlotSecured: true,
+      bookingStatus: nextBookingStatus,
+      isSlotSecured: office ? isFullyPaidAfter : true,
       amountPaid: newAmountPaid,
       downpaymentPaid: isDownpayment ? newDownpaymentPaid : 0,
       downpaymentRemaining: newDPRemaining,
@@ -1986,7 +1998,11 @@ function OnsiteVerifyModal({
                     placeholder="Enter amount received"
                     className="h-10 rounded-xl border-slate-200 text-xs font-bold focus-visible:ring-emerald-600"
                   />
-                  {enteredAmount > 0 && (
+                  {isOverPayment ? (
+                    <p className="mt-1.5 text-[11px] font-semibold text-rose-600">
+                      Amount received cannot exceed the remaining balance of ₱{remainingBefore.toLocaleString()}.
+                    </p>
+                  ) : enteredAmount > 0 && (
                     <p className="mt-1.5 text-[11px] font-semibold text-emerald-700">
                       Remaining balance after this: ₱{newRemainingBalance.toLocaleString()}
                     </p>
@@ -2015,7 +2031,7 @@ function OnsiteVerifyModal({
                   Cancel
                 </Button>
                 <Button
-                  disabled={enteredAmount <= 0}
+                  disabled={enteredAmount <= 0 || isOverPayment}
                   onClick={() => setConfirmStep(true)}
                   className="h-11 w-full sm:w-auto rounded-xl bg-emerald-600 text-sm font-black text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
