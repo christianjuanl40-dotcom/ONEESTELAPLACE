@@ -198,5 +198,5 @@ export function getCurrentBooking<T extends {
       new Date(String(b.createdAt || 0)).getTime() - new Date(String(a.createdAt || 0)).getTime(),
   )
   const active = sorted.filter(isActiveBooking)
-  return active.length > 0 ? active[0] : sorted[0] || null
+  return active.length > 0 ? active[0] : null
 }

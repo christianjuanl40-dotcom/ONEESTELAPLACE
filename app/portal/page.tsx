@@ -552,8 +552,10 @@ export default function ClientDashboardPage() {
                   otherBookings.map((booking) => {
                     const isOffice = isOfficeBooking(booking)
                     const officeStatus = isOffice ? getOfficeStatusDisplay(booking) : null
+                    const normStatus = String(booking.status || "").toLowerCase()
+                    const isTerminal = ["cancelled", "completed", "declined", "rental_expired"].includes(normStatus)
                     return (
-                      <Link href="/portal/bookings" key={booking.id} className="p-4 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors group">
+                      <Link href={`/portal/bookings?bookingId=${booking.id}${isTerminal ? '&history=true' : ''}`} key={booking.id} className="p-4 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors group">
                         <div className="flex-1 min-w-0">
                           <h4 className="font-bold text-sm text-slate-900 truncate group-hover:text-orange-600 min-w-0">
                             {booking.eventName || "Untitled"}
@@ -569,9 +571,11 @@ export default function ClientDashboardPage() {
                         ) : (
                           <Badge variant="outline" className={cn(
                             "text-[9px] font-black uppercase px-2.5 py-1 rounded-full shadow-none whitespace-nowrap",
-                            booking.status === "pending" || booking.status === "verifying" ? "text-orange-600 border-orange-100 bg-orange-50" :
-                            booking.status === "confirmed" ? "text-emerald-600 border-emerald-100 bg-emerald-50" :
-                            booking.status === "completed" ? "text-blue-600 border-blue-100 bg-blue-50" :
+                            ["confirmed", "reservation_secured", "active_rental"].includes(String(booking.status || "").toLowerCase()) ? "text-emerald-600 border-emerald-100 bg-emerald-50" :
+                            ["completed", "complete"].includes(String(booking.status || "").toLowerCase()) ? "text-blue-600 border-blue-100 bg-blue-50" :
+                            ["pending", "verifying"].includes(String(booking.status || "").toLowerCase()) ? "text-orange-600 border-orange-100 bg-orange-50" :
+                            String(booking.status || "").toLowerCase() === "contract_signing_required" ? "text-yellow-600 border-yellow-100 bg-yellow-50" :
+                            ["cancelled", "declined", "rental_expired"].includes(String(booking.status || "").toLowerCase()) ? "text-rose-600 border-rose-100 bg-rose-50" :
                             "text-slate-600 border-slate-200 bg-slate-50"
                           )}>
                             {String(booking.status || "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
@@ -599,22 +603,52 @@ export default function ClientDashboardPage() {
                     <p className="text-xs text-slate-500">No payments yet.</p>
                   </div>
                 ) : (
-                  recentPayments.map((payment) => (
-                    <div key={payment.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-bold text-sm text-slate-900">
-                          ₱{Number((payment as any).amountPaid || 0).toLocaleString()}
-                        </h4>
-                        <p className="text-[11px] text-slate-500 truncate mt-0.5">{payment.eventName || "Payment"}</p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <Badge variant="outline" className="text-[9px] font-black uppercase px-2.5 py-1 rounded-full shadow-none text-emerald-600 border-emerald-100 bg-emerald-50">
-                          Paid
-                        </Badge>
-                        <p className="text-[10px] text-slate-400 mt-1">{formatDate(payment.createdAt)}</p>
-                      </div>
-                    </div>
-                  ))
+                  recentPayments.map((payment) => {
+                    const normStatus = String(payment.status || "").toLowerCase()
+                    const refundStatus = String((payment as any).refundStatus || "").toLowerCase()
+                    let payLabel: string, badgeClass: string
+                    if (refundStatus === "refunded") {
+                      payLabel = "Refunded"
+                      badgeClass = "text-slate-600 border-slate-200 bg-slate-50"
+                    } else if (refundStatus === "requested") {
+                      payLabel = "Refund Requested"
+                      badgeClass = "text-orange-600 border-orange-100 bg-orange-50"
+                    } else if (["cancelled", "declined"].includes(normStatus)) {
+                      payLabel = "Cancelled"
+                      badgeClass = "text-rose-600 border-rose-100 bg-rose-50"
+                    } else if (normStatus === "completed") {
+                      payLabel = "Completed"
+                      badgeClass = "text-blue-600 border-blue-100 bg-blue-50"
+                    } else if (normStatus === "pending") {
+                      payLabel = "Pending"
+                      badgeClass = "text-orange-600 border-orange-100 bg-orange-50"
+                    } else if (normStatus === "verifying") {
+                      payLabel = "For Verification"
+                      badgeClass = "text-amber-600 border-amber-100 bg-amber-50"
+                    } else if (["confirmed", "reservation_secured", "active_rental", "contract_signing_required"].includes(normStatus)) {
+                      payLabel = "Paid"
+                      badgeClass = "text-emerald-600 border-emerald-100 bg-emerald-50"
+                    } else {
+                      payLabel = "Unpaid"
+                      badgeClass = "text-slate-600 border-slate-200 bg-slate-50"
+                    }
+                    return (
+                      <Link href={`/portal/payments?view=${payment.id}`} key={payment.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors group">
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-bold text-sm text-slate-900">
+                            ₱{Number((payment as any).amountPaid || 0).toLocaleString()}
+                          </h4>
+                          <p className="text-[11px] text-slate-500 truncate mt-0.5">{payment.eventName || "Payment"}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <Badge variant="outline" className={cn("text-[9px] font-black uppercase px-2.5 py-1 rounded-full shadow-none", badgeClass)}>
+                            {payLabel}
+                          </Badge>
+                          <p className="text-[10px] text-slate-400 mt-1">{formatDate(payment.createdAt)}</p>
+                        </div>
+                      </Link>
+                    )
+                  })
                 )}
               </div>
             </Card>

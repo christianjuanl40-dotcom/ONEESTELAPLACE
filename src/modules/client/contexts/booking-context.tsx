@@ -74,7 +74,11 @@ export type RefundStatus =
   | "Refund Pending"
   | "Refund Ready for Claiming"
   | "Refund Claimed"
-  | "Not Eligible for Refund";
+  | "Not Eligible for Refund"
+  | "eligible"
+  | "requested"
+  | "refunded"
+  | "not_eligible";
 
 export type ContractStatus =
   | "Not Available"
@@ -220,6 +224,9 @@ export interface Booking {
   refundReadyDate?: string;
   refundClaimedDate?: string;
   refundInstructions?: string;
+  refundAmount?: number;
+  refundRequestedAt?: string;
+  refundedAt?: string;
 
   contractSigningRequired?: boolean;
   contractSigned?: boolean;
@@ -365,6 +372,8 @@ interface BookingContextType {
   declineModification: (id: string, reason: string) => void;
   markRefundReady: (id: string) => void;
   markRefundClaimed: (id: string) => void;
+  requestRefund: (id: string) => void;
+  markAsRefunded: (id: string) => void;
 
   markContractSigned: (id: string, signedBy?: string) => void;
   issueReceipt: (id: string) => void;
@@ -1033,6 +1042,9 @@ function normalizeBookingForNewFields(booking: Booking): Booking {
       return isVerified ? ("Pending Signature" as ContractStatus) : ("Not Available" as ContractStatus);
     })(),
     refundEligible: booking.refundEligible ?? false,
+    refundAmount: booking.refundAmount,
+    refundRequestedAt: booking.refundRequestedAt,
+    refundedAt: booking.refundedAt,
     bookingCategory:
       booking.bookingCategory || (officeBooking ? "office" : "venue"),
     isOfficeRental: booking.isOfficeRental ?? officeBooking,
@@ -1490,6 +1502,13 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     const updatedBookings = bookings.map((booking) => {
       if (booking.id !== id) return booking;
 
+      const eventDate = getBookingEventDate(booking);
+      const daysBefore = calculateDaysBeforeEvent(eventDate);
+      const eligible = daysBefore >= REFUND_ELIGIBLE_DAYS;
+      const paidStatuses = ["verified", "paid", "partial"];
+      const hasVerifiedPayment = paidStatuses.includes(booking.paymentStatus || "");
+      const isEligible = eligible && hasVerifiedPayment;
+
       return {
         ...booking,
         status: "cancelled" as BookingStatus,
@@ -1504,6 +1523,10 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           booking.paymentStatus === "partial"
             ? booking.paymentStatus
             : "cancelled",
+        refundEligible: isEligible,
+        refundStatus: isEligible ? ("eligible" as RefundStatus) : ("not_eligible" as RefundStatus),
+        refundAmount: isEligible ? getSafePrice(booking.totalPrice) : 0,
+        daysBeforeEventAtCancellation: daysBefore,
         lastActivityAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -1561,6 +1584,78 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
 
   const deleteBooking = (id: string) => {
     saveBookings(bookings.filter((booking) => booking.id !== id));
+  };
+
+  const requestRefund = (id: string) => {
+    const booking = bookings.find((b) => b.id === id);
+    if (!booking) return;
+
+    if (booking.refundStatus !== "eligible") {
+      toast({
+        title: "Not Eligible",
+        description: "This booking is not eligible for a refund.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const updatedBookings = bookings.map((b) => {
+      if (b.id !== id) return b;
+      return {
+        ...b,
+        refundStatus: "requested" as RefundStatus,
+        refundRequestedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        adminLogs: makeAdminLog(
+          b,
+          "REFUND_REQUESTED",
+          "Customer requested refund. Please visit the office with valid ID and payment receipt within 7 days.",
+        ),
+      };
+    });
+
+    saveBookings(updatedBookings as Booking[]);
+    toast({
+      title: "Refund Requested",
+      description: "Please visit the One Estela Place Management Office within 7 days with your Official Receipt and Valid Government-issued ID to claim your refund.",
+    });
+  };
+
+  const markAsRefunded = (id: string) => {
+    const booking = bookings.find((b) => b.id === id);
+    if (!booking) return;
+
+    if (booking.refundStatus !== "requested") {
+      toast({
+        title: "Invalid Status",
+        description: "This booking's refund has not been requested yet.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const updatedBookings = bookings.map((b) => {
+      if (b.id !== id) return b;
+      return {
+        ...b,
+        refundStatus: "refunded" as RefundStatus,
+        refundedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        adminLogs: makeAdminLog(
+          b,
+          "REFUND_COMPLETED",
+          "Admin marked refund as completed. Cash refund has been claimed by the customer.",
+        ),
+      };
+    });
+
+    saveBookings(updatedBookings as Booking[]);
+    toast({
+      title: "Refund Completed",
+      description: `Booking ${id} has been marked as refunded.`,
+    });
   };
 
   const getUserBookings = useCallback((userId: string) => {
@@ -1672,7 +1767,8 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         refundEligible: eligible,
         refundMethod: eligible ? ("Cash" as const) : null,
         refundMode: eligible ? ("Cash" as const) : null,
-        refundStatus: eligible ? ("Refund Eligible" as RefundStatus) : ("Non-Refundable" as RefundStatus),
+        refundStatus: eligible ? ("eligible" as RefundStatus) : ("not_eligible" as RefundStatus),
+        refundAmount: eligible ? getSafePrice(booking.totalPrice) : 0,
         refundReadyDate: eligible ? readyDate : null,
         refundEligibilityNote: eligible
           ? "May be eligible for refund"
@@ -1683,6 +1779,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         refundInstructions: eligible
           ? "Refund may be claimed onsite in cash within the allowed processing period."
           : "No refund will be processed based on the venue cancellation policy.",
+        daysBeforeEventAtCancellation: daysBefore,
         lastActivityAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         adminLogs: makeAdminLog(
@@ -3572,6 +3669,8 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         declineModification,
         markRefundReady,
         markRefundClaimed,
+        requestRefund,
+        markAsRefunded,
         markContractSigned,
         issueReceipt,
         verifyCashPayment,

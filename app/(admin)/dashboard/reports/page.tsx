@@ -242,6 +242,16 @@ export default function ReportsPage() {
     return confirmedBookings.reduce((sum, booking) => sum + getBookingAmount(booking), 0)
   }, [confirmedBookings])
 
+  const totalRefunds = useMemo(() => {
+    return filteredData
+      .filter((booking) => (booking as any).refundStatus === "refunded" && (booking as any).refundAmount)
+      .reduce((sum, booking) => sum + (Number((booking as any).refundAmount) || 0), 0)
+  }, [filteredData])
+
+  const netRevenue = useMemo(() => {
+    return totalRevenue - totalRefunds
+  }, [totalRevenue, totalRefunds])
+
   const monthlyPerformance = useMemo(() => {
     const map = MONTHS.map((month) => ({
       month,
@@ -323,6 +333,8 @@ export default function ReportsPage() {
       "Status",
       "Payment Status",
       "Total Amount",
+      "Refund Status",
+      "Refund Amount",
     ]
 
     const rows = filteredData.map((booking) => [
@@ -334,6 +346,8 @@ export default function ReportsPage() {
       prettifyStatus(booking.status),
       booking.paymentStatus ? prettifyStatus(booking.paymentStatus) : "N/A",
       getBookingAmount(booking),
+      (booking as any).refundStatus || "N/A",
+      (booking as any).refundAmount || "N/A",
     ])
 
     const csvContent = [
@@ -383,7 +397,15 @@ export default function ReportsPage() {
             Records: <b className="text-slate-950">{filteredData.length}</b>
           </span>
           <span>
-            Verified Revenue: <b className="text-orange-600">{formatMoney(totalRevenue)}</b>
+            Gross Revenue: <b className="text-orange-600">{formatMoney(totalRevenue)}</b>
+          </span>
+          {totalRefunds > 0 && (
+            <span>
+              Refunds: <b className="text-red-600">-{formatMoney(totalRefunds)}</b>
+            </span>
+          )}
+          <span>
+            Net Revenue: <b className="text-emerald-600">{formatMoney(netRevenue)}</b>
           </span>
           <span>
             Confirmed: <b className="text-slate-950">{confirmedBookings.length}</b>

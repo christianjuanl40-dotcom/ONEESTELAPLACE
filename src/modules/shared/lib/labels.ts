@@ -55,6 +55,10 @@ export const REFUND_STATUS_LABELS = {
   "Refund Ready for Claiming": "Refund Ready for Claiming",
   "Refund Claimed": "Refund Claimed",
   "Not Eligible for Refund": "Not Eligible for Refund",
+  eligible: "Eligible for Refund",
+  requested: "Refund Requested",
+  refunded: "Refunded",
+  not_eligible: "Not Eligible",
 } as const
 
 export function getPaymentMethodLabel(method?: string): string {

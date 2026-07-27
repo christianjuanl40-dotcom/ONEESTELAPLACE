@@ -249,49 +249,33 @@ function isDateInRange(value: string, from?: string, to?: string) {
   return true;
 }
 
-function getStatusBadgeClass(paymentStatus?: string, status?: string, paymentStage?: string, remainingBalance?: number) {
+function getStatusBadgeClass(paymentStatus?: string, status?: string, paymentStage?: string, remainingBalance?: number, booking?: any) {
   const bookingStatus = String(status || "").toLowerCase();
+  const refundStatus = String(booking?.refundStatus || "").toLowerCase();
+
+  if (refundStatus === "refunded") return "border-slate-200 bg-slate-50 text-slate-700";
+  if (refundStatus === "requested") return "border-orange-100 bg-orange-50 text-orange-700";
   if (["cancelled", "declined"].includes(bookingStatus)) return "border-rose-100 bg-rose-50 text-rose-700";
   if (bookingStatus === "completed") return "border-blue-100 bg-blue-50 text-blue-700";
+  if (bookingStatus === "pending") return "border-orange-100 bg-orange-50 text-orange-700";
+  if (bookingStatus === "verifying") return "border-amber-100 bg-amber-50 text-amber-700";
+  if (["confirmed", "reservation_secured", "active_rental", "contract_signing_required"].includes(bookingStatus)) return "border-emerald-100 bg-emerald-50 text-emerald-700";
   if (bookingStatus === "rental_expired") return "border-red-100 bg-red-50 text-red-700";
 
-  const v = String(paymentStatus || "").toLowerCase();
-  const stage = String(paymentStage || "").toLowerCase();
-  const hasRemaining = typeof remainingBalance === "number" ? remainingBalance > 0 : false;
-
-  if (hasRemaining && v !== "unpaid" && v !== "rejected" && v !== "for_review" && v !== "cash_pending" && v !== "slot_pending" && v !== "pending_verification") {
-    return "border-amber-100 bg-amber-50 text-amber-700";
-  }
-  if ((stage === "fully paid" || v === "paid") && !hasRemaining) return "border-emerald-100 bg-emerald-50 text-emerald-700";
-  if (["verified", "slot_verified"].includes(v)) return "border-emerald-100 bg-emerald-50 text-emerald-700";
-  if (v === "partial" || stage === "complete downpayment" || stage === "settle remaining balance") return "border-amber-100 bg-amber-50 text-amber-700";
-  if (["for_review", "cash_pending", "slot_pending", "pending_verification", "incomplete"].includes(v)) return "border-amber-100 bg-amber-50 text-amber-700";
-  if (v === "rejected") return "border-rose-100 bg-rose-50 text-rose-700";
   return "border-slate-200 bg-slate-50 text-slate-700";
 }
 
-function getStatusLabel(paymentStatus?: string, _status?: string, paymentStage?: string, remainingBalance?: number) {
-  const stage = String(paymentStage || "").toLowerCase();
+function getStatusLabel(paymentStatus?: string, status?: string, paymentStage?: string, remainingBalance?: number, booking?: any) {
+  const normStatus = String(status || "").toLowerCase();
+  const refundStatus = String(booking?.refundStatus || "").toLowerCase();
 
-  if (stage === "fully paid") return "Fully Paid";
-
-  const hasRemaining = typeof remainingBalance === "number" ? remainingBalance > 0 : true;
-
-  if (!hasRemaining) return "Fully Paid";
-
-  const v = String(paymentStatus || "").toLowerCase();
-
-  if (v === "paid" || v === "verified" || v === "slot_verified") {
-    return hasRemaining ? "Partial Payment" : "Fully Paid";
-  }
-
-  if (["for_review", "cash_pending", "slot_pending", "pending_verification", "incomplete", "partial"].includes(v)) {
-    return "Partial Payment";
-  }
-
-  if (stage === "complete downpayment" || stage === "settle remaining balance") return "Partial Payment";
-
-  if (v && v !== "unpaid" && v !== "rejected" && v !== "cancelled") return "Partial Payment";
+  if (refundStatus === "refunded") return "Refunded";
+  if (refundStatus === "requested") return "Refund Requested";
+  if (["cancelled", "declined"].includes(normStatus)) return "Cancelled";
+  if (normStatus === "completed") return "Completed";
+  if (normStatus === "pending") return "Pending";
+  if (normStatus === "verifying") return "For Verification";
+  if (["confirmed", "reservation_secured", "active_rental", "contract_signing_required"].includes(normStatus)) return "Paid";
 
   return "Unpaid";
 }
@@ -547,10 +531,10 @@ function CurrentTransactionCard({
           <span
             className={cn(
               "inline-flex w-full items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap sm:w-auto",
-              getStatusBadgeClass(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance),
+              getStatusBadgeClass(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance, booking),
             )}
           >
-            {getStatusLabel(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance)}
+            {getStatusLabel(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance, booking)}
           </span>
           <div className="flex flex-col items-stretch gap-2 w-full sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-2">
             {hasPaymentRecord(booking) && !showSettleAction && paymentStatus !== "unpaid" && (
@@ -662,10 +646,10 @@ function HistoryRow({
           <span
             className={cn(
               "inline-flex w-full items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap sm:w-auto",
-              getStatusBadgeClass(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance),
+              getStatusBadgeClass(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance, booking),
             )}
           >
-            {getStatusLabel(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance)}
+            {getStatusLabel(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance, booking)}
           </span>
           {isUnpaid ? (
             <Button
@@ -794,6 +778,7 @@ function TransactionsContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const urlBookingId = searchParams.get("bookingId");
+  const urlViewId = searchParams.get("view");
 
   const { toast } = useToast();
   const { bookings, submitPayment, cancelBooking } = useBookings();
@@ -826,6 +811,13 @@ function TransactionsContent() {
   useEffect(() => {
     if (urlBookingId) setSelectedBookingToPay(urlBookingId);
   }, [urlBookingId]);
+
+  useEffect(() => {
+    if (urlViewId && localBookings.length > 0) {
+      const found = localBookings.find((b) => b.id === urlViewId);
+      if (found) setViewingReceipt(found);
+    }
+  }, [urlViewId, localBookings]);
 
   useEffect(() => {
     setLocalBookings(bookings || []);
@@ -1936,10 +1928,10 @@ function TransactionsContent() {
                           <span
                             className={cn(
                               "inline-flex w-full items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap sm:w-auto",
-                  getStatusBadgeClass(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance),
-                            )}
-                          >
-                            {getStatusLabel(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance)}
+              getStatusBadgeClass(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance),
+            )}
+          >
+            {getStatusLabel(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance, booking)}
                           </span>
                           <div className="flex flex-col items-stretch gap-2 w-full sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-2">
                             {hasPaymentRecord(booking) && !showSettleAction && _paymentStatus !== "unpaid" && (
@@ -1981,20 +1973,20 @@ function TransactionsContent() {
           showCloseButton={false}
           className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] overflow-y-auto rounded-3xl bg-white shadow-2xl">
           <div className="flex h-full min-h-0 flex-col overflow-hidden">
-            <div className="shrink-0 border-b border-slate-100 px-5 py-4">
+            <div className="shrink-0 border-b border-slate-100 px-5 py-5">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <DialogTitle className="text-lg font-black text-slate-900">
+                  <DialogTitle className="text-2xl font-black text-slate-900">
                     Transaction Details
                   </DialogTitle>
-                  <p className="mt-0.5 break-words text-[11px] font-bold text-slate-500">
+                  <p className="mt-1 break-words text-sm font-black text-slate-900">
                     {viewingReceipt?.id}
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setViewingReceipt(null)}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-900 transition hover:bg-slate-100"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -2235,17 +2227,17 @@ function ReceiptDetails({
           <h2 className="text-xl font-black leading-tight text-slate-900">
             E-Receipt Not Generated Yet
           </h2>
-          <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+          <p className="mt-1 text-sm font-bold leading-6 text-slate-900">
             The system will automatically generate your e-receipt after admin
             verifies your payment.
           </p>
         </div>
         <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 sm:p-6 text-center">
           <Receipt className="mx-auto mb-3 h-10 w-10 text-slate-300" />
-          <p className="text-sm font-black text-slate-700">
+          <p className="text-sm font-black text-slate-900">
             No system-generated receipt yet.
           </p>
-          <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+          <p className="mt-1 text-sm font-bold text-slate-900">
             Booking ID: {booking.id}
           </p>
         </div>

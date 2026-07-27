@@ -228,6 +228,7 @@ export default function AdminBookingsPage() {
     approveCancellation,
     declineCancellation,
     updateBookingStatus,
+    markAsRefunded,
   } = bookingCtx || {}
   const [searchQuery, setSearchQuery] = useState("")
 
@@ -465,6 +466,7 @@ export default function AdminBookingsPage() {
               setShowDeclineModificationModal(true)
             }
           }}
+          onMarkAsRefunded={markAsRefunded}
         />
 
         <ApproveCancellationConfirmModal
@@ -764,6 +766,7 @@ function BookingDetailsModal({
   onContinueBooking,
   onApproveModification,
   onDeclineModification,
+  onMarkAsRefunded,
 }: {
   booking: Booking | null
   open: boolean
@@ -776,6 +779,7 @@ function BookingDetailsModal({
   onContinueBooking?: (id: string) => void
   onApproveModification?: (id: string) => void
   onDeclineModification?: (id: string) => void
+  onMarkAsRefunded?: (id: string) => void
 }) {
   const { bookings } = useBookings()
   const router = useRouter()
@@ -784,6 +788,8 @@ function BookingDetailsModal({
     if (!propBooking) return null
     return bookings.find((b) => b.id === propBooking.id) || propBooking
   }, [bookings, propBooking?.id])
+
+  const { toast } = useToast()
 
   if (!booking) return null
 
@@ -886,13 +892,13 @@ function BookingDetailsModal({
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <header className="shrink-0 flex items-start justify-between gap-4 border-b border-slate-100 bg-white px-5 py-5">
           <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-600">
               Booking Details
             </p>
-            <DialogTitle className="mt-1.5 break-words text-xl font-black text-slate-900">
+            <DialogTitle className="mt-1.5 break-words text-2xl font-black text-slate-900">
               {booking.eventName || "Untitled Booking"}
             </DialogTitle>
-            <p className="mt-1 text-xs font-bold text-slate-500">
+            <p className="mt-1 text-sm font-bold text-slate-500">
               {typeLabel} <span className="mx-1.5 text-slate-300">·</span> #{booking.id}
             </p>
           </div>
@@ -908,106 +914,245 @@ function BookingDetailsModal({
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
-          <div className="mb-5 flex flex-wrap items-center gap-2">
-            <span
-              className={cn(
-                "inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em]",
-                getStatusBadgeClass(booking.status),
-              )}
-            >
-              {getStatusLabel(booking.status)}
-            </span>
-            <span
-              className={cn(
-                "inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em]",
-                getPaymentBadgeClass(booking.paymentStatus, booking.status),
-              )}
-            >
-              {getPaymentStatusLabel(booking.paymentStatus, booking.status)}
-            </span>
-            {booking.cancellationStatus && booking.cancellationStatus !== "None" && (
-              <>
-                <span className="inline-flex items-center rounded-md border border-amber-100 bg-amber-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-amber-700">
-                  Cancel: {booking.cancellationStatus}
-                </span>
-                {amountPaid > 0 && booking.refundStatus && (
-                  <span className="inline-flex items-center rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-blue-700">
-                    Refund: {booking.refundStatus}
-                  </span>
+          {!isCancelled && (
+            <div className="mb-5 flex flex-wrap items-center gap-2">
+              <span
+                className={cn(
+                  "inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em]",
+                  getStatusBadgeClass(booking.status),
                 )}
-                {amountPaid <= 0 && (
-                  <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
-                    No Payment Made
-                  </span>
+              >
+                {getStatusLabel(booking.status)}
+              </span>
+              <span
+                className={cn(
+                  "inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em]",
+                  getPaymentBadgeClass(booking.paymentStatus, booking.status),
                 )}
-              </>
-            )}
-          </div>
+              >
+                {getPaymentStatusLabel(booking.paymentStatus, booking.status)}
+              </span>
+              {booking.cancellationStatus && booking.cancellationStatus !== "None" && (
+                <>
+                  <span className="inline-flex items-center rounded-md border border-amber-100 bg-amber-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-amber-700">
+                    Cancel: {booking.cancellationStatus}
+                  </span>
+                  {amountPaid > 0 && booking.refundStatus && (
+                    <span className={cn(
+                      "inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em]",
+                      booking.refundStatus === "eligible"
+                        ? "border-yellow-200 bg-yellow-50 text-yellow-700"
+                        : booking.refundStatus === "requested"
+                          ? "border-blue-200 bg-blue-50 text-blue-700"
+                          : booking.refundStatus === "refunded"
+                            ? "border-slate-200 bg-slate-50 text-slate-600"
+                            : booking.refundStatus === "not_eligible"
+                              ? "border-red-200 bg-red-50 text-red-700"
+                              : "border-blue-100 bg-blue-50 text-blue-700"
+                    )}>
+                      Refund: {booking.refundStatus === "eligible"
+                        ? "Eligible for Refund"
+                        : booking.refundStatus === "requested"
+                          ? "Refund Requested"
+                          : booking.refundStatus === "refunded"
+                            ? "Refunded"
+                            : booking.refundStatus === "not_eligible"
+                              ? "Not Eligible"
+                              : booking.refundStatus}
+                    </span>
+                  )}
+                  {amountPaid <= 0 && (
+                    <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                      No Payment Made
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
-          <div className="divide-y divide-slate-100">
+          {isCancelled && (
+            <div className="space-y-5">
+              {(booking.cancellationStatus && booking.cancellationStatus !== "None") && (
+                <section>
+                  <div className="mb-4 flex items-center gap-2">
+                    <div className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+                    <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Cancellation Details</p>
+                  </div>
+                  <div className="space-y-3 text-sm font-bold text-slate-700">
+                    <div className="flex justify-between">
+                      <span className="text-sm font-bold text-slate-900">Cancellation Status</span>
+                      <span className="text-sm font-black text-slate-900">{booking.cancellationStatus || (booking as any).cancelRequestStatus || "Approved"}</span>
+                    </div>
+                    {(booking.cancellationReason || (booking as any).cancelReason) && (
+                      <div className="flex justify-between">
+                        <span className="text-sm font-bold text-slate-900">Cancellation Reason</span>
+                        <span className="text-sm font-black text-slate-900 max-w-[60%] text-right">{booking.cancellationReason || (booking as any).cancelReason}</span>
+                      </div>
+                    )}
+                    {(booking.cancellationReviewedAt || booking.cancellationRequestedAt || (booking as any).cancelRequestedAt || (booking as any).cancelledAt) && (
+                      <div className="flex justify-between">
+                        <span className="text-sm font-bold text-slate-900">Cancellation Date</span>
+                        <span className="text-sm font-black text-slate-900">{formatDate(booking.cancellationReviewedAt || booking.cancellationRequestedAt || (booking as any).cancelRequestedAt || (booking as any).cancelledAt)}</span>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
+
+              <section>
+                <div className="mb-4 flex items-center gap-2">
+                  <div className="h-1.5 w-1.5 rounded-full bg-blue-400" />
+                  <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Refund Details</p>
+                </div>
+                <div className="space-y-3 text-sm font-bold text-slate-700">
+                  <div className="flex justify-between">
+                    <span className="text-sm font-bold text-slate-900">Refund Eligibility</span>
+                    <span className="text-sm font-black text-slate-900">
+                      {amountPaid > 0
+                        ? booking.refundStatus === "eligible"
+                          ? "Eligible for Refund"
+                          : booking.refundStatus === "requested"
+                            ? "Refund Requested"
+                            : booking.refundStatus === "refunded"
+                              ? "Refunded"
+                              : booking.refundStatus === "not_eligible"
+                                ? "Not Eligible"
+                                : booking.refundStatus || "Not Applicable"
+                        : "Not Applicable"}
+                    </span>
+                  </div>
+                  {booking.refundEligibilityNote && (
+                    <div className="flex justify-between">
+                      <span className="text-sm font-bold text-slate-900">Eligibility Note</span>
+                      <span className="text-sm font-black text-slate-900">{booking.refundEligibilityNote}</span>
+                    </div>
+                  )}
+                  {booking.daysBeforeEventAtCancellation !== undefined && (
+                    <div className="flex justify-between">
+                      <span className="text-sm font-bold text-slate-900">Days Before Event</span>
+                      <span className="text-sm font-black text-slate-900">{booking.daysBeforeEventAtCancellation} days</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="text-sm font-bold text-slate-900">Refund Status</span>
+                    <span className="text-sm font-black text-slate-900">
+                      {amountPaid > 0
+                        ? booking.refundStatus === "eligible"
+                          ? "Eligible for Refund"
+                          : booking.refundStatus === "requested"
+                            ? "Refund Requested"
+                            : booking.refundStatus === "refunded"
+                              ? "Refunded"
+                              : booking.refundStatus === "not_eligible"
+                                ? "Not Eligible"
+                                : booking.refundStatus || "Not Applicable"
+                        : "No Payment Made"}
+                    </span>
+                  </div>
+                  {booking.refundStatus === "eligible" && booking.refundAmount && booking.refundAmount > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-sm font-bold text-slate-900">Refund Amount</span>
+                      <span className="text-sm font-black text-emerald-600">₱{booking.refundAmount.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {booking.refundClaimNote && (
+                    <div className="mt-2 rounded-lg bg-amber-100/50 px-3 py-2 text-sm font-bold text-amber-800">
+                      {booking.refundClaimNote}
+                    </div>
+                  )}
+                  {booking.refundStatus === "requested" && (
+                    <div className="mt-2 rounded-lg bg-blue-100/50 px-3 py-2 text-sm font-bold text-blue-700">
+                      <p className="font-black text-sm">Customer has requested a refund.</p>
+                      <p className="mt-1 text-sm font-bold">Verify their Official Receipt and Valid Government-issued ID, then mark as refunded.</p>
+                      {booking.refundRequestedAt && (
+                        <p className="mt-1 text-sm font-bold text-blue-500">Requested on: {new Date(booking.refundRequestedAt).toLocaleDateString()}</p>
+                      )}
+                    </div>
+                  )}
+                  {booking.refundStatus === "refunded" && (
+                    <div className="mt-2 rounded-lg bg-slate-100/50 px-3 py-2 text-sm font-bold text-slate-600">
+                      <p className="font-black text-sm">Refund Completed</p>
+                      {booking.refundedAt && (
+                        <p className="mt-1 text-sm font-bold text-slate-400">Completed on: {new Date(booking.refundedAt).toLocaleDateString()}</p>
+                      )}
+                    </div>
+                  )}
+                  {booking.cancellationDeclineReason && (
+                    <div className="mt-2 rounded-lg bg-rose-100/50 px-3 py-2 text-sm font-bold text-rose-700">
+                      Decline Reason: {booking.cancellationDeclineReason}
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+          )}
+          {!isCancelled && (
+          <>
+            <div className="divide-y divide-slate-100">
             <section className="py-5 first:pt-0">
               <div className="mb-4 flex items-center gap-2">
                 <div className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Booking Information</p>
+                <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Booking Information</p>
               </div>
               <div className="space-y-3.5">
                 <div className="min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Customer</p>
-                  <p className="mt-0.5 break-words text-xs font-bold text-slate-800">{booking.userInfo?.name || "—"}</p>
+                  <p className="text-sm font-bold uppercase tracking-[0.1em] text-slate-900">Customer</p>
+                  <p className="mt-0.5 break-words text-sm font-black text-slate-800">{booking.userInfo?.name || "—"}</p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Email</p>
-                  <p className="mt-0.5 break-words text-xs font-bold text-slate-800">{booking.userInfo?.email || "—"}</p>
+                  <p className="text-sm font-bold uppercase tracking-[0.1em] text-slate-900">Email</p>
+                  <p className="mt-0.5 break-words text-sm font-black text-slate-800">{booking.userInfo?.email || "—"}</p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Booking Date</p>
-                  <p className="mt-0.5 break-words text-xs font-bold text-slate-800">{formatDate(booking.createdAt) || "—"}</p>
+                  <p className="text-sm font-bold uppercase tracking-[0.1em] text-slate-900">Booking Date</p>
+                  <p className="mt-0.5 break-words text-sm font-black text-slate-800">{formatDate(booking.createdAt) || "—"}</p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">{isOfficeRental ? "Start Date" : "Event Date"}</p>
-                  <p className="mt-0.5 break-words text-xs font-bold text-slate-800">{startDate || "—"}</p>
+                  <p className="text-sm font-bold uppercase tracking-[0.1em] text-slate-900">{isOfficeRental ? "Start Date" : "Event Date"}</p>
+                  <p className="mt-0.5 break-words text-sm font-black text-slate-800">{startDate || "—"}</p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">End Date</p>
-                  <p className="mt-0.5 break-words text-xs font-bold text-slate-800">{endDate || "—"}</p>
+                  <p className="text-sm font-bold uppercase tracking-[0.1em] text-slate-900">End Date</p>
+                  <p className="mt-0.5 break-words text-sm font-black text-slate-800">{endDate || "—"}</p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue / Office</p>
-                  <p className="mt-0.5 break-words text-xs font-bold text-slate-800">{booking.venue || "—"}</p>
+                  <p className="text-sm font-bold uppercase tracking-[0.1em] text-slate-900">Venue / Office</p>
+                  <p className="mt-0.5 break-words text-sm font-black text-slate-800">{booking.venue || "—"}</p>
                 </div>
                 {isOfficeRental && (
                   <>
                     <div className="min-w-0">
-                      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Company Name</p>
-                      <p className="mt-0.5 break-words text-xs font-bold text-slate-800">{(booking as any).companyName || booking.eventName || "N/A"}</p>
+                      <p className="text-sm font-bold uppercase tracking-[0.1em] text-slate-900">Company Name</p>
+                      <p className="mt-0.5 break-words text-sm font-black text-slate-800">{(booking as any).companyName || booking.eventName || "N/A"}</p>
                     </div>
                     <div className="min-w-0">
-                      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Nature of Business</p>
-                      <p className="mt-0.5 break-words text-xs font-bold text-slate-800">{(booking as any).natureOfBusiness || booking.eventType || "N/A"}</p>
+                      <p className="text-sm font-bold uppercase tracking-[0.1em] text-slate-900">Nature of Business</p>
+                      <p className="mt-0.5 break-words text-sm font-black text-slate-800">{(booking as any).natureOfBusiness || booking.eventType || "N/A"}</p>
                     </div>
                     <div className="min-w-0">
-                      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Rental Term</p>
-                      <p className="mt-0.5 break-words text-xs font-bold text-slate-800">{(booking as any).rentalTerm || (booking as any).contractTerm || (booking as any).officeRentalTerm || "—"}</p>
+                      <p className="text-sm font-bold uppercase tracking-[0.1em] text-slate-900">Rental Term</p>
+                      <p className="mt-0.5 break-words text-sm font-black text-slate-800">{(booking as any).rentalTerm || (booking as any).contractTerm || (booking as any).officeRentalTerm || "—"}</p>
                     </div>
                   </>
                 )}
                 {!isOfficeRental && (
                   <div className="min-w-0">
-                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Guests</p>
-                    <p className="mt-0.5 break-words text-xs font-bold text-slate-800">{booking.guestCount ? `${booking.guestCount} pax` : "—"}</p>
+                    <p className="text-sm font-bold uppercase tracking-[0.1em] text-slate-900">Guests</p>
+                    <p className="mt-0.5 break-words text-sm font-black text-slate-800">{booking.guestCount ? `${booking.guestCount} pax` : "—"}</p>
                   </div>
                 )}
                 <div className="min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Time</p>
-                  <p className="mt-0.5 break-words text-xs font-bold text-slate-800">{timeValue}</p>
+                  <p className="text-sm font-bold uppercase tracking-[0.1em] text-slate-900">Time</p>
+                  <p className="mt-0.5 break-words text-sm font-black text-slate-800">{timeValue}</p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Booking ID</p>
-                  <p className="mt-0.5 break-words text-xs font-bold text-slate-800">#{booking.id}</p>
+                  <p className="text-sm font-bold uppercase tracking-[0.1em] text-slate-900">Booking ID</p>
+                  <p className="mt-0.5 break-words text-sm font-black text-slate-800">#{booking.id}</p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Event Type</p>
-                  <p className="mt-0.5 break-words text-xs font-bold text-slate-800">{typeLabel}</p>
+                  <p className="text-sm font-bold uppercase tracking-[0.1em] text-slate-900">Event Type</p>
+                  <p className="mt-0.5 break-words text-sm font-black text-slate-800">{typeLabel}</p>
                 </div>
               </div>
             </section>
@@ -1021,9 +1166,9 @@ function BookingDetailsModal({
             <section className="py-5 first:pt-0">
               <div className="mb-2 flex items-center gap-2">
                 <div className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Special Requests</p>
+                <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Special Requests</p>
               </div>
-              <p className="text-xs font-semibold leading-relaxed text-slate-700">{booking.specialRequests}</p>
+              <p className="text-sm font-bold leading-relaxed text-slate-700">{booking.specialRequests}</p>
             </section>
           )}
 
@@ -1031,48 +1176,92 @@ function BookingDetailsModal({
             <section className="py-5 first:pt-0">
               <div className="mb-4 flex items-center gap-2">
                 <div className="h-1.5 w-1.5 rounded-full bg-rose-400" />
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Cancellation / Refund Status</p>
+                <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Cancellation / Refund Status</p>
               </div>
-              <div className="space-y-2.5 text-xs font-semibold text-slate-700">
+              <div className="space-y-3 text-sm font-bold text-slate-700">
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Cancellation</span>
-                  <span className="font-bold text-slate-900">{booking.cancellationStatus || (booking as any).cancelRequestStatus || "None"}</span>
+                  <span className="text-sm font-bold text-slate-900">Cancellation</span>
+                  <span className="text-sm font-black text-slate-900">{booking.cancellationStatus || (booking as any).cancelRequestStatus || "None"}</span>
                 </div>
                 {(booking.cancellationReason || (booking as any).cancelReason) && (
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Reason</span>
-                    <span className="font-bold text-slate-900 max-w-[60%] text-right">{booking.cancellationReason || (booking as any).cancelReason}</span>
+                    <span className="text-sm font-bold text-slate-900">Reason</span>
+                    <span className="text-sm font-black text-slate-900 max-w-[60%] text-right">{booking.cancellationReason || (booking as any).cancelReason}</span>
                   </div>
                 )}
                 {(booking.cancellationRequestedAt || (booking as any).cancelRequestedAt) && (
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Request Date</span>
-                    <span className="font-bold text-slate-900">{formatDate(booking.cancellationRequestedAt || (booking as any).cancelRequestedAt)}</span>
+                    <span className="text-sm font-bold text-slate-900">Request Date</span>
+                    <span className="text-sm font-black text-slate-900">{formatDate(booking.cancellationRequestedAt || (booking as any).cancelRequestedAt)}</span>
                   </div>
                 )}
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Refund</span>
-                  <span className="font-bold text-slate-900">{amountPaid > 0 ? (booking.refundStatus || "Not Applicable") : "Not Applicable"}</span>
+                  <span className="text-sm font-bold text-slate-900">Refund</span>
+                  <span className="text-sm font-black text-slate-900">
+                    {amountPaid > 0
+                      ? booking.refundStatus === "eligible"
+                        ? "Eligible for Refund"
+                        : booking.refundStatus === "requested"
+                          ? "Refund Requested"
+                          : booking.refundStatus === "refunded"
+                            ? "Refunded"
+                            : booking.refundStatus === "not_eligible"
+                              ? "Not Eligible"
+                              : booking.refundStatus || "Not Applicable"
+                      : "Not Applicable"}
+                  </span>
                 </div>
+                {booking.refundStatus === "eligible" && booking.refundAmount && booking.refundAmount > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-sm font-bold text-slate-900">Refund Amount</span>
+                    <span className="text-sm font-black text-emerald-600">₱{booking.refundAmount.toLocaleString()}</span>
+                  </div>
+                )}
                 {booking.refundEligibilityNote && (
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Eligibility</span>
-                    <span className="font-bold text-slate-900">{booking.refundEligibilityNote}</span>
+                    <span className="text-sm font-bold text-slate-900">Eligibility</span>
+                    <span className="text-sm font-black text-slate-900">{booking.refundEligibilityNote}</span>
                   </div>
                 )}
                 {booking.daysBeforeEventAtCancellation !== undefined && (
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Days before event</span>
-                    <span className="font-bold text-slate-900">{booking.daysBeforeEventAtCancellation} days</span>
+                    <span className="text-sm font-bold text-slate-900">Days before event</span>
+                    <span className="text-sm font-black text-slate-900">{booking.daysBeforeEventAtCancellation} days</span>
                   </div>
                 )}
                 {booking.refundClaimNote && (
-                  <div className="mt-2 rounded-lg bg-amber-100/50 px-3 py-2 text-[11px] font-semibold text-amber-800">
+                  <div className="mt-2 rounded-lg bg-amber-100/50 px-3 py-2 text-sm font-bold text-amber-800">
                     {booking.refundClaimNote}
                   </div>
                 )}
+                {booking.refundStatus === "requested" && (
+                  <div className="mt-2 rounded-lg bg-blue-100/50 px-3 py-2 text-sm font-bold text-blue-700">
+                    <p className="font-black text-sm">Customer has requested a refund.</p>
+                    <p className="mt-1 text-sm font-bold">Verify their Official Receipt and Valid Government-issued ID, then mark as refunded.</p>
+                    {booking.refundRequestedAt && (
+                      <p className="mt-1 text-sm font-bold text-blue-500">Requested on: {new Date(booking.refundRequestedAt).toLocaleDateString()}</p>
+                    )}
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        if (booking.id && onMarkAsRefunded) onMarkAsRefunded(booking.id)
+                      }}
+                      className="mt-3 w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-slate-800"
+                    >
+                      Mark as Refunded
+                    </Button>
+                  </div>
+                )}
+                {booking.refundStatus === "refunded" && (
+                  <div className="mt-2 rounded-lg bg-slate-100/50 px-3 py-2 text-sm font-bold text-slate-600">
+                    <p className="font-black text-sm">Refund Completed</p>
+                    {booking.refundedAt && (
+                      <p className="mt-1 text-sm font-bold text-slate-400">Completed on: {new Date(booking.refundedAt).toLocaleDateString()}</p>
+                    )}
+                  </div>
+                )}
                 {booking.cancellationDeclineReason && (
-                  <div className="mt-2 rounded-lg bg-rose-100/50 px-3 py-2 text-[11px] font-semibold text-rose-700">
+                  <div className="mt-2 rounded-lg bg-rose-100/50 px-3 py-2 text-sm font-bold text-rose-700">
                     Decline Reason: {booking.cancellationDeclineReason}
                   </div>
                 )}
@@ -1084,21 +1273,21 @@ function BookingDetailsModal({
             <section className="py-5 first:pt-0">
               <div className="mb-4 flex items-center gap-2">
                 <div className="h-1.5 w-1.5 rounded-full bg-blue-400" />
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Modification Status</p>
+                <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Modification Status</p>
               </div>
-              <div className="space-y-2.5 text-xs font-semibold text-slate-700">
+              <div className="space-y-3 text-sm font-bold text-slate-700">
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Status</span>
-                  <span className="font-bold text-slate-900">{booking.modificationStatus}</span>
+                  <span className="text-sm font-bold text-slate-900">Status</span>
+                  <span className="text-sm font-black text-slate-900">{booking.modificationStatus}</span>
                 </div>
                 {booking.modificationReason && (
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Reason</span>
-                    <span className="font-bold text-slate-900">{booking.modificationReason}</span>
+                    <span className="text-sm font-bold text-slate-900">Reason</span>
+                    <span className="text-sm font-black text-slate-900">{booking.modificationReason}</span>
                   </div>
                 )}
                 {booking.modificationDeclineReason && (
-                  <div className="mt-2 rounded-lg bg-rose-100/50 px-3 py-2 text-[11px] font-semibold text-rose-700">
+                  <div className="mt-2 rounded-lg bg-rose-100/50 px-3 py-2 text-sm font-bold text-rose-700">
                     Decline Reason: {booking.modificationDeclineReason}
                   </div>
                 )}
@@ -1110,28 +1299,28 @@ function BookingDetailsModal({
             <section className="py-5 first:pt-0">
               <div className="mb-4 flex items-center gap-2">
                 <FileText className="h-4 w-4 text-slate-500" />
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Contract</p>
+                <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Contract</p>
               </div>
               <div className="space-y-2">
                 <span
                   className={cn(
-                    "inline-block rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em]",
+                    "inline-block rounded-md border px-2.5 py-1 text-xs font-black uppercase tracking-[0.2em]",
                     "border-emerald-100 bg-emerald-50 text-emerald-700",
                   )}
                 >
                   Contract Status: Signed
                 </span>
                 {booking.contractSignedDate && (
-                  <p className="text-xs font-semibold text-slate-700">
+                  <p className="text-sm font-bold text-slate-700">
                     Signed Date: {formatDate(booking.contractSignedDate)}
                   </p>
                 )}
                 {booking.contractSignedBy && (
-                  <p className="text-xs font-semibold text-slate-700">
+                  <p className="text-sm font-bold text-slate-700">
                     Signed By: {booking.contractSignedBy}
                   </p>
                 )}
-                <p className="text-xs font-semibold text-slate-500">
+                <p className="text-sm font-bold text-slate-500">
                   Signing Method: Face-to-face
                 </p>
               </div>
@@ -1152,22 +1341,22 @@ function BookingDetailsModal({
               <section className="py-5 first:pt-0">
                 <div className="mb-4 flex items-center gap-2">
                   <FileText className="h-4 w-4 text-slate-500" />
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Contract</p>
+                  <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Contract</p>
                 </div>
                 <div className="min-w-0 space-y-3">
                   <span
                     className={cn(
-                      "inline-block rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em]",
+                      "inline-block rounded-md border px-2.5 py-1 text-xs font-black uppercase tracking-[0.2em]",
                       "border-orange-100 bg-orange-50 text-orange-700",
                     )}
                   >
                     Contract Status: Pending Signature
                   </span>
                   <div className="space-y-2">
-                    <p className="text-xs font-semibold text-orange-700">
+                    <p className="text-sm font-bold text-orange-700">
                       Contract signing must be completed onsite at the One Estela Place office.
                     </p>
-                    <p className="text-[11px] font-semibold text-slate-500">
+                    <p className="text-sm font-bold text-slate-500">
                       The customer must personally sign the official contract at the One Estela Place office.
                     </p>
                   </div>
@@ -1182,7 +1371,7 @@ function BookingDetailsModal({
                           Mark Contract as Signed
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent side="left" className="text-[10px] font-semibold">
+                      <TooltipContent side="left" className="text-xs font-bold">
                         Confirm contract signing
                       </TooltipContent>
                     </Tooltip>
@@ -1202,17 +1391,17 @@ function BookingDetailsModal({
               <section className="py-5 first:pt-0">
                 <div className="mb-4 flex items-center gap-2">
                   <FileText className="h-4 w-4 text-slate-500" />
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Contract</p>
+                  <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Contract</p>
                 </div>
                 <span
                   className={cn(
-                    "inline-block rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em]",
+                    "inline-block rounded-md border px-2.5 py-1 text-xs font-black uppercase tracking-[0.2em]",
                     "border-slate-200 bg-slate-50 text-slate-600",
                   )}
                 >
                   Contract Status: Not Available
                 </span>
-                <p className="mt-2 text-xs font-semibold text-slate-500">
+                <p className="mt-2 text-sm font-bold text-slate-500">
                   Contract will be available once payment is verified.
                 </p>
               </section>
@@ -1236,30 +1425,30 @@ function BookingDetailsModal({
               <section className="py-5 first:pt-0">
                 <div className="mb-4 flex items-center gap-2">
                   <Calendar className={`h-4 w-4 ${bookingStatus === "active_rental" ? "text-sky-500" : "text-rose-500"}`} />
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Rental Information</p>
+                  <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Rental Information</p>
                 </div>
-                <div className="space-y-2 text-xs font-semibold">
+                <div className="space-y-3 text-sm font-bold">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Start Date</span>
-                    <span className="font-bold text-slate-900">{startDate}</span>
+                    <span className="text-sm font-bold text-slate-900">Start Date</span>
+                    <span className="text-sm font-black text-slate-900">{startDate}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">End Date</span>
-                    <span className="font-bold text-slate-900">{endDate}</span>
+                    <span className="text-sm font-bold text-slate-900">End Date</span>
+                    <span className="text-sm font-black text-slate-900">{endDate}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Contract Duration</span>
-                    <span className="font-bold text-slate-900">{getContractDurationLabel(booking.date, (booking as any).endDate) || "—"}</span>
+                    <span className="text-sm font-bold text-slate-900">Contract Duration</span>
+                    <span className="text-sm font-black text-slate-900">{getContractDurationLabel(booking.date, (booking as any).endDate) || "—"}</span>
                   </div>
                   {bookingStatus === "active_rental" && (
                     <>
                       <div className="flex justify-between">
-                        <span className="text-slate-400">Days Used</span>
-                        <span className="font-bold text-slate-900">{daysUsed} / {totalDays}d</span>
+                        <span className="text-sm font-bold text-slate-900">Days Used</span>
+                        <span className="text-sm font-black text-slate-900">{daysUsed} / {totalDays}d</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-400">Remaining</span>
-                        <span className="font-bold text-sky-600">{remainingDuration()}</span>
+                        <span className="text-sm font-bold text-slate-900">Remaining</span>
+                        <span className="text-sm font-black text-sky-600">{remainingDuration()}</span>
                       </div>
                       <div className="mt-2">
                         <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
@@ -1268,24 +1457,55 @@ function BookingDetailsModal({
                             style={{ width: `${progressPct}%` }}
                           />
                         </div>
-                        <p className="mt-1 text-[10px] font-bold text-slate-400 text-right">{progressPct}% complete</p>
+                        <p className="mt-1 text-sm font-bold text-slate-400 text-right">{progressPct}% complete</p>
                       </div>
                     </>
                   )}
                   {bookingStatus === "rental_expired" && (
                     <div className="flex justify-between">
-                      <span className="text-slate-400">Status</span>
-                      <span className="font-bold text-rose-600">Rental Period Ended</span>
+                      <span className="text-sm font-bold text-slate-900">Status</span>
+                      <span className="text-sm font-black text-rose-600">Rental Period Ended</span>
                     </div>
                   )}
                 </div>
               </section>
             )
           })()}
-        </div>
+          </>
+          )}
 
-        {/* ── Status-Based Action Buttons ── */}
-        {(() => {
+      </div>
+
+      {/* ── Footer (fixed, outside scrollable area) ── */}
+      {isCancelled && (
+        <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-4">
+          {amountPaid > 0 && booking.refundStatus === "requested" && onMarkAsRefunded ? (
+            <Button
+              onClick={() => onMarkAsRefunded(booking.id)}
+              className="h-[52px] w-full rounded-xl bg-slate-900 px-5 text-sm font-black text-white shadow-sm hover:bg-slate-800"
+            >
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+              Mark as Refunded
+            </Button>
+          ) : amountPaid > 0 && booking.refundStatus === "eligible" ? (
+            <p className="text-center text-sm font-bold text-amber-600">
+              Awaiting refund request from customer
+            </p>
+          ) : booking.refundStatus === "refunded" ? (
+            <div className="text-center">
+              <span className="inline-block rounded-md border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-sm font-black uppercase tracking-[0.2em] text-emerald-700">
+                Refund Completed
+              </span>
+            </div>
+          ) : amountPaid <= 0 ? (
+            <p className="text-center text-sm font-bold text-slate-400">
+              No payment made
+            </p>
+          ) : null}
+        </footer>
+      )}
+      {!isCancelled && (
+        (() => {
           const normStatus = normalizeStatus(booking.status)
           const isPencilBooking =
             normStatus === "pending" &&
@@ -1330,10 +1550,10 @@ function BookingDetailsModal({
 
           if (isCancellationRequested && !isCompleted && !isCancelled) {
             return (
-              <div className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
+              <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
                 <div className="rounded-xl bg-amber-50 p-3 text-center mb-4">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-600">Cancellation Under Review</p>
-                  <p className="mt-1 text-xs font-semibold text-amber-700">
+                  <p className="text-sm font-black uppercase tracking-[0.2em] text-amber-600">Cancellation Under Review</p>
+                  <p className="mt-1 text-sm font-bold text-amber-700">
                     The customer has requested to cancel this booking. Please review and take action.
                   </p>
                 </div>
@@ -1358,20 +1578,20 @@ function BookingDetailsModal({
                     </Button>
                   )}
                 </div>
-              </div>
+              </footer>
             )
           }
 
           if (isModificationUnderReview && !isCompleted && !isCancelled) {
             return (
-              <div className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
+              <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
                 <div className="rounded-xl bg-purple-50 p-3 text-center mb-4">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-purple-600">Modification Under Review</p>
-                  <p className="mt-1 text-xs font-semibold text-purple-700">
+                  <p className="text-sm font-black uppercase tracking-[0.2em] text-purple-600">Modification Under Review</p>
+                  <p className="mt-1 text-sm font-bold text-purple-700">
                     The customer has requested to modify this booking. Please review and take action.
                   </p>
                   {booking.modificationReason && (
-                    <p className="mt-2 text-[11px] font-semibold text-purple-600">
+                    <p className="mt-2 text-sm font-bold text-purple-600">
                       Reason: {booking.modificationReason}
                     </p>
                   )}
@@ -1397,7 +1617,7 @@ function BookingDetailsModal({
                     </Button>
                   )}
                 </div>
-              </div>
+              </footer>
             )
           }
 
@@ -1409,10 +1629,10 @@ function BookingDetailsModal({
             const canRemind = isApprovedOrConfirmed && remainingBalance > 0 && onSendReminder
             if (!canRecord && !canRemind) return null
             return (
-              <div className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
+              <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
                 {remainingBalance > 0 && (
                   <div className="rounded-xl bg-amber-50 p-3 text-center mb-4">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-600">Remaining Balance</p>
+                    <p className="text-sm font-black uppercase tracking-[0.2em] text-amber-600">Remaining Balance</p>
                     <p className="mt-1 text-xl font-black text-amber-700">₱{remainingBalance.toLocaleString()}</p>
                   </div>
                 )}
@@ -1437,7 +1657,7 @@ function BookingDetailsModal({
                     </Button>
                   )}
                 </div>
-              </div>
+              </footer>
             )
           }
 
@@ -1445,7 +1665,7 @@ function BookingDetailsModal({
             const canMarkCompleted = isFullyPaid && !isCompleted && onMarkCompleted
             if (!canMarkCompleted) return null
             return (
-              <div className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
+              <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
                 <Button
                   onClick={() => onMarkCompleted(booking.id)}
                   className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700"
@@ -1453,14 +1673,14 @@ function BookingDetailsModal({
                   <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
                   Mark as Completed
                 </Button>
-              </div>
+              </footer>
             )
           }
 
           if (isPencilBooking) {
             if (!canDoRecordOnsite || !onRecordOnsitePayment) return null
             return (
-              <div className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
+              <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
                   <Button
                     onClick={() => onRecordOnsitePayment(booking.id)}
@@ -1470,17 +1690,17 @@ function BookingDetailsModal({
                     Record Onsite Payment
                   </Button>
                 </div>
-              </div>
+              </footer>
             )
           }
 
           if (isApprovedOrConfirmed) {
             if (!remainingBalance && !canDoBalanceReminder && !canDoRecordOnsite && !isMarkCompletedVisible) return null
             return (
-              <div className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
+              <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
                 {remainingBalance > 0 && (
                   <div className="rounded-xl bg-amber-50 p-3 text-center mb-4">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-600">Remaining Balance</p>
+                    <p className="text-sm font-black uppercase tracking-[0.2em] text-amber-600">Remaining Balance</p>
                     <p className="mt-1 text-xl font-black text-amber-700">₱{remainingBalance.toLocaleString()}</p>
                   </div>
                 )}
@@ -1521,20 +1741,20 @@ function BookingDetailsModal({
                       Mark as Completed
                     </Button>
                     {!isEventFinished && (
-                      <p className="mt-2 text-[10px] font-semibold text-slate-500 text-center">
+                      <p className="mt-2 text-sm font-bold text-slate-500 text-center">
                         This action will be available after the event has ended.
                       </p>
                     )}
                   </div>
                 )}
-              </div>
+              </footer>
             )
           }
 
           if (isFullyPaid && !isCompleted && !isCancelled) {
             if (!isMarkCompletedVisible) return null
             return (
-              <div className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
+              <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
                 <Button
                   onClick={() => isMarkCompletedEnabled && onMarkCompleted(booking.id)}
                   disabled={!isMarkCompletedEnabled}
@@ -1547,19 +1767,20 @@ function BookingDetailsModal({
                   Mark as Completed
                 </Button>
                 {!isEventFinished && (
-                  <p className="mt-2 text-[10px] font-semibold text-slate-500 text-center">
+                  <p className="mt-2 text-sm font-bold text-slate-500 text-center">
                     This action will be available after the event has ended.
                   </p>
                 )}
-              </div>
+              </footer>
             )
           }
 
           return null
-        })()}
-      </div>
-      </DialogContent>
-    </Dialog>
+        })()
+      )}
+    </div>
+  </DialogContent>
+</Dialog>
   )
 }
 
