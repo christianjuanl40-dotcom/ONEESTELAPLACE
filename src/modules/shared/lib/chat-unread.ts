@@ -24,27 +24,33 @@ export async function clearUnread(scope: "client" | "admin") {
 }
 
 export function subscribeUnreadUpdates(callback: (count: number) => void) {
+  console.log("[Firestore Listener START] UnreadCounts(client+admin)")
   const unsubClient = onSnapshot(docRef("client"), (snap) => {
     callback(snap.data()?.count ?? 0)
   }, (error) => {
-    console.error("[ChatUnread] Client unread snapshot error:", error)
+    console.error("[ChatUnread] Client unread snapshot error:", { code: error.code, message: error.message, error })
   })
   const unsubAdmin = onSnapshot(docRef("admin"), (snap) => {
     callback(snap.data()?.count ?? 0)
   }, (error) => {
-    console.error("[ChatUnread] Admin unread snapshot error:", error)
+    console.error("[ChatUnread] Admin unread snapshot error:", { code: error.code, message: error.message, error })
   })
   return () => {
+    console.log("[Firestore Listener STOP] UnreadCounts(client+admin)")
     unsubClient()
     unsubAdmin()
   }
 }
 
 export function subscribeScopeUnread(scope: "client" | "admin", callback: (count: number) => void) {
+  console.log("[Firestore Listener START] UnreadCounts(" + scope + ")")
   const unsub = onSnapshot(docRef(scope), (snap) => {
     callback(snap.data()?.count ?? 0)
   }, (error) => {
-    console.error(`[ChatUnread] ${scope} unread snapshot error:`, error)
+    console.error(`[ChatUnread] ${scope} unread snapshot error:`, { code: error.code, message: error.message, error })
   })
-  return unsub
+  return () => {
+    console.log("[Firestore Listener STOP] UnreadCounts(" + scope + ")")
+    unsub()
+  }
 }

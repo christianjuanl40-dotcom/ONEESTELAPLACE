@@ -8,7 +8,8 @@ import { Button } from "@/src/modules/shared/components/ui/button"
 import { Paperclip, Send, ShieldCheck, Search, X } from "lucide-react"
 import { UserAvatar } from "@/src/modules/shared/components/user-avatar"
 import { db } from "@/lib/firebase"
-import { collection, getDocs } from "firebase/firestore"
+import { collection, onSnapshot } from "firebase/firestore"
+import { getPresenceStatus } from "@/src/modules/shared/lib/presence"
 
 function formatMessageTime(timestamp?: string | number | Date, now: Date = new Date()): string {
   if (!timestamp) return ""
@@ -62,6 +63,7 @@ export default function AdminSupportChatPage() {
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null)
   const [nowTick, setNowTick] = useState(() => new Date())
   const [userProfilePictures, setUserProfilePictures] = useState<Record<string, string>>({})
+  const [userPresence, setUserPresence] = useState<Record<string, number | null>>({})
 
   useEffect(() => {
     const id = setInterval(() => setNowTick(new Date()), 60 * 1000)
@@ -100,6 +102,7 @@ export default function AdminSupportChatPage() {
     : clientsList
   const activeClient = filteredClientsList.find(c => c.id === activeClientId) || filteredClientsList[0] || null
   const activeClientMessages = activeClient ? messages.filter((m: any) => m.clientId === activeClient.id) : []
+  const activeClientPresence = activeClient ? getPresenceStatus(userPresence[activeClient.id], nowTick) : null
 
   useEffect(() => { if (!activeClientId && filteredClientsList.length > 0) { setActiveClientId(filteredClientsList[0].id) } }, [filteredClientsList.map(c => c.id).join(",")])
   
@@ -110,18 +113,25 @@ export default function AdminSupportChatPage() {
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }) }, [activeClientMessages])
 
   useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        const snapshot = await getDocs(collection(db, "users"))
-        const map: Record<string, string> = {}
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data()
-          if (data.profilePicture) map[docSnap.id] = data.profilePicture
-        })
-        setUserProfilePictures(map)
-      } catch {}
+    console.log("[Firestore Listener START] UsersPresence")
+    const unsub = onSnapshot(collection(db, "users"), (snapshot) => {
+      const pictures: Record<string, string> = {}
+      const presence: Record<string, number | null> = {}
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data()
+        if (data.profilePicture) pictures[docSnap.id] = data.profilePicture
+        const ts = data.lastActiveAt
+        presence[docSnap.id] = ts?.toDate?.() ? ts.toDate().getTime() : null
+      })
+      setUserProfilePictures(pictures)
+      setUserPresence(presence)
+    }, (error: any) => {
+      console.error("[UsersPresence snapshot error]", { code: error.code, message: error.message, error })
+    })
+    return () => {
+      console.log("[Firestore Listener STOP] UsersPresence")
+      unsub()
     }
-    fetchUsers()
   }, [])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -200,7 +210,11 @@ export default function AdminSupportChatPage() {
                   <UserAvatar name={activeClient.name} picture={activeClient.profilePicture} className="h-12 w-12 shrink-0" ringClassName="" fallbackClassName="bg-slate-900 text-white" textClassName="font-bold uppercase" />
                   <div>
                     <h2 className="text-lg font-bold text-slate-900 leading-tight">{activeClient.name}</h2>
-                    <div className="flex items-center gap-1.5 mt-0.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-xs font-medium text-emerald-600">Active now</span></div>
+                    {activeClientPresence?.isActive ? (
+                      <div className="flex items-center gap-1.5 mt-0.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-xs font-medium text-emerald-600">Active now</span></div>
+                    ) : (
+                      <div className="mt-0.5"><span className="text-xs font-medium text-slate-500">{activeClientPresence?.label || "Offline"}</span></div>
+                    )}
                   </div>
                 </div>
               </div>

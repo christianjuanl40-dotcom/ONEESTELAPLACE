@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   AlertCircle,
@@ -37,6 +37,9 @@ import {
 } from "@/src/modules/shared/components/ui/select"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { useBookings } from "@/src/modules/client/contexts/booking-context"
+import { cn } from "@/src/modules/shared/lib/utils"
+import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
+import type { NotificationType } from "@/src/modules/shared/lib/notifications"
 import { db } from "@/lib/firebase"
 import { collection, query, orderBy, getDocs, addDoc, where } from "firebase/firestore"
 
@@ -64,6 +67,8 @@ export default function AdminPaymentsPage() {
   const router = useRouter()
   const { toast } = useToast()
   const bookingCtx = useBookings()
+  const { markByBookingId } = useNotifications()
+  const ADMIN_PAYMENT_TYPES: NotificationType[] = ["payment_submitted", "remaining_balance_submitted"]
 
   useEffect(() => {
     if (user && user.role === "staff" && !user.permissions?.payments) {
@@ -240,6 +245,75 @@ export default function AdminPaymentsPage() {
     safePaymentPage * PAYMENTS_PER_PAGE,
   )
 
+  const [highlightedPaymentId, setHighlightedPaymentId] = useState<string | null>(null)
+  const paymentHighlightHandledRef = useRef(false)
+  const paymentHighlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    const h = sessionStorage.getItem("admin_payment_highlight")
+    if (h) {
+      setHighlightedPaymentId(h)
+      setSearchQuery("")
+      setStatusFilter("all")
+      setVenueFilter("all")
+    }
+  }, [])
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const customEvent = e as CustomEvent<{ paymentId: string }>
+      const paymentId = customEvent.detail?.paymentId
+      if (!paymentId) return
+      if (paymentHighlightTimeoutRef.current) {
+        clearTimeout(paymentHighlightTimeoutRef.current)
+        paymentHighlightTimeoutRef.current = null
+      }
+      paymentHighlightHandledRef.current = false
+      if (highlightedPaymentId === paymentId) {
+        setHighlightedPaymentId(null)
+        requestAnimationFrame(() => {
+          paymentHighlightHandledRef.current = false
+          setHighlightedPaymentId(paymentId)
+        })
+      } else {
+        setHighlightedPaymentId(paymentId)
+      }
+      setSearchQuery("")
+      setStatusFilter("all")
+      setVenueFilter("all")
+    }
+    window.addEventListener("admin-payment-highlight", handler)
+    return () => {
+      window.removeEventListener("admin-payment-highlight", handler)
+    }
+  }, [highlightedPaymentId])
+
+  useEffect(() => {
+    if (!highlightedPaymentId || filteredPayments.length === 0) return
+    if (paymentHighlightHandledRef.current) return
+    const idx = filteredPayments.findIndex(
+      (p) => p.id === highlightedPaymentId
+    )
+    if (idx === -1) return
+    const page = Math.floor(idx / PAYMENTS_PER_PAGE) + 1
+    if (page !== safePaymentPage) {
+      setPaymentPage(page)
+      return
+    }
+    paymentHighlightHandledRef.current = true
+    sessionStorage.removeItem("admin_payment_highlight")
+    paymentHighlightTimeoutRef.current = setTimeout(() => {
+      setHighlightedPaymentId(null)
+      paymentHighlightTimeoutRef.current = null
+    }, 3000)
+    return () => {
+      if (paymentHighlightTimeoutRef.current) {
+        clearTimeout(paymentHighlightTimeoutRef.current)
+        paymentHighlightTimeoutRef.current = null
+      }
+    }
+  }, [highlightedPaymentId, filteredPayments, safePaymentPage])
+
   const openActionModal = (payment: BookingRecord, type: PaymentAction) => {
     if (type === "incomplete") {
       setIncompletePaymentTarget(payment)
@@ -397,23 +471,7 @@ export default function AdminPaymentsPage() {
             })
           }}
         />
-        <section className="border-b border-slate-200 pb-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div className="min-w-0">
-              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-orange-600">
-                Admin Payment Verification
-              </p>
-
-              <h1 className="mt-1 text-2xl font-black leading-tight tracking-tight text-slate-950 md:text-3xl">
-                Payment Verification
-              </h1>
-
-              <p className="mt-1 text-xs leading-5 text-slate-500 sm:text-sm">
-                Review client payment submissions. All payment actions require confirmation before updating LocalStorage.
-              </p>
-            </div>
-
-            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+        <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
               <Select value={venueFilter} onValueChange={setVenueFilter}>
                 <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[170px]">
                   <div className="flex items-center gap-2">
@@ -478,9 +536,7 @@ export default function AdminPaymentsPage() {
                   </button>
                 )}
               </div>
-            </div>
-          </div>
-        </section>
+        </div>
 
         <section className="mt-4 space-y-3">
           {filteredPayments.length === 0 ? (
@@ -493,7 +549,8 @@ export default function AdminPaymentsPage() {
                   key={payment.id}
                   payment={payment}
                   amountPaid={amountPaid}
-                  onView={() => setSelectedPayment(payment)}
+                  onView={() => { setSelectedPayment(payment); const p = payment as any; markByBookingId(p.bookingId || p.id, ADMIN_PAYMENT_TYPES) }}
+                  isHighlighted={highlightedPaymentId === payment.id}
                 />
               )
             })
@@ -684,52 +741,84 @@ function PaymentCard({
   payment,
   amountPaid,
   onView,
+  isHighlighted,
 }: {
   payment: BookingRecord
   amountPaid: number
   onView: () => void
+  isHighlighted?: boolean
 }) {
+  const cardRef = useRef<HTMLDivElement>(null)
+  const highlightRef = useRef(false)
+  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (!isHighlighted || !cardRef.current) return
+    if (highlightRef.current) return
+    highlightRef.current = true
+    cardRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
+    sessionStorage.removeItem("admin_payment_highlight")
+    highlightTimeoutRef.current = setTimeout(() => {
+      highlightRef.current = false
+    }, 3000)
+    return () => {
+      if (highlightTimeoutRef.current) {
+        clearTimeout(highlightTimeoutRef.current)
+        highlightTimeoutRef.current = null
+      }
+    }
+  }, [isHighlighted])
+
+  const innerCard = (
+    <div
+      ref={cardRef}
+      className="group grid w-full max-w-full min-w-0 grid-cols-[1fr_1fr] gap-x-5 gap-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition sm:grid-cols-[220px_220px_240px_200px] sm:items-center sm:gap-x-6 hover:border-orange-200 hover:shadow-md"
+    >
+      <div className="flex min-w-0 items-center gap-3 sm:col-start-1">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
+          <Receipt className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+            Payment
+          </p>
+          <p className="break-words whitespace-normal text-sm font-black leading-snug text-slate-900 line-clamp-2">
+            {payment.eventName || "Untitled"}
+          </p>
+          <p className="break-words text-[11px] font-bold text-orange-600">
+            {payment.id}
+          </p>
+        </div>
+      </div>
+
+      <div className="min-w-0 sm:col-start-2">
+        <p className="truncate text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Customer</p>
+        <p className="truncate text-xs font-black text-slate-800">{payment.userInfo?.name || "—"}</p>
+        <p className="truncate text-[10px] font-bold text-slate-500">{payment.userInfo?.email || "—"}</p>
+      </div>
+
+      <div className="min-w-0 sm:col-start-3">
+        <p className="truncate text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
+        <p className="truncate text-xs font-bold leading-snug text-slate-800">{payment.venue || "N/A"}</p>
+      </div>
+
+      <div className="col-span-2 flex shrink-0 items-center justify-between gap-3 sm:col-span-1 sm:col-start-4 sm:flex-col sm:items-end sm:gap-2.5">
+        <PaymentBadge payment={payment} />
+        <Button
+          variant="outline"
+          onClick={onView}
+          className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
+        >
+          <Eye className="mr-1.5 h-3.5 w-3.5" />
+          Review
+        </Button>
+      </div>
+    </div>
+  )
+
   return (
-      <div className="group grid w-full max-w-full min-w-0 grid-cols-[1fr_1fr] gap-x-5 gap-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md sm:grid-cols-[220px_220px_240px_200px] sm:items-center sm:gap-x-6">
-        <div className="flex min-w-0 items-center gap-3 sm:col-start-1">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
-            <Receipt className="h-5 w-5" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-              Payment
-            </p>
-            <p className="break-words whitespace-normal text-sm font-black leading-snug text-slate-900 line-clamp-2">
-              {payment.eventName || "Untitled"}
-            </p>
-            <p className="break-words text-[11px] font-bold text-orange-600">
-              {payment.id}
-            </p>
-          </div>
-        </div>
-
-        <div className="min-w-0 sm:col-start-2">
-          <p className="truncate text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Customer</p>
-          <p className="truncate text-xs font-black text-slate-800">{payment.userInfo?.name || "—"}</p>
-          <p className="truncate text-[10px] font-bold text-slate-500">{payment.userInfo?.email || "—"}</p>
-        </div>
-
-        <div className="min-w-0 sm:col-start-3">
-          <p className="truncate text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
-          <p className="truncate text-xs font-bold leading-snug text-slate-800">{payment.venue || "N/A"}</p>
-        </div>
-
-        <div className="col-span-2 flex shrink-0 items-center justify-between gap-3 sm:col-span-1 sm:col-start-4 sm:flex-col sm:items-end sm:gap-2.5">
-          <PaymentBadge payment={payment} />
-          <Button
-            variant="outline"
-            onClick={onView}
-            className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
-          >
-            <Eye className="mr-1.5 h-3.5 w-3.5" />
-            Review
-          </Button>
-        </div>
+    <div className={isHighlighted ? "notification-target-highlight" : undefined}>
+      {innerCard}
     </div>
   )
 }

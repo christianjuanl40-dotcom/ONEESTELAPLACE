@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
@@ -43,6 +43,7 @@ import {
 import { useAuth } from "@/src/modules/shared/auth/auth-context";
 import { useCMS } from "@/src/modules/admin/contexts/cms-context";
 import { BankTransferQR } from "@/src/modules/shared/components/bank-transfer-qr";
+import { NotificationTargetWrapper } from "@/src/modules/shared/components/notification-target";
 import { PAYMENT_LABELS, getPaymentMethodLabel } from "@/src/modules/shared/lib/labels";
 import {
   ReceiptPaper,
@@ -985,6 +986,118 @@ function TransactionsContent() {
     setHistoryPage(1);
   }, [searchQuery, filter, dateFrom, dateTo]);
 
+  const [highlightedBookingId, setHighlightedBookingId] = useState<string | null>(null);
+  const paymentHighlightHandledRef = useRef(false);
+  const paymentHighlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const h = sessionStorage.getItem("client_payment_highlight");
+    if (h) {
+      setHighlightedBookingId(h);
+      setSearchQuery("");
+      setFilter("all");
+      setDateFrom("");
+      setDateTo("");
+    }
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const customEvent = e as CustomEvent<{ bookingId: string }>;
+      const bookingId = customEvent.detail?.bookingId;
+      if (!bookingId) return;
+      if (paymentHighlightTimeoutRef.current) {
+        clearTimeout(paymentHighlightTimeoutRef.current);
+        paymentHighlightTimeoutRef.current = null;
+      }
+      paymentHighlightHandledRef.current = false;
+      if (highlightedBookingId === bookingId) {
+        setHighlightedBookingId(null);
+        requestAnimationFrame(() => {
+          paymentHighlightHandledRef.current = false;
+          setHighlightedBookingId(bookingId);
+        });
+      } else {
+        setHighlightedBookingId(bookingId);
+      }
+      setSearchQuery("");
+      setFilter("all");
+      setDateFrom("");
+      setDateTo("");
+    };
+    window.addEventListener("client-payment-highlight", handler);
+    return () => {
+      window.removeEventListener("client-payment-highlight", handler);
+    };
+  }, [highlightedBookingId]);
+
+  useEffect(() => {
+    if (!highlightedBookingId) return;
+    if (paymentHighlightHandledRef.current) return;
+    const target = myTransactions.find((b) => b.id === highlightedBookingId);
+    if (!target) return;
+
+    const inHistory = !isCurrentTransaction(target);
+
+    if (inHistory && !showHistory) {
+      setShowHistory(true);
+      return;
+    }
+    if (!inHistory && showHistory) {
+      setShowHistory(false);
+      return;
+    }
+
+    if (inHistory) {
+      const idx = filteredHistory.findIndex(
+        (b) => b.id === highlightedBookingId,
+      );
+      if (idx === -1) return;
+      const page = Math.floor(idx / PAGE_SIZE) + 1;
+      if (page !== safeHistoryPage) {
+        setHistoryPage(page);
+        return;
+      }
+    } else {
+      const isCurrent =
+        currentTransaction &&
+        currentTransaction.id === highlightedBookingId;
+      if (!isCurrent) {
+        const idx = otherActiveTransactions.findIndex(
+          (b) => b.id === highlightedBookingId,
+        );
+        if (idx === -1) return;
+        const page = Math.floor(idx / otherActivePageSize) + 1;
+        if (page !== safeCurrentPage) {
+          setCurrentPage(page);
+          return;
+        }
+      }
+    }
+
+    paymentHighlightHandledRef.current = true;
+    sessionStorage.removeItem("client_payment_highlight");
+    paymentHighlightTimeoutRef.current = setTimeout(() => {
+      setHighlightedBookingId(null);
+      paymentHighlightTimeoutRef.current = null;
+    }, 3000);
+    return () => {
+      if (paymentHighlightTimeoutRef.current) {
+        clearTimeout(paymentHighlightTimeoutRef.current);
+        paymentHighlightTimeoutRef.current = null;
+      }
+    };
+  }, [
+    highlightedBookingId,
+    myTransactions,
+    showHistory,
+    filteredHistory,
+    safeHistoryPage,
+    otherActiveTransactions,
+    safeCurrentPage,
+    currentTransaction,
+  ]);
+
   if (!isHydrated) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center">
@@ -1799,31 +1912,18 @@ function TransactionsContent() {
   return (
     <div className="w-full min-w-0 max-w-full overflow-x-hidden">
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 animate-in fade-in duration-500">
-        <section className="border-b border-slate-200 pb-5 mb-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-orange-600">
-                Payments
-              </p>
-              <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950 md:text-3xl">
-                My Transactions
-              </h1>
-              <p className="mt-1 text-sm text-slate-500">
-                Manage your payments and invoices.
-              </p>
-            </div>
-            {hasHistoryRecords && (
-              <Button
-                variant="outline"
-                onClick={() => setShowHistory((v) => !v)}
-                className="h-11 whitespace-nowrap rounded-xl border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50"
-              >
-                <Receipt className="mr-1.5 h-3.5 w-3.5" />
-                {showHistory ? "Hide Transaction History" : "View Transaction History"}
-              </Button>
-            )}
+        {hasHistoryRecords && (
+          <div className="mb-4 flex justify-end">
+            <Button
+              variant="outline"
+              onClick={() => setShowHistory((v) => !v)}
+              className="h-11 whitespace-nowrap rounded-xl border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50"
+            >
+              <Receipt className="mr-1.5 h-3.5 w-3.5" />
+              {showHistory ? "Hide Transaction History" : "View Transaction History"}
+            </Button>
           </div>
-        </section>
+        )}
 
       {/* Current Transactions (hidden when viewing history) */}
       {!showHistory && (
@@ -1836,12 +1936,18 @@ function TransactionsContent() {
             />
             {currentTransaction ? (
               <div className="mt-3">
-                <CurrentTransactionCard
-                  booking={currentTransaction}
-                  onPay={(b) => setSelectedBookingToPay(b.id)}
-                  onSettle={(b) => setSelectedBookingToPay(b.id)}
-                  onView={(b) => setViewingReceipt(b)}
-                />
+                <NotificationTargetWrapper
+                  transactionTarget={currentTransaction.id}
+                  isHighlighted={highlightedBookingId === currentTransaction.id}
+                  storageKey="client_payment_highlight"
+                >
+                  <CurrentTransactionCard
+                    booking={currentTransaction}
+                    onPay={(b) => setSelectedBookingToPay(b.id)}
+                    onSettle={(b) => setSelectedBookingToPay(b.id)}
+                    onView={(b) => setViewingReceipt(b)}
+                  />
+                </NotificationTargetWrapper>
               </div>
             ) : (
               <div className="mt-3 flex flex-col items-center rounded-2xl border border-dashed border-slate-300 bg-white p-6 sm:p-8 text-center">
@@ -1891,10 +1997,13 @@ function TransactionsContent() {
                     !_isUnderReview &&
                     (_isDownpaymentActive || _hasRemainingPaymentDue || _isPendingRemainingDP);
                   return (
-                      <div
-                        key={booking.id}
-                        className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 transition hover:border-orange-200 sm:flex-row sm:items-center sm:gap-3"
-                      >
+                    <NotificationTargetWrapper
+                      key={booking.id}
+                      transactionTarget={booking.id}
+                      isHighlighted={highlightedBookingId === booking.id}
+                      storageKey="client_payment_highlight"
+                    >
+                      <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 transition hover:border-orange-200 sm:flex-row sm:items-center sm:gap-3">
                         {/* ---- Mobile: event name + ID ---- */}
                         <div className="sm:hidden">
                            <p className="break-words whitespace-normal text-sm font-black text-slate-900">
@@ -1952,6 +2061,7 @@ function TransactionsContent() {
                           </div>
                         </div>
                       </div>
+                    </NotificationTargetWrapper>
                   );
                 })}
                 <Pagination
@@ -2094,18 +2204,24 @@ function TransactionsContent() {
             ) : (
               <div className="mt-3 space-y-2">
                 {paginatedHistory.map((booking) => (
-                  <HistoryRow
+                  <NotificationTargetWrapper
                     key={booking.id}
-                    booking={booking}
-                    expanded={expandedBookingId === booking.id}
-                    onToggle={() =>
-                      setExpandedBookingId(
-                        expandedBookingId === booking.id ? null : booking.id,
-                      )
-                    }
-                    onView={(b) => setViewingReceipt(b)}
-                    onPay={(b) => setSelectedBookingToPay(b.id)}
-                  />
+                    transactionTarget={booking.id}
+                    isHighlighted={highlightedBookingId === booking.id}
+                    storageKey="client_payment_highlight"
+                  >
+                    <HistoryRow
+                      booking={booking}
+                      expanded={expandedBookingId === booking.id}
+                      onToggle={() =>
+                        setExpandedBookingId(
+                          expandedBookingId === booking.id ? null : booking.id,
+                        )
+                      }
+                      onView={(b) => setViewingReceipt(b)}
+                      onPay={(b) => setSelectedBookingToPay(b.id)}
+                    />
+                  </NotificationTargetWrapper>
                 ))}
                 <Pagination
                   page={safeHistoryPage}

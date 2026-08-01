@@ -29,6 +29,7 @@ import { LogoutConfirmDialog } from "@/src/modules/shared/components/logout-conf
 import { UserAvatar } from "@/src/modules/shared/components/user-avatar"
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
 import { NotificationDropdown } from "@/src/modules/shared/components/notification-dropdown"
+import type { NotificationType } from "@/src/modules/shared/lib/notifications"
 
 import type { StaffPermissions } from "@/src/modules/shared/types/permissions"
 
@@ -63,11 +64,29 @@ export default function AdminLayout({
   const router = useRouter()
   const { logout, user, isLoading } = useAuth()
   const { messages } = useChat()
-  const { unreadCount: notificationUnread } = useNotifications()
+  const { notifications, unreadCount: notificationUnread } = useNotifications()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [chatUnread, setChatUnread] = useState(0)
   const [showNotifications, setShowNotifications] = useState(false)
+
+  const ADMIN_BOOKING_TYPES: NotificationType[] = useMemo(
+    () => ["booking_submitted", "cancellation_requested", "modification_requested"],
+    [],
+  )
+  const ADMIN_PAYMENT_TYPES: NotificationType[] = useMemo(
+    () => ["payment_submitted", "remaining_balance_submitted"],
+    [],
+  )
+
+  const bookingUnread = useMemo(
+    () => notifications.filter((n) => !n.moduleRead && ADMIN_BOOKING_TYPES.includes(n.type as NotificationType)).length,
+    [notifications],
+  )
+  const paymentUnread = useMemo(
+    () => notifications.filter((n) => !n.moduleRead && ADMIN_PAYMENT_TYPES.includes(n.type as NotificationType)).length,
+    [notifications],
+  )
 
   const visibleMenu = useMemo(() => {
     if (!user) return []
@@ -140,9 +159,9 @@ export default function AdminLayout({
             </div>
           </div>
 
-          <div className="flex flex-1 items-center justify-end gap-3 px-3 sm:px-4 lg:px-0">
-            <div className="flex items-center gap-3 pl-2 lg:pl-4">
-            <div className="relative">
+           <div className="flex flex-1 items-center justify-end gap-3 px-3 sm:px-4 lg:px-0">
+             <div className="flex items-center gap-3 pl-2 lg:pl-4">
+               <div className="relative">
               <Button
                 variant="ghost"
                 size="icon"
@@ -205,6 +224,13 @@ export default function AdminLayout({
                   ? pathname === item.href
                   : pathname.startsWith(item.href)
                 const showChatBadge = item.key === "chat" && chatUnread > 0
+                const showBookingBadge = item.key === "bookings" && bookingUnread > 0
+                const showPaymentBadge = item.key === "payments" && paymentUnread > 0
+                let badgeCount = 0
+                if (item.key === "chat") badgeCount = chatUnread
+                if (item.key === "bookings") badgeCount = bookingUnread
+                if (item.key === "payments") badgeCount = paymentUnread
+                const showBadge = showChatBadge || showBookingBadge || showPaymentBadge
 
                 return (
                   <Link
@@ -229,7 +255,7 @@ export default function AdminLayout({
                       />
                       {item.name}
                     </div>
-                    {showChatBadge && (
+                    {showBadge && (
                       <span
                         className={cn(
                           "flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[10px] font-black tabular-nums",
@@ -238,7 +264,7 @@ export default function AdminLayout({
                             : "bg-rose-500 text-white",
                         )}
                       >
-                        {chatUnread > 99 ? "99+" : chatUnread}
+                        {badgeCount > 99 ? "99+" : badgeCount}
                       </span>
                     )}
                   </Link>

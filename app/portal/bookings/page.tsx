@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useMemo, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   AlertCircle,
@@ -53,6 +53,7 @@ import { Input } from "@/src/modules/shared/components/ui/input"
 import { Label } from "@/src/modules/shared/components/ui/label"
 import { Textarea } from "@/src/modules/shared/components/ui/textarea"
 import { getPaymentMethodLabel } from "@/src/modules/shared/lib/labels"
+import { NotificationTargetWrapper } from "@/src/modules/shared/components/notification-target"
 import {
   ReceiptPaper,
   type ReceiptPaperData,
@@ -2859,6 +2860,115 @@ export default function MyBookingsPage() {
     setHistoryPage(1)
   }, [searchQuery, filter, dateFrom, dateTo])
 
+  const [highlightedBookingId, setHighlightedBookingId] = useState<string | null>(null)
+  const bookingHighlightHandledRef = useRef(false)
+  const bookingHighlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    const h = sessionStorage.getItem("client_booking_highlight")
+    if (h) {
+      setHighlightedBookingId(h)
+      setSearchQuery("")
+      setFilter("all")
+      setDateFrom("")
+      setDateTo("")
+    }
+  }, [])
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const customEvent = e as CustomEvent<{ bookingId: string }>
+      const bookingId = customEvent.detail?.bookingId
+      if (!bookingId) return
+      if (bookingHighlightTimeoutRef.current) {
+        clearTimeout(bookingHighlightTimeoutRef.current)
+        bookingHighlightTimeoutRef.current = null
+      }
+      bookingHighlightHandledRef.current = false
+      if (highlightedBookingId === bookingId) {
+        setHighlightedBookingId(null)
+        requestAnimationFrame(() => {
+          bookingHighlightHandledRef.current = false
+          setHighlightedBookingId(bookingId)
+        })
+      } else {
+        setHighlightedBookingId(bookingId)
+      }
+      setSearchQuery("")
+      setFilter("all")
+      setDateFrom("")
+      setDateTo("")
+    }
+    window.addEventListener("client-booking-highlight", handler)
+    return () => {
+      window.removeEventListener("client-booking-highlight", handler)
+    }
+  }, [highlightedBookingId])
+
+  useEffect(() => {
+    if (!highlightedBookingId) return
+    if (bookingHighlightHandledRef.current) return
+    const target = myBookings.find((b) => b.id === highlightedBookingId)
+    if (!target) return
+
+    const past = isPastBooking(target)
+
+    if (past && !showHistory) {
+      setShowHistory(true)
+      return
+    }
+    if (!past && showHistory) {
+      setShowHistory(false)
+      return
+    }
+
+    if (past) {
+      const idx = filteredHistory.findIndex((b) => b.id === highlightedBookingId)
+      if (idx === -1) return
+      const page = Math.floor(idx / PAGE_SIZE) + 1
+      if (page !== safeHistoryPage) {
+        setHistoryPage(page)
+        return
+      }
+    } else {
+      const isCurrent =
+        currentBooking && getBookingId(currentBooking) === highlightedBookingId
+      if (!isCurrent) {
+        const idx = otherActiveBookings.findIndex(
+          (b) => b.id === highlightedBookingId,
+        )
+        if (idx === -1) return
+        const page = Math.floor(idx / otherActivePageSize) + 1
+        if (page !== safeCurrentPage) {
+          setCurrentPage(page)
+          return
+        }
+      }
+    }
+
+    bookingHighlightHandledRef.current = true
+    sessionStorage.removeItem("client_booking_highlight")
+    bookingHighlightTimeoutRef.current = setTimeout(() => {
+      setHighlightedBookingId(null)
+      bookingHighlightTimeoutRef.current = null
+    }, 3000)
+    return () => {
+      if (bookingHighlightTimeoutRef.current) {
+        clearTimeout(bookingHighlightTimeoutRef.current)
+        bookingHighlightTimeoutRef.current = null
+      }
+    }
+  }, [
+    highlightedBookingId,
+    myBookings,
+    showHistory,
+    filteredHistory,
+    safeHistoryPage,
+    otherActiveBookings,
+    safeCurrentPage,
+    currentBooking,
+  ])
+
   const canWriteReview = (booking: Booking) => {
     const status = String(booking.status || "").toLowerCase()
     if (status !== "completed" && status !== "complete") return false
@@ -3035,21 +3145,9 @@ export default function MyBookingsPage() {
           booking={receiptBooking}
         />
 
-        <section className="border-b border-slate-200 pb-5 mb-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0 max-w-full">
-              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-orange-600">
-                Reservations
-              </p>
-              <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950 md:text-3xl">
-                My Bookings
-              </h1>
-              <p className="mt-1 text-sm text-slate-500">
-                Track and manage your space reservations.
-              </p>
-            </div>
-            <div className="flex w-full sm:w-auto flex-wrap items-center gap-2">
-              <TooltipProvider delayDuration={400}>
+        <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-end">
+          <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+            <TooltipProvider delayDuration={400}>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <ReserveDialog>
@@ -3074,7 +3172,6 @@ export default function MyBookingsPage() {
               </Button>
             </div>
           </div>
-        </section>
 
       {/* Current Booking */}
       {!showHistory && (
@@ -3086,10 +3183,16 @@ export default function MyBookingsPage() {
         />
         {currentBooking ? (
           <div className="mt-3 space-y-3">
-            <HorizontalBookingCard
-              booking={currentBooking}
-              onView={handleView}
-            />
+            <NotificationTargetWrapper
+              bookingTarget={currentBooking.id}
+              isHighlighted={highlightedBookingId === currentBooking.id}
+              storageKey="client_booking_highlight"
+            >
+              <HorizontalBookingCard
+                booking={currentBooking}
+                onView={handleView}
+              />
+            </NotificationTargetWrapper>
             {canWriteReview(currentBooking) && (
               <div className="flex justify-end">
                 <TooltipProvider delayDuration={400}>
@@ -3140,11 +3243,17 @@ export default function MyBookingsPage() {
           />
           <div className="mt-3 space-y-2">
             {paginatedOtherActive.map((booking) => (
-              <HistoryRow
+              <NotificationTargetWrapper
                 key={booking.id}
-                booking={booking}
-                onView={handleView}
-              />
+                bookingTarget={booking.id}
+                isHighlighted={highlightedBookingId === booking.id}
+                storageKey="client_booking_highlight"
+              >
+                <HistoryRow
+                  booking={booking}
+                  onView={handleView}
+                />
+              </NotificationTargetWrapper>
             ))}
             <Pagination
               page={safeCurrentPage}
@@ -3237,11 +3346,17 @@ export default function MyBookingsPage() {
           ) : (
             <div className="mt-3 space-y-2">
               {paginatedHistory.map((booking) => (
-                <HistoryRow
+                <NotificationTargetWrapper
                   key={booking.id}
-                  booking={booking}
-                  onView={handleView}
-                />
+                  bookingTarget={booking.id}
+                  isHighlighted={highlightedBookingId === booking.id}
+                  storageKey="client_booking_highlight"
+                >
+                  <HistoryRow
+                    booking={booking}
+                    onView={handleView}
+                  />
+                </NotificationTargetWrapper>
               ))}
               <Pagination
                 page={safeHistoryPage}

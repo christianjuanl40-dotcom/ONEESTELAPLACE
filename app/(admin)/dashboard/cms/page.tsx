@@ -26,19 +26,6 @@ export default function CMSPage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
-      <div className="mb-7 border-b border-slate-200 pb-6">
-        <p className="inline-flex items-center gap-1.5 rounded-md bg-orange-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-orange-700">
-          Admin CMS Settings
-        </p>
-        <h1 className="mt-2 text-2xl font-black tracking-tight text-slate-950 md:text-3xl">
-          CMS Settings
-        </h1>
-        <p className="mt-1.5 text-sm leading-6 text-slate-500 max-w-2xl">
-          Manage landing page content, event venues, office spaces, 360 virtual tours,
-          past client gallery, FAQs, and policies.
-        </p>
-      </div>
-
       <div>
         {activeTab === "homepage" && <CMSHomepageTab onNavigate={setActiveTab} />}
         {activeTab === "venues" && <CMSVenuesTab onNavigate={setActiveTab} />}

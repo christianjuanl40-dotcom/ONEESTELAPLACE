@@ -99,6 +99,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!user) return
+    console.log("[Firestore Listener START] Chat")
     const unsub = onSnapshot(messagesQuery, (snapshot) => {
       const loaded: ChatMessageItem[] = []
       snapshot.forEach((docSnap) => {
@@ -134,10 +135,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setIsChatLoaded(true)
       }
     }, (error) => {
-      console.error("[ChatContext] Firestore snapshot error:", error)
+      console.error("[Chat snapshot error]", { code: error.code, message: error.message, error })
     })
 
-    return () => unsub()
+    return () => {
+      console.log("[Firestore Listener STOP] Chat")
+      unsub()
+    }
   }, [user])
 
   const sendMessage: ChatContextValue["sendMessage"] = useCallback(

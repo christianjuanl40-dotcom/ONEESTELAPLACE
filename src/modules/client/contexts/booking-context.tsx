@@ -1161,6 +1161,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     if (typeof window === "undefined" || !user) return;
 
     // Real-time subscription for bookings
+    console.log("[Firestore Listener START] Bookings")
     const bookingsQuery = query(bookingsRef, orderBy("createdAt", "asc"))
     const unsubBookings = onSnapshot(bookingsQuery, (snapshot) => {
       const loaded: Booking[] = []
@@ -1170,12 +1171,11 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       })
       setBookings(loaded)
     }, (error: any) => {
-      if (error.code !== 'permission-denied') {
-        console.error("[BookingContext] Bookings snapshot error:", error)
-      }
+      console.error("[Bookings snapshot error]", { code: error.code, message: error.message, error })
     })
 
     // Real-time subscription for office rentals
+    console.log("[Firestore Listener START] OfficeRentals")
     const officeRentalsQuery = query(officeRentalsRef, orderBy("createdAt", "asc"))
     const unsubOffice = onSnapshot(officeRentalsQuery, (snapshot) => {
       const loaded: OfficeRental[] = []
@@ -1185,12 +1185,11 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       })
       setOfficeRentals(loaded)
     }, (error: any) => {
-      if (error.code !== 'permission-denied') {
-        console.error("[BookingContext] Office rentals snapshot error:", error)
-      }
+      console.error("[OfficeRentals snapshot error]", { code: error.code, message: error.message, error })
     })
 
     // Real-time subscription for maintenance records
+    console.log("[Firestore Listener START] MaintenanceRecords")
     const maintQuery = query(maintenanceRecordsRef, orderBy("createdAt", "asc"))
     const unsubMaint = onSnapshot(maintQuery, (snapshot) => {
       const loaded: MaintenanceRecord[] = []
@@ -1200,12 +1199,13 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       })
       setMaintenanceRecords(loaded)
     }, (error: any) => {
-      if (error.code !== 'permission-denied') {
-        console.error("[BookingContext] Maintenance records snapshot error:", error)
-      }
+      console.error("[MaintenanceRecords snapshot error]", { code: error.code, message: error.message, error })
     })
 
     return () => {
+      console.log("[Firestore Listener STOP] Bookings")
+      console.log("[Firestore Listener STOP] OfficeRentals")
+      console.log("[Firestore Listener STOP] MaintenanceRecords")
       unsubBookings()
       unsubOffice()
       unsubMaint()
@@ -1353,15 +1353,19 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
 
     await saveBookings([...bookings, newBooking])
     const clientName = newBooking.userInfo?.name || newBooking.eventName || "A client"
+    const isOffice = isOfficeBooking(newBooking)
+    const venueName = isOffice ? (newBooking.venue || "an office") : (newBooking.venue || newBooking.eventName || "a venue")
     createNotification({
       type: "booking_submitted",
-      title: "New Booking",
-      message: `${clientName} submitted a new booking.`,
+      title: isOffice ? "New Office Rental" : "New Booking",
+      message: isOffice
+        ? `A new rental has been submitted for ${venueName}.`
+        : `A new booking has been submitted for ${venueName}.`,
       bookingId: newId,
       userId: "admin",
       relatedUserId: newBooking.userId,
       relatedUserName: clientName,
-      link: "/dashboard/bookings",
+      link: `/dashboard/bookings?highlight=${newId}`,
     })
     return newId;
   };
@@ -1409,6 +1413,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           paymentVerifiedAt: new Date().toISOString(),
           lastActivityAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
+  
           adminLogs: makeAdminLog(
             booking,
             "OFFICE_SLOT_SECURED",
@@ -1527,6 +1532,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         refundStatus: isEligible ? ("eligible" as RefundStatus) : ("not_eligible" as RefundStatus),
         refundAmount: isEligible ? getSafePrice(booking.totalPrice) : 0,
         daysBeforeEventAtCancellation: daysBefore,
+
         lastActivityAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -1641,6 +1647,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         ...b,
         refundStatus: "refunded" as RefundStatus,
         refundedAt: new Date().toISOString(),
+
         lastActivityAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         adminLogs: makeAdminLog(
@@ -1652,6 +1659,17 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     });
 
     saveBookings(updatedBookings as Booking[]);
+    const refundedBooking = bookings.find((b) => b.id === id);
+    if (refundedBooking) {
+      createNotification({
+        type: "refund_completed",
+        title: "Refund Completed",
+        message: `Your refund for Booking ${refundedBooking.id} has been completed.`,
+        bookingId: refundedBooking.id,
+        userId: refundedBooking.userId,
+        link: `/portal/payments?highlight=${refundedBooking.id}`,
+      })
+    }
     toast({
       title: "Refund Completed",
       description: `Booking ${id} has been marked as refunded.`,
@@ -1730,15 +1748,16 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
 
     saveBookings(updatedBookings as Booking[]);
     const clientName = targetBooking.userInfo?.name || targetBooking.eventName || "A client"
+    const cancelVenue = targetBooking.venue || targetBooking.eventName || "a venue"
     createNotification({
       type: "cancellation_requested",
       title: "Cancellation Requested",
-      message: `${clientName} requested cancellation for Booking ${targetBooking.id}.`,
+      message: `A cancellation has been requested for ${cancelVenue}.`,
       bookingId: targetBooking.id,
       userId: "admin",
       relatedUserId: targetBooking.userId,
       relatedUserName: clientName,
-      link: "/dashboard/bookings",
+      link: `/dashboard/bookings?highlight=${targetBooking.id}`,
     })
   };
 
@@ -1780,6 +1799,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           ? "Refund may be claimed onsite in cash within the allowed processing period."
           : "No refund will be processed based on the venue cancellation policy.",
         daysBeforeEventAtCancellation: daysBefore,
+
         lastActivityAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         adminLogs: makeAdminLog(
@@ -1801,7 +1821,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         message: `Your cancellation request for Booking ${approvedBooking.id} has been approved.`,
         bookingId: approvedBooking.id,
         userId: approvedBooking.userId,
-        link: "/portal/bookings",
+        link: `/portal/bookings?highlight=${approvedBooking.id}`,
       })
     }
   };
@@ -1844,6 +1864,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         refundClaimNote: null,
         previousStatus: null,
         previousBookingStatus: null,
+
         previousPaymentStatus: null,
         lastActivityAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -1866,7 +1887,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         message: `Your cancellation request for Booking ${declinedBooking.id} has been declined.`,
         bookingId: declinedBooking.id,
         userId: declinedBooking.userId,
-        link: "/portal/bookings",
+        link: `/portal/bookings?highlight=${declinedBooking.id}`,
       })
     }
   };
@@ -1919,15 +1940,16 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
 
     saveBookings(updatedBookings as Booking[]);
     const clientName = targetBooking.userInfo?.name || targetBooking.eventName || "A client"
+    const modVenue = targetBooking.venue || targetBooking.eventName || "a venue"
     createNotification({
       type: "modification_requested",
       title: "Modification Requested",
-      message: `${clientName} requested to modify Booking ${targetBooking.id}.`,
+      message: `A modification has been requested for ${modVenue}.`,
       bookingId: targetBooking.id,
       userId: "admin",
       relatedUserId: targetBooking.userId,
       relatedUserName: clientName,
-      link: "/dashboard/bookings",
+      link: `/dashboard/bookings?highlight=${targetBooking.id}`,
     })
   };
 
@@ -1969,6 +1991,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         originalBookingSnapshot: null,
         lastActivityAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+
         adminLogs: makeAdminLog(
           booking,
           "APPROVE_MODIFICATION",
@@ -1986,7 +2009,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         message: `Your modification request for Booking ${approvedMod.id} has been approved.`,
         bookingId: approvedMod.id,
         userId: approvedMod.userId,
-        link: "/portal/bookings",
+        link: `/portal/bookings?highlight=${approvedMod.id}`,
       })
     }
   };
@@ -2020,6 +2043,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         originalBookingSnapshot: null,
         lastActivityAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+
         adminLogs: makeAdminLog(
           booking,
           "DECLINE_MODIFICATION_REQUEST",
@@ -2037,7 +2061,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         message: `Your modification request for Booking ${declinedMod.id} has been declined.`,
         bookingId: declinedMod.id,
         userId: declinedMod.userId,
-        link: "/portal/bookings",
+        link: `/portal/bookings?highlight=${declinedMod.id}`,
       })
     }
   };
@@ -2064,6 +2088,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         refundReadyDate: booking.refundReadyDate || new Date().toISOString(),
         refundInstructions:
           "Your cash refund is ready. Please claim it at the One Estela Place office.",
+
         lastActivityAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         adminLogs: makeAdminLog(
@@ -2100,6 +2125,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         ...booking,
         refundStatus: "Refund Claimed" as RefundStatus,
         refundClaimedDate: new Date().toISOString(),
+
         lastActivityAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         adminLogs: makeAdminLog(
@@ -2135,6 +2161,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           ...booking,
           status: newStatus,
         }),
+
         lastActivityAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         adminLogs: makeAdminLog(
@@ -2148,6 +2175,17 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     });
 
     saveBookings(updatedBookings);
+    const signedBooking = bookings.find((b) => b.id === id);
+    if (signedBooking) {
+      createNotification({
+        type: "booking_approved",
+        title: "Contract Signed",
+        message: `Your contract for Booking ${signedBooking.id} has been signed.`,
+        bookingId: signedBooking.id,
+        userId: signedBooking.userId,
+        link: `/portal/bookings?highlight=${signedBooking.id}`,
+      })
+    }
   };
 
   const issueReceipt = (id: string) => {
@@ -2342,6 +2380,17 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     });
 
     saveBookings(updatedBookings);
+    const cashVerifiedBooking = bookings.find((b) => b.id === id);
+    if (cashVerifiedBooking) {
+      createNotification({
+        type: "payment_approved",
+        title: "Payment Approved",
+        message: `Your cash payment for Booking ${cashVerifiedBooking.id} has been approved.`,
+        bookingId: cashVerifiedBooking.id,
+        userId: cashVerifiedBooking.userId,
+        link: `/portal/payments?highlight=${cashVerifiedBooking.id}`,
+      })
+    }
   };
 
   const manualRecordOnsitePayment = (
@@ -2467,6 +2516,17 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     });
 
     saveBookings(updatedBookings);
+    const onsiteBooking = bookings.find((b) => b.id === id);
+    if (onsiteBooking) {
+      createNotification({
+        type: "payment_approved",
+        title: "Payment Recorded",
+        message: `An onsite payment of ₱${paymentData.amountReceived.toLocaleString()} has been recorded for Booking ${onsiteBooking.id}.`,
+        bookingId: onsiteBooking.id,
+        userId: onsiteBooking.userId,
+        link: `/portal/payments?highlight=${onsiteBooking.id}`,
+      })
+    }
   };
 
   const settleRemainingBalance = (
@@ -2501,6 +2561,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         paymentMethod: method,
         verifiedByAdmin: true,
         verifiedAt: new Date().toISOString(),
+
         lastActivityAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         adminLogs: makeAdminLog(
@@ -2512,6 +2573,17 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     });
 
     saveBookings(updatedBookings);
+    const settledBooking = bookings.find((b) => b.id === id);
+    if (settledBooking) {
+      createNotification({
+        type: "remaining_balance_approved",
+        title: "Remaining Balance Settled",
+        message: `Your remaining balance for Booking ${settledBooking.id} has been settled.`,
+        bookingId: settledBooking.id,
+        userId: settledBooking.userId,
+        link: `/portal/payments?highlight=${settledBooking.id}`,
+      })
+    }
   };
 
   const verifyPayment = (id: string, reviewData?: { verifiedAmount?: number; adminNote?: string; adminName?: string }) => {
@@ -2690,7 +2762,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         message: `Your payment for Booking ${verifiedBooking.id} has been approved.`,
         bookingId: verifiedBooking.id,
         userId: verifiedBooking.userId,
-        link: "/portal/payments",
+        link: `/portal/payments?highlight=${verifiedBooking.id}`,
       })
     }
   };
@@ -2771,7 +2843,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           : `Your payment for Booking ${rejectedBooking.id} has been rejected.`,
         bookingId: rejectedBooking.id,
         userId: rejectedBooking.userId,
-        link: "/portal/payments",
+        link: `/portal/payments?highlight=${rejectedBooking.id}`,
       })
     }
   };
@@ -2843,7 +2915,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         message: `Your payment for Booking ${incompleteBooking.id} needs correction or additional information before it can be verified.`,
         bookingId: incompleteBooking.id,
         userId: incompleteBooking.userId,
-        link: "/portal/payments",
+        link: `/portal/payments?highlight=${incompleteBooking.id}`,
       })
     }
   };
@@ -2976,6 +3048,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
             "This payment secures your office reservation slot only. After admin verification, succeeding rental payments are settled onsite via check and recorded by admin.",
           verifiedByAdmin: false,
           hasActivePaymentSubmission: true,
+
           lastActivityAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           adminLogs: makeAdminLog(
@@ -3059,6 +3132,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           remainingBalancePaid: false,
           verifiedByAdmin: false,
           hasActivePaymentSubmission: true,
+
           lastActivityAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
@@ -3117,6 +3191,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           remainingBalancePaid: false,
           verifiedByAdmin: false,
           hasActivePaymentSubmission: true,
+
           lastActivityAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
@@ -3145,37 +3220,38 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           hasActivePaymentSubmission: true,
           lastActivityAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
-          adminLogs: makeAdminLog(
-            booking,
-            "PAY_AT_OFFICE_SELECTED",
-            "Client selected Pay at the Office. Payment submitted for admin verification.",
-          ),
-        };
-      }
+            adminLogs: makeAdminLog(
+              booking,
+              "PAY_AT_OFFICE_SELECTED",
+              "Client selected Pay at the Office. Payment submitted for admin verification.",
+            ),
+          };
+        }
 
-      return {
-        ...booking,
-        status: "verifying" as BookingStatus,
-        bookingStatus: "Pending Verification",
-        isSlotSecured: false,
-        paymentStatus: "for_review" as PaymentStatus,
-        paymentType: paymentData.type,
-        paymentSubmissionType: "bank_transfer" as const,
-        paymentMethod: paymentData.method,
-        bankReferenceNumber: paymentData.bankReferenceNumber?.trim(),
-        paymentReference: paymentData.bankReferenceNumber?.trim(),
-        proofUrl: paymentData.proof,
-        paymentAmount: Number(paymentData.amount || total),
-        pendingPaymentAmount: Number(paymentData.amount || total),
-        paymentSubmittedAt: new Date().toISOString(),
-        amountPaid: 0,
-        remainingBalance: total,
-        remainingBalancePaid: false,
-        verifiedByAdmin: false,
-        hasActivePaymentSubmission: true,
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
+        return {
+          ...booking,
+          status: "verifying" as BookingStatus,
+          bookingStatus: "Pending Verification",
+          isSlotSecured: false,
+          paymentStatus: "for_review" as PaymentStatus,
+          paymentType: paymentData.type,
+          paymentSubmissionType: "bank_transfer" as const,
+          paymentMethod: paymentData.method,
+          bankReferenceNumber: paymentData.bankReferenceNumber?.trim(),
+          paymentReference: paymentData.bankReferenceNumber?.trim(),
+          proofUrl: paymentData.proof,
+          paymentAmount: Number(paymentData.amount || total),
+          pendingPaymentAmount: Number(paymentData.amount || total),
+          paymentSubmittedAt: new Date().toISOString(),
+          amountPaid: 0,
+          remainingBalance: total,
+          remainingBalancePaid: false,
+          verifiedByAdmin: false,
+          hasActivePaymentSubmission: true,
+
+          lastActivityAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
     });
 
     const updatedBooking = updatedBookings.find(b => b.id === id) as any
@@ -3215,15 +3291,16 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     if (updatedBooking) {
       window.dispatchEvent(new Event("oneestela_payments_updated"))
       const payName = updatedBooking.userInfo?.name || updatedBooking.eventName || "A client"
+      const payVenue = updatedBooking.venue || updatedBooking.eventName || "a venue"
       createNotification({
         type: "payment_submitted",
-        title: "Payment Submitted",
-        message: `Payment submitted for Booking ${updatedBooking.id}.`,
+        title: "Payment for Review",
+        message: `A new payment for ${payVenue} is waiting for verification.`,
         bookingId: updatedBooking.id,
         userId: "admin",
         relatedUserId: updatedBooking.userId,
         relatedUserName: payName,
-        link: "/dashboard/payments",
+        link: `/dashboard/payments?highlight=${updatedBooking.id}`,
       })
     }
   };

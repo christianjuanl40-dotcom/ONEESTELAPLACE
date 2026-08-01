@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
@@ -27,6 +27,7 @@ import { LogoutConfirmDialog } from "@/src/modules/shared/components/logout-conf
 import { UserAvatar } from "@/src/modules/shared/components/user-avatar"
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
 import { NotificationDropdown } from "@/src/modules/shared/components/notification-dropdown"
+import type { NotificationType } from "@/src/modules/shared/lib/notifications"
 
 const CLIENT_MENU = [
   { name: "Dashboard", href: "/portal", icon: LayoutDashboard, key: "dashboard" },
@@ -50,11 +51,29 @@ export default function ClientLayout({
 
   const { user, isLoading, logout } = useAuth()
   const { messages } = useChat()
-  const { unreadCount: notificationUnread } = useNotifications()
+  const { notifications, unreadCount: notificationUnread } = useNotifications()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [chatUnread, setChatUnread] = useState(0)
   const [showNotifications, setShowNotifications] = useState(false)
+
+  const CLIENT_BOOKING_TYPES: NotificationType[] = useMemo(
+    () => ["booking_approved", "booking_rejected", "cancellation_approved", "cancellation_declined", "modification_approved", "modification_declined"],
+    [],
+  )
+  const CLIENT_PAYMENT_TYPES: NotificationType[] = useMemo(
+    () => ["payment_approved", "payment_rejected", "payment_incomplete", "remaining_balance_approved", "remaining_balance_rejected", "refund_completed"],
+    [],
+  )
+
+  const myBookingUnread = useMemo(
+    () => notifications.filter((n) => !n.moduleRead && CLIENT_BOOKING_TYPES.includes(n.type as NotificationType)).length,
+    [notifications],
+  )
+  const myPaymentUnread = useMemo(
+    () => notifications.filter((n) => !n.moduleRead && CLIENT_PAYMENT_TYPES.includes(n.type as NotificationType)).length,
+    [notifications],
+  )
 
   useEffect(() => {
     if (!user) return
@@ -73,6 +92,8 @@ export default function ClientLayout({
       setChatUnread(unreadFromMessages)
     }
   }, [messages, user?.id, chatUnread])
+
+
 
   useEffect(() => {
     if (isLoading) return
@@ -199,6 +220,13 @@ export default function ClientLayout({
                   ? pathname === "/portal"
                   : pathname.startsWith(item.href)
               const showChatBadge = item.key === "chat" && chatUnread > 0
+              const showBookingBadge = item.key === "bookings" && myBookingUnread > 0
+              const showTransactionBadge = item.key === "transactions" && myPaymentUnread > 0
+              let badgeCount = 0
+              if (item.key === "chat") badgeCount = chatUnread
+              if (item.key === "bookings") badgeCount = myBookingUnread
+              if (item.key === "transactions") badgeCount = myPaymentUnread
+              const showBadge = showChatBadge || showBookingBadge || showTransactionBadge
 
               return (
                 <Link
@@ -224,7 +252,7 @@ export default function ClientLayout({
                     {item.name}
                   </div>
 
-                  {showChatBadge && (
+                  {showBadge && (
                     <span
                       className={cn(
                         "flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[10px] font-black tabular-nums",
@@ -233,7 +261,7 @@ export default function ClientLayout({
                           : "bg-rose-500 text-white",
                       )}
                     >
-                      {chatUnread > 99 ? "99+" : chatUnread}
+                      {badgeCount > 99 ? "99+" : badgeCount}
                     </span>
                   )}
                 </Link>

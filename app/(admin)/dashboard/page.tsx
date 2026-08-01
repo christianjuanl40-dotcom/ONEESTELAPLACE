@@ -76,34 +76,21 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
-      <div className="border-b border-slate-200 pb-6 mb-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="min-w-0">
-            <p className="text-[11px] font-black uppercase tracking-[0.2em] text-orange-600">
-              Admin Dashboard
-            </p>
-            <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950 md:text-3xl">
-              Management Overview
-            </h1>
-            <p className="mt-1 text-xs leading-5 text-slate-500 sm:text-sm">
-              Monitor bookings, payments, approvals, and venue activity.
-            </p>
-          </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <Link
-              href={ROUTES.bookings}
-              className="inline-flex h-9 items-center justify-center rounded-lg bg-orange-600 px-3 text-xs font-black text-white shadow-sm transition hover:bg-orange-700"
-            >
-              Manage Bookings
-              <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-            </Link>
-            <Link
-              href={ROUTES.payments}
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 shadow-sm transition hover:bg-slate-50"
-            >
-              Review Payments
-            </Link>
-          </div>
+      <div className="mb-6">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Link
+            href={ROUTES.bookings}
+            className="inline-flex h-9 items-center justify-center rounded-lg bg-orange-600 px-3 text-xs font-black text-white shadow-sm transition hover:bg-orange-700"
+          >
+            Manage Bookings
+            <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+          </Link>
+          <Link
+            href={ROUTES.payments}
+            className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 shadow-sm transition hover:bg-slate-50"
+          >
+            Review Payments
+          </Link>
         </div>
       </div>
 

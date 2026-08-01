@@ -81,18 +81,6 @@ export default function UsersPage() {
   return (
     <div className="w-full min-w-0 max-w-full overflow-x-hidden">
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
-        <section className="border-b border-slate-200 pb-5 mb-6">
-          <p className="text-[11px] font-black uppercase tracking-[0.2em] text-orange-600">
-            Admin Users Information
-          </p>
-          <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950 md:text-3xl">
-            User Information
-          </h1>
-          <p className="mt-1 text-xs leading-5 text-slate-500 sm:text-sm">
-            Read-only view of registered customer accounts and contact details.
-          </p>
-        </section>
-
         {loading ? (
           <div className="flex min-h-[230px] items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-orange-600" />

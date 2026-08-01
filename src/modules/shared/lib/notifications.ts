@@ -22,6 +22,7 @@ export type NotificationType =
   | "remaining_balance_rejected"
   | "maintenance_conflict"
   | "balance_reminder"
+  | "refund_completed"
 
 export interface NotificationItem {
   id?: string
@@ -33,6 +34,7 @@ export interface NotificationItem {
   relatedUserId?: string
   relatedUserName?: string
   isRead: boolean
+  moduleRead: boolean
   createdAt?: any
   link: string
 }
@@ -60,10 +62,16 @@ export async function createNotification(data: {
       relatedUserId: data.relatedUserId ?? null,
       relatedUserName: data.relatedUserName ?? null,
       isRead: false,
+      moduleRead: false,
       createdAt: serverTimestamp(),
       link: data.link,
     })
-    console.log("[Notifications] Firestore write success, doc ID:", docRef.id)
+    console.log("[Notifications] Firestore write success:", {
+      docId: docRef.id,
+      type: data.type,
+      recipientUid: data.userId,
+      bookingId: data.bookingId,
+    })
   } catch (error) {
     console.error("[Notifications] Failed to create notification:", error)
   }

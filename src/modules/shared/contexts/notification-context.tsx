@@ -11,14 +11,17 @@ import {
   doc,
   updateDoc,
   limit,
+  getDocs,
 } from "firebase/firestore"
-import type { NotificationItem } from "../lib/notifications"
+import type { NotificationItem, NotificationType } from "../lib/notifications"
 
 interface NotificationContextValue {
   notifications: NotificationItem[]
   unreadCount: number
+  moduleUnreadCount: number
   markAsRead: (id: string) => void
   markAllAsRead: () => void
+  markByBookingId: (bookingId: string, types?: NotificationType[]) => Promise<void>
 }
 
 const NotificationContext = createContext<NotificationContextValue | null>(null)
@@ -36,7 +39,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     if (!user || !scope) return
 
     const userId = scope === "admin" ? "admin" : user.id
-    console.log("[Notifications] Provider subscribing, userId:", userId)
+
+    console.log("[Firestore Listener START] Notifications", { userId })
 
     const q = query(
       collection(db, "notifications"),
@@ -46,7 +50,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     const unsub = onSnapshot(q,
       (snapshot) => {
-        console.log("[Notifications] Provider snapshot size:", snapshot.size)
         const items: NotificationItem[] = []
         snapshot.forEach((docSnap) => {
           const data = docSnap.data()
@@ -60,6 +63,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             relatedUserId: data.relatedUserId,
             relatedUserName: data.relatedUserName,
             isRead: data.isRead ?? false,
+            moduleRead: data.moduleRead ?? data.isRead ?? false,
             createdAt: data.createdAt,
             link: data.link,
           })
@@ -72,16 +76,27 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         setNotifications(items)
       },
       (error) => {
-        console.error("[Notifications] onSnapshot error:", error)
+        console.error("[Notifications snapshot error]", {
+          code: error.code,
+          message: error.message,
+          error,
+        })
       },
     )
 
-    return () => unsub()
+    return () => {
+      console.log("[Firestore Listener STOP] Notifications")
+      unsub()
+    }
   }, [user, scope])
 
   const unreadCount = useMemo(() => {
     const count = notifications.filter((n) => !n.isRead).length
-    console.log("[Notifications] unread count:", count)
+    return count
+  }, [notifications])
+
+  const moduleUnreadCount = useMemo(() => {
+    const count = notifications.filter((n) => !n.moduleRead).length
     return count
   }, [notifications])
 
@@ -105,13 +120,37 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       })
   }, [notifications])
 
+  const markByBookingId = useCallback(async (bookingId: string, types?: NotificationType[]) => {
+    if (!user) return
+    try {
+      const recipientId = user.role === "admin" || user.role === "staff" ? "admin" : user.id
+      const constraints: any[] = [
+        where("userId", "==", recipientId),
+        where("bookingId", "==", bookingId),
+        where("moduleRead", "==", false),
+      ]
+      if (types && types.length > 0) {
+        constraints.push(where("type", "in", types))
+      }
+      const q = query(collection(db, "notifications"), ...constraints)
+      const snapshot = await getDocs(q)
+      snapshot.forEach((docSnap) => {
+        updateDoc(doc(db, "notifications", docSnap.id), { moduleRead: true })
+      })
+    } catch (error) {
+      console.error("[Notifications] Failed to markByBookingId:", error)
+    }
+  }, [user])
+
   return (
     <NotificationContext.Provider
       value={{
         notifications,
         unreadCount,
+        moduleUnreadCount,
         markAsRead,
         markAllAsRead,
+        markByBookingId,
       }}
     >
       {children}

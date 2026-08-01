@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   AlertCircle,
@@ -50,7 +50,8 @@ import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { cn } from "@/src/modules/shared/lib/utils"
 import { getRemainingDurationFromDates, getContractDurationLabel } from "@/src/modules/shared/lib/date-utils"
 import { useBookings, type Booking } from "@/src/modules/client/contexts/booking-context"
-import { createNotification } from "@/src/modules/shared/lib/notifications"
+import { createNotification, type NotificationType } from "@/src/modules/shared/lib/notifications"
+import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
 import { getPaymentMethodLabel } from "@/src/modules/shared/lib/labels"
 import { Textarea } from "@/src/modules/shared/components/ui/textarea"
 import { Label } from "@/src/modules/shared/components/ui/label"
@@ -222,6 +223,8 @@ export default function AdminBookingsPage() {
   const { toast } = useToast()
   const bookingCtx = useBookings()
   const bookings = bookingCtx?.bookings || []
+  const { markByBookingId } = useNotifications()
+  const ADMIN_BOOKING_TYPES: NotificationType[] = ["booking_submitted", "cancellation_requested", "modification_requested"]
   const {
     markContractSigned,
     modifyBooking,
@@ -237,6 +240,7 @@ export default function AdminBookingsPage() {
       router.replace("/dashboard")
     }
   }, [user, router])
+
   const [statusFilter, setStatusFilter] = useState("all")
   const [venueFilter, setVenueFilter] = useState("all")
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
@@ -323,6 +327,73 @@ export default function AdminBookingsPage() {
     (safePage - 1) * ITEMS_PER_PAGE,
     safePage * ITEMS_PER_PAGE,
   )
+
+  const [highlightedBookingId, setHighlightedBookingId] = useState<string | null>(null)
+  const highlightHandledRef = useRef(false)
+  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    const h = sessionStorage.getItem("admin_booking_highlight")
+    if (h) {
+      setHighlightedBookingId(h)
+      setSearchQuery("")
+      setStatusFilter("all")
+      setVenueFilter("all")
+    }
+  }, [])
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const customEvent = e as CustomEvent<{ bookingId: string }>
+      const bookingId = customEvent.detail?.bookingId
+      if (!bookingId) return
+      if (highlightTimeoutRef.current) {
+        clearTimeout(highlightTimeoutRef.current)
+        highlightTimeoutRef.current = null
+      }
+      highlightHandledRef.current = false
+      if (highlightedBookingId === bookingId) {
+        setHighlightedBookingId(null)
+        requestAnimationFrame(() => {
+          highlightHandledRef.current = false
+          setHighlightedBookingId(bookingId)
+        })
+      } else {
+        setHighlightedBookingId(bookingId)
+      }
+      setSearchQuery("")
+      setStatusFilter("all")
+      setVenueFilter("all")
+    }
+    window.addEventListener("admin-booking-highlight", handler)
+    return () => {
+      window.removeEventListener("admin-booking-highlight", handler)
+    }
+  }, [highlightedBookingId])
+
+  useEffect(() => {
+    if (!highlightedBookingId || filteredBookings.length === 0) return
+    if (highlightHandledRef.current) return
+    const idx = filteredBookings.findIndex((b) => b.id === highlightedBookingId)
+    if (idx === -1) return
+    const page = Math.floor(idx / ITEMS_PER_PAGE) + 1
+    if (page !== safePage) {
+      setCurrentPage(page)
+      return
+    }
+    highlightHandledRef.current = true
+    sessionStorage.removeItem("admin_booking_highlight")
+    highlightTimeoutRef.current = setTimeout(() => {
+      setHighlightedBookingId(null)
+      highlightTimeoutRef.current = null
+    }, 3000)
+    return () => {
+      if (highlightTimeoutRef.current) {
+        clearTimeout(highlightTimeoutRef.current)
+        highlightTimeoutRef.current = null
+      }
+    }
+  }, [highlightedBookingId, filteredBookings, safePage])
 
   const confirmApproveCancellation = () => {
     const id = showApproveCancellationTarget
@@ -557,21 +628,8 @@ export default function AdminBookingsPage() {
           }}
         />
 
-        <section className="border-b border-slate-200 pb-5">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
-                <p className="text-[11px] font-black uppercase tracking-[0.2em] text-orange-600">
-                  Admin Booking Management
-                </p>
-                <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950 md:text-3xl">
-                  Booking Management
-                </h1>
-                <p className="mt-1 text-xs leading-5 text-slate-500 sm:text-sm">
-                  View and manage all customer bookings.
-                </p>
-              </div>
-              <Button
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+          <Button
                 onClick={() => setShowMaintenanceModal(true)}
                 variant="outline"
                 className="h-10 shrink-0 whitespace-nowrap rounded-xl border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-orange-600 gap-1.5 self-start sm:self-auto"
@@ -579,9 +637,7 @@ export default function AdminBookingsPage() {
                 <Wrench className="h-3.5 w-3.5" />
                 Maintenance Calendar
               </Button>
-            </div>
 
-            <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
               <Select value={venueFilter} onValueChange={setVenueFilter}>
                 <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[170px]">
                   <div className="flex items-center gap-2">
@@ -631,9 +687,7 @@ export default function AdminBookingsPage() {
                   </button>
                 )}
               </div>
-            </div>
-          </div>
-        </section>
+        </div>
 
         <section className="mt-4 space-y-3">
           {filteredBookings.length === 0 ? (
@@ -651,7 +705,8 @@ export default function AdminBookingsPage() {
               <AdminBookingCard
                 key={booking.id}
                 booking={booking}
-                onView={() => setSelectedBooking(booking)}
+                onView={() => { setSelectedBooking(booking); markByBookingId(booking.id, ADMIN_BOOKING_TYPES) }}
+                isHighlighted={highlightedBookingId === booking.id}
               />
             ))
           )}
@@ -688,14 +743,33 @@ export default function AdminBookingsPage() {
 function AdminBookingCard({
   booking,
   onView,
+  isHighlighted,
 }: {
   booking: Booking
   onView: () => void
+  isHighlighted?: boolean
 }) {
   const isOfficeRental = isOfficeBooking(booking)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const highlightRef = useRef(false)
 
-  return (
-    <div className="group grid w-full max-w-full min-w-0 grid-cols-2 gap-x-4 gap-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md sm:flex sm:items-center sm:gap-6">
+  useEffect(() => {
+    if (!isHighlighted || !cardRef.current) return
+    if (highlightRef.current) return
+    highlightRef.current = true
+    cardRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
+    sessionStorage.removeItem("admin_booking_highlight")
+    const timer = setTimeout(() => {
+      highlightRef.current = false
+    }, 3000)
+    return () => clearTimeout(timer)
+  }, [isHighlighted])
+
+  const innerCard = (
+    <div
+      ref={cardRef}
+      className="group grid w-full max-w-full min-w-0 grid-cols-2 gap-x-4 gap-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition sm:flex sm:items-center sm:gap-6 hover:border-orange-200 hover:shadow-md"
+    >
       <div className="flex min-w-0 items-center gap-3 sm:flex-1">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
           {isOfficeRental ? <FileText className="h-5 w-5" /> : <Calendar className="h-5 w-5" />}
@@ -750,6 +824,12 @@ function AdminBookingCard({
           </Tooltip>
         </TooltipProvider>
       </div>
+    </div>
+  )
+
+  return (
+    <div className={isHighlighted ? "notification-target-highlight" : undefined}>
+      {innerCard}
     </div>
   )
 }

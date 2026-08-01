@@ -14,7 +14,6 @@ import {
 } from "@/src/modules/shared/components/ui/tooltip"
 import Link from "next/link"
 
-import { UserAvatar } from "@/src/modules/shared/components/user-avatar"
 import { useBookings, type Booking } from "@/src/modules/client/contexts/booking-context"
 import { getCurrentBooking } from "@/src/modules/shared/lib/booking-helpers"
 import { getRemainingDurationFromDates } from "@/src/modules/shared/lib/date-utils"
@@ -322,34 +321,11 @@ export default function ClientDashboardPage() {
     <TooltipProvider delayDuration={400}>
     <div className="w-full min-w-0 max-w-full overflow-x-hidden">
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 animate-in fade-in duration-500">
-        <section className="border-b border-slate-200 pb-5 mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <UserAvatar
-                name={user?.name}
-                picture={user?.profilePicture}
-                className="h-12 w-12"
-                ringClassName="ring-2 ring-white"
-                fallbackClassName="bg-gradient-to-br from-orange-100 to-orange-200 text-orange-700"
-                textClassName="text-lg font-black uppercase"
-              />
-              <div className="min-w-0">
-                <p className="text-[11px] font-black uppercase tracking-[0.2em] text-orange-600">
-                  Client Dashboard
-                </p>
-                <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950 md:text-3xl leading-tight">
-                  Welcome back, {user?.name?.split(" ")[0] || "Client"}
-                </h1>
-                <p className="mt-1 text-sm text-slate-500">
-                  Here is an overview of your reservations and payments.
-                </p>
-              </div>
-            </div>
-            <Button className="h-11 rounded-xl bg-orange-600 px-5 text-sm font-black text-white shadow-sm hover:bg-orange-700 shrink-0 active:scale-[0.97] transition-transform" asChild>
-              <Link href="/portal/bookings"><Plus className="w-4 h-4 mr-1.5" /> New Booking</Link>
-            </Button>
-          </div>
-        </section>
+        <div className="mb-6 flex justify-end">
+          <Button className="h-11 rounded-xl bg-orange-600 px-5 text-sm font-black text-white shadow-sm hover:bg-orange-700 shrink-0 active:scale-[0.97] transition-transform" asChild>
+            <Link href="/portal/bookings"><Plus className="w-4 h-4 mr-1.5" /> New Booking</Link>
+          </Button>
+        </div>
 
         <div className="space-y-6">
           {activeRental && (

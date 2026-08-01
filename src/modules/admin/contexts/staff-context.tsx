@@ -64,6 +64,7 @@ export const StaffProvider = ({ children }: { children: React.ReactNode }) => {
     }
 
     const q = query(collection(db, "users"), where("role", "==", "staff"))
+    console.log("[Firestore Listener START] Staff")
     const unsub = onSnapshot(
       q,
       (snapshot) => {
@@ -95,11 +96,14 @@ export const StaffProvider = ({ children }: { children: React.ReactNode }) => {
         setLoading(false)
       },
       (error) => {
-        console.error("[StaffContext] Firestore snapshot error:", error)
+        console.error("[Staff snapshot error]", { code: error.code, message: error.message, error })
         setLoading(false)
       },
     )
-    return () => unsub()
+    return () => {
+      console.log("[Firestore Listener STOP] Staff")
+      unsub()
+    }
   }, [])
 
   const addStaff: StaffContextValue["addStaff"] = async (data) => {

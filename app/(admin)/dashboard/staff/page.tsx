@@ -16,13 +16,6 @@ import {
 } from "@shared/components/ui/dialog"
 import { Input } from "@shared/components/ui/input"
 import { Label } from "@shared/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@shared/components/ui/select"
 import { useToast } from "@shared/hooks/use-toast"
 import { Checkbox } from "@shared/components/ui/checkbox"
 import { Edit2, Plus, Search, ShieldCheck, Users, Trash2 } from "lucide-react"
@@ -101,7 +94,6 @@ export default function StaffManagementPage() {
   const [isSaving, setIsSaving] = useState(false)
 
   const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState<"all" | StaffStatus>("all")
   const [formData, setFormData] = useState<StaffFormData>(DEFAULT_FORM)
   const [staffPage, setStaffPage] = useState(1)
   const STAFF_PER_PAGE = 10
@@ -111,9 +103,6 @@ export default function StaffManagementPage() {
 
     return staff
       .filter((staffMember: StaffAccount) => {
-        const normalizedStatus = normalizeStaffStatus(staffMember.status)
-        const matchesStatus = statusFilter === "all" || normalizedStatus === statusFilter
-
         const searchableText = [
           staffMember.firstName,
           staffMember.lastName,
@@ -126,7 +115,7 @@ export default function StaffManagementPage() {
 
         const matchesSearch = !keyword || searchableText.includes(keyword)
 
-        return matchesStatus && matchesSearch
+        return matchesSearch
       })
       .sort((a: StaffAccount, b: StaffAccount) => {
         const statusA = normalizeStaffStatus(a.status)
@@ -135,11 +124,11 @@ export default function StaffManagementPage() {
         if (statusA !== statusB) return statusA === "Active" ? -1 : 1
         return getFullName(a).localeCompare(getFullName(b))
       })
-  }, [staff, searchTerm, statusFilter])
+  }, [staff, searchTerm])
 
   useEffect(() => {
     setStaffPage(1)
-  }, [searchTerm, statusFilter])
+  }, [searchTerm])
 
   const staffTotalPages = Math.ceil(filteredStaff.length / STAFF_PER_PAGE)
   const safeStaffPage = staffPage > staffTotalPages ? Math.max(staffTotalPages, 1) : staffPage
@@ -475,21 +464,7 @@ export default function StaffManagementPage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
-      <div className="border-b border-slate-200 pb-5 mb-5 flex flex-col gap-4">
-        <div className="min-w-0">
-          <p className="text-[11px] font-black uppercase tracking-[0.2em] text-orange-600">
-            Admin Staff Management
-          </p>
-
-          <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950 md:text-3xl">
-            Staff Management
-          </h1>
-
-          <p className="mt-1 text-xs leading-5 text-slate-500 sm:text-sm">
-            Add, edit, activate, and deactivate staff accounts for One Estela Place.
-          </p>
-        </div>
-
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
         <Dialog
           open={isAddDialogOpen}
           onOpenChange={(open) => {
@@ -498,7 +473,7 @@ export default function StaffManagementPage() {
           }}
         >
           <DialogTrigger asChild>
-            <Button className="h-11 rounded-full bg-orange-600 px-6 text-sm font-black text-white shadow-sm hover:bg-orange-700">
+            <Button className="h-10 rounded-full bg-orange-600 px-6 text-sm font-black text-white shadow-sm hover:bg-orange-700">
               <Plus className="mr-2 h-4 w-4" />
               Add Staff
             </Button>
@@ -536,9 +511,7 @@ export default function StaffManagementPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </div>
 
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
           <Input
@@ -548,34 +521,6 @@ export default function StaffManagementPage() {
             className="h-10 rounded-xl border-slate-200 bg-white pl-9 text-xs focus-visible:ring-orange-600 sm:w-[290px]"
           />
         </div>
-
-        <Select
-          value={statusFilter}
-          onValueChange={(value) => setStatusFilter(value as "all" | StaffStatus)}
-        >
-          <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[170px]">
-            <SelectValue placeholder="All Status" />
-          </SelectTrigger>
-
-          <SelectContent className="rounded-xl shadow-xl">
-            <SelectItem value="all" className="font-bold">All Status</SelectItem>
-            <SelectItem value="Active" className="font-bold">Active</SelectItem>
-            <SelectItem value="Inactive" className="font-bold">Inactive</SelectItem>
-          </SelectContent>
-        </Select>
-
-        {(searchTerm || statusFilter !== "all") && (
-          <Button
-            variant="outline"
-            onClick={() => {
-              setSearchTerm("")
-              setStatusFilter("all")
-            }}
-            className="h-10 rounded-xl border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50"
-          >
-            Clear
-          </Button>
-        )}
       </div>
 
       {filteredStaff.length > 0 ? (
@@ -678,8 +623,8 @@ export default function StaffManagementPage() {
           </div>
           <h3 className="text-sm font-black text-slate-700">No staff found</h3>
           <p className="mt-1 max-w-sm text-xs leading-5 text-slate-500">
-            {searchTerm || statusFilter !== "all"
-              ? "Try clearing your filters or search keyword."
+            {searchTerm
+              ? "Try clearing your search keyword."
               : "Add your first staff member to start managing staff accounts."}
           </p>
         </div>

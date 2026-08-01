@@ -130,7 +130,7 @@ export default function ClientSupportChatPage() {
             <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 shrink-0"><ShieldCheck className="w-6 h-6" /></div>
           <div>
             <h2 className="text-lg font-bold text-slate-900 leading-tight">Chat Support</h2>
-            <div className="flex items-center gap-1.5 mt-0.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-xs font-medium text-emerald-600">Online and ready to help</span></div>
+            <div className="flex items-center gap-1.5 mt-0.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-xs font-medium text-emerald-600">Active now</span></div>
           </div>
           </div>
         </div>

@@ -377,20 +377,6 @@ export default function ReportsPage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
-      <div className="border-b border-slate-200 pb-5 mb-5">
-        <div className="min-w-0">
-          <p className="text-[11px] font-black uppercase tracking-[0.2em] text-orange-600">
-            Admin Reports
-          </p>
-          <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950 md:text-3xl">
-            Reports
-          </h1>
-          <p className="mt-1 text-xs leading-5 text-slate-500 sm:text-sm">
-            Review booking records, revenue trends, event performance, and downloadable report summaries.
-          </p>
-        </div>
-      </div>
-
       <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-bold text-slate-500">
           <span>

@@ -27,6 +27,7 @@ const typeIcons: Record<NotificationType, typeof Bell> = {
   remaining_balance_rejected: XCircle,
   maintenance_conflict: AlertTriangle,
   balance_reminder: Bell,
+  refund_completed: CheckCheck,
 }
 
 // Fallback label formatter if a booking number isn't present
@@ -75,12 +76,6 @@ export function NotificationDropdown({ open, onClose }: Props) {
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [open, onClose])
 
-  function handleClick(n: { id?: string; isRead: boolean; link: string }) {
-    if (n.id) markAsRead(n.id)
-    router.push(n.link)
-    onClose()
-  }
-
   if (!open) return null
 
   return (
@@ -91,8 +86,8 @@ export function NotificationDropdown({ open, onClose }: Props) {
         className="fixed left-2 right-2 top-[72px] z-50 mx-auto flex max-h-[70vh] w-auto max-w-[360px] flex-col border border-slate-200 bg-white shadow-2xl rounded-xl sm:absolute sm:left-auto sm:right-0 sm:top-[calc(100%+12px)] sm:mx-0 sm:w-80 sm:max-w-none"
       >
         {/* Sticky Header */}
-        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-white/95 px-4 py-3 backdrop-blur-sm z-10">
-          <h3 className="text-sm font-bold text-slate-800">Notifications</h3>
+         <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-white/95 px-4 py-3 backdrop-blur-sm z-10">
+           <h3 className="text-sm font-bold text-slate-800">Notifications</h3>
           {unreadCount > 0 && (
             <Button
               variant="ghost"
@@ -121,20 +116,65 @@ export function NotificationDropdown({ open, onClose }: Props) {
               {notifications.map((n) => {
                 const IconComponent = typeIcons[n.type] ?? Bell
                 
-                // Use bookingNumber or bookingId if available, fallback to formatted event type
-                const notificationTitle = (n as any).bookingNumber || (n as any).bookingId
-                  ? `Booking #${(n as any).bookingNumber || (n as any).bookingId}`
-                  : formatNotificationLabel(n.type)
+                const notificationTitle = n.title || formatNotificationLabel(n.type)
 
                 return (
                   <button
                     key={n.id}
-                    onClick={() => handleClick(n)}
+                     onClick={() => {
+                       if (n.bookingId) {
+                         const isPayment = n.link.includes("/dashboard/payments")
+                         if (isPayment) {
+                           sessionStorage.setItem(
+                             "admin_payment_highlight",
+                             n.bookingId
+                           )
+                           window.dispatchEvent(
+                             new CustomEvent("admin-payment-highlight", {
+                               detail: { paymentId: n.bookingId },
+                             })
+                           )
+                         } else if (n.link.includes("/portal/payments")) {
+                           sessionStorage.setItem(
+                             "client_payment_highlight",
+                             n.bookingId
+                           )
+                           window.dispatchEvent(
+                             new CustomEvent("client-payment-highlight", {
+                               detail: { bookingId: n.bookingId },
+                             })
+                           )
+                         } else if (n.link.includes("/dashboard")) {
+                           sessionStorage.setItem(
+                             "admin_booking_highlight",
+                             n.bookingId
+                           )
+                           window.dispatchEvent(
+                             new CustomEvent("admin-booking-highlight", {
+                               detail: { bookingId: n.bookingId },
+                             })
+                           )
+                         } else {
+                           sessionStorage.setItem(
+                             "client_booking_highlight",
+                             n.bookingId
+                           )
+                           window.dispatchEvent(
+                             new CustomEvent("client-booking-highlight", {
+                               detail: { bookingId: n.bookingId },
+                             })
+                           )
+                         }
+                       }
+                       if (n.id) markAsRead(n.id)
+                       router.push(n.link)
+                       onClose()
+                     }}
                     className={cn(
                       "group flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-slate-50 focus:bg-slate-50 focus:outline-none sm:py-3",
                       !n.isRead && "bg-blue-50/40"
                     )}
-                  >
+                   >
                     <div
                       className={cn(
                         "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors",

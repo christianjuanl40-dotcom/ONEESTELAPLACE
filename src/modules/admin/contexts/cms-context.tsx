@@ -535,6 +535,7 @@ export const CMSProvider = ({ children }: { children: React.ReactNode }) => {
   const { toast } = useToast()
 
   useEffect(() => {
+    console.log("[Firestore Listener START] CMS")
     const unsub = onSnapshot(
       cmsDocRef,
       (docSnap) => {
@@ -551,12 +552,15 @@ export const CMSProvider = ({ children }: { children: React.ReactNode }) => {
         }
       },
       (error) => {
-        console.error("CMS SNAPSHOT ERROR", error)
+        console.error("[CMS snapshot error]", { code: error.code, message: error.message, error })
         setCmsData(defaultCMSData)
       }
     )
 
-    return () => unsub()
+    return () => {
+      console.log("[Firestore Listener STOP] CMS")
+      unsub()
+    }
   }, [])
 
   const saveCMSData = async (newData: CMSData) => {
