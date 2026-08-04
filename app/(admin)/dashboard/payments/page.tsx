@@ -1679,7 +1679,7 @@ function ensureReceiptForVerifiedBooking(booking: BookingRecord) {
       startDate: booking.date,
       endDate: office ? booking.endDate || booking.contractEndDate || booking.date : booking.date,
       rentalType: office ? "Office Space Rental" : "Event Venue Booking",
-      contractTerm: office ? booking.contractTerm || booking.rentalTerm || "N/A" : undefined,
+      contractTerm: office ? (booking.contractTerm || booking.rentalTerm || "N/A") : null,
       paymentPurpose: office ? "Slot Reservation Only" : getPaymentTypeLabel(booking.paymentType),
       paymentMethod: getPaymentMethodLabel(booking.paymentMethod),
       amountPaid: formatCurrency(getAmountPaid(booking)),
@@ -1723,8 +1723,11 @@ function IncompletePaymentModal({
   )
   const selectedDP = getAmountValue(booking.selectedDownpaymentAmount) || (isDownpayment ? totalAmount * (Number(booking.downPaymentPercentage || 50) / 100) : 0)
   const currentAmountPaid = typeof (booking as any).amountPaid === "number" ? (booking as any).amountPaid : 0
-  const expectedAmount = Math.max(totalAmount - currentAmountPaid, 0)
   const currentDownpaymentPaid = getAmountValue(booking.downpaymentPaid)
+  const isDownpaymentStage = isDownpayment && currentDownpaymentPaid < selectedDP
+  const expectedAmount = isDownpaymentStage
+    ? Math.max(selectedDP - currentDownpaymentPaid, 0)
+    : Math.max(totalAmount - currentAmountPaid, 0)
   const enteredAmount = getAmountValue(verifiedAmount)
   const newAmountPaid = currentAmountPaid + enteredAmount
   const newDownpaymentPaid = isDownpayment ? currentDownpaymentPaid + enteredAmount : 0

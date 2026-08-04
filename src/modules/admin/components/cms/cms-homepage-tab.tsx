@@ -26,38 +26,37 @@ export function CMSHomepageTab({ onNavigate }: { onNavigate: (tab: string) => vo
 
   return (
     <div>
-      <CMSSectionHeader title="Homepage" description="Edit all landing page content, branding, and footer details."
-        currentSection="homepage" onNavigate={onNavigate}
+      <CMSSectionHeader title="" description="" currentSection="homepage" onNavigate={onNavigate}
         action={<Button type="button" onClick={handleSave}
           className="w-full sm:w-auto h-11 rounded-lg bg-orange-600 px-4 text-xs font-bold text-white hover:bg-orange-700">
           <Save className="mr-1.5 h-3.5 w-3.5" /> Save Changes</Button>} />
 
       <div className="max-w-4xl space-y-6">
 
-        {/* ── Hero Section ── */}
+        {/* ── Homepage ── */}
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 px-6 py-4">
-            <h2 className="text-sm font-black text-slate-900">Hero Section</h2>
-            <p className="text-xs font-medium text-slate-500">Main landing page hero area</p>
+            <h2 className="text-sm font-black text-slate-900">Homepage</h2>
+            <p className="text-xs font-medium text-slate-500">Manage the main landing page content.</p>
           </div>
           <div className="grid gap-5 p-6">
             <div>
-              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Hero Badge</label>
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Homepage Badge</label>
               <Input value={form.heroBadge || ""} onChange={(e) => setForm({ ...form, heroBadge: e.target.value })}
                 className="mt-1.5 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" placeholder="Event Venue · San Pedro, Laguna" />
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Hero Title</label>
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Homepage Title</label>
               <Textarea value={form.heroTitle || ""} onChange={(e) => setForm({ ...form, heroTitle: e.target.value })}
                 className="mt-1.5 w-full min-h-[80px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Hero Subtitle</label>
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Homepage Subtitle</label>
               <Textarea value={form.heroSubtitle || ""} onChange={(e) => setForm({ ...form, heroSubtitle: e.target.value })}
                 className="mt-1.5 w-full min-h-[80px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
             </div>
-            <CMSImageUpload label="Hero Background Image" value={form.heroImage} storagePath="hero"
-              onValueChange={(v) => setForm({ ...form, heroImage: v })} note="Main hero background image on the landing page." />
+            <CMSImageUpload label="Homepage Background Image" value={form.heroImage} storagePath="hero"
+              onValueChange={(v) => setForm({ ...form, heroImage: v })} note="Main background image displayed on the homepage." />
           </div>
         </section>
 

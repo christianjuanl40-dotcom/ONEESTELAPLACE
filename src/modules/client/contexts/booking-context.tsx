@@ -1221,16 +1221,20 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     let writeCount = 0
     let deleteCount = 0
 
-    function findUndefined(obj: Record<string, unknown>, path = "") {
+    function stripUndefined(obj: Record<string, unknown>): Record<string, unknown> {
+      const cleaned: Record<string, unknown> = {}
       for (const [key, value] of Object.entries(obj)) {
-        const current = path ? `${path}.${key}` : key;
         if (value === undefined) {
-          console.error("[Undefined Field]", current);
+          console.error("[stripUndefined] Removed undefined field:", key)
+          continue
         }
         if (value && typeof value === "object" && !Array.isArray(value)) {
-          findUndefined(value as Record<string, unknown>, current);
+          cleaned[key] = stripUndefined(value as Record<string, unknown>)
+        } else {
+          cleaned[key] = value
         }
       }
+      return cleaned
     }
 
     try {
@@ -1238,10 +1242,10 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         const prev = prevMap.get(id)
         if (!prev || JSON.stringify(prev) !== JSON.stringify(next)) {
           const { id: _id, ...data } = next
-          findUndefined(data as Record<string, unknown>);
+          const sanitized = stripUndefined(data as Record<string, unknown>)
           const docRef = doc(bookingsRef, id)
           writeCount++
-          batch.set(docRef, { ...data, updatedAt: new Date().toISOString() }, { merge: true })
+          batch.set(docRef, { ...sanitized, updatedAt: new Date().toISOString() }, { merge: true })
         }
       }
       for (const id of prevMap.keys()) {
@@ -1272,7 +1276,10 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       const prev = prevMap.get(id)
       if (!prev || JSON.stringify(prev) !== JSON.stringify(next)) {
         const { id: _id, ...data } = next
-        batch.set(doc(officeRentalsRef, id), { ...data, updatedAt: new Date().toISOString() }, { merge: true })
+        const sanitized = Object.fromEntries(
+          Object.entries(data).filter(([, v]) => v !== undefined)
+        )
+        batch.set(doc(officeRentalsRef, id), { ...sanitized, updatedAt: new Date().toISOString() }, { merge: true })
       }
     }
     for (const id of prevMap.keys()) {
@@ -2776,6 +2783,10 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       if (hasApprovedDownpayment) {
         const total = getSafePrice(booking.totalPrice);
         const amountPaid = typeof booking.amountPaid === "number" ? booking.amountPaid : 0;
+        const dpPaid = typeof booking.downpaymentPaid === "number" ? booking.downpaymentPaid : 0;
+        const selectedDP = typeof booking.selectedDownpaymentAmount === "number" && booking.selectedDownpaymentAmount > 0
+          ? booking.selectedDownpaymentAmount
+          : getDownpaymentAmount(booking);
 
         const restored = recalculatePaymentStage({
           ...booking,
@@ -2796,37 +2807,50 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
 
         return {
           ...restored,
-          status: "confirmed" as BookingStatus,
-          bookingStatus: "Confirmed",
+          status: "verifying" as BookingStatus,
+          bookingStatus: "Pending Verification",
+          paymentStatus: "incomplete" as PaymentStatus,
           isSlotSecured: true,
+          downpaymentPaid: dpPaid,
+          downpaymentRemaining: Math.max(selectedDP - dpPaid, 0),
           adminLogs: makeAdminLog(
             booking,
             "REMAINING_BALANCE_REJECTED",
-            `Admin rejected remaining balance payment. Reason: ${rejectionReason}. Approved down payment of ₱${amountPaid.toLocaleString()} is preserved. Remaining balance: ₱${(total - amountPaid).toLocaleString()}.`,
+            `Admin rejected remaining balance payment. Reason: ${rejectionReason}. Approved down payment of ₱${dpPaid.toLocaleString()} is preserved. Remaining balance: ₱${(total - amountPaid).toLocaleString()}.`,
           ),
         };
       }
 
-      return {
+      const amountPaid = typeof booking.amountPaid === "number" ? booking.amountPaid : 0;
+      const total = getSafePrice(booking.totalPrice);
+
+      const restored = recalculatePaymentStage({
         ...booking,
-        status: "pending" as BookingStatus,
-        bookingStatus: "Pending Verification",
-        isSlotSecured: false,
-        paymentStatus: "rejected" as PaymentStatus,
         paymentRejectedReason: rejectionReason,
         paymentRejectionReason: rejectionReason,
         paymentRejectedAt: new Date().toISOString(),
         paymentReviewedBy: adminName || "Administrator",
-        amountPaid: 0,
         hasActivePaymentSubmission: false,
-        remainingBalance: getSafePrice(booking.totalPrice),
-        remainingBalancePaid: false,
+        proofUrl: undefined,
+        bankReferenceNumber: undefined,
+        paymentReference: undefined,
+        paymentAmount: 0,
+        pendingPaymentAmount: 0,
+        paymentSubmittedAt: undefined,
         lastActivityAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+      });
+
+      return {
+        ...restored,
+        status: "verifying" as BookingStatus,
+        bookingStatus: "Pending Verification",
+        paymentStatus: "incomplete" as PaymentStatus,
+        isSlotSecured: false,
         adminLogs: makeAdminLog(
           booking,
           "REJECT_PAYMENT",
-          `Admin rejected payment proof. Reason: ${rejectionReason}. Booking returned to Pencil Booking.`,
+          `Admin rejected payment proof. Reason: ${rejectionReason}. Previously approved payment of ₱${amountPaid.toLocaleString()} is preserved. Remaining: ₱${(total - amountPaid).toLocaleString()}.`,
         ),
       };
     });

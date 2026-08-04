@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useMemo, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   BarChart3,
@@ -58,7 +58,28 @@ type BookingRecord = {
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
-const PIE_COLORS = ["#ea580c", "#10b981", "#3b82f6", "#f59e0b", "#f43f5e", "#8b5cf6", "#14b8a6"]
+const STATUS_GROUPS = [
+  { name: "Active", color: "#10B981", statuses: ["confirmed", "active_rental"] },
+  { name: "Payment Verification", color: "#3B82F6", statuses: ["verifying"] },
+  { name: "Pending", color: "#F59E0B", statuses: ["pending"] },
+  { name: "Contract Signing", color: "#8B5CF6", statuses: ["contract_signing_required"] },
+  { name: "Refund Requests", color: "#F97316", statuses: ["cancellation_requested", "cancellation requested"] },
+  { name: "Cancelled", color: "#EF4444", statuses: ["cancelled", "canceled"] },
+] as const
+
+const OTHER_STATUS_GROUP = { name: "Other", color: "#94a3b8" }
+
+function getStatusGroupName(status?: string) {
+  const normalized = normalizeStatus(status)
+  return (
+    STATUS_GROUPS.find((group) => (group.statuses as readonly string[]).includes(normalized))?.name ??
+    OTHER_STATUS_GROUP.name
+  )
+}
+
+function getStatusGroupColor(groupName: string) {
+  return STATUS_GROUPS.find((group) => group.name === groupName)?.color ?? OTHER_STATUS_GROUP.color
+}
 
 const CONFIRMED_STATUSES = ["confirmed", "completed"]
 const PENDING_STATUSES = ["pending", "pencil booking", "for review", "for verification", "awaiting payment"]
@@ -149,11 +170,32 @@ function getStatusBadgeClass(status?: string) {
   return "border-slate-200 bg-slate-50 text-slate-700"
 }
 
+function useContainerWidth<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null)
+  const [width, setWidth] = useState(0)
+
+  useEffect(() => {
+    const element = ref.current
+    if (!element) return
+
+    const update = () => setWidth(element.getBoundingClientRect().width)
+    update()
+
+    const observer = new ResizeObserver(update)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+
+  return { ref, width }
+}
+
 export default function ReportsPage() {
   const { user } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
   const { bookings = [] } = useBookings()
+  const { ref: statusCardRef, width: statusCardWidth } = useContainerWidth<HTMLDivElement>()
+  const isWideLayout = statusCardWidth >= 700
 
   useEffect(() => {
     if (user && user.role === "staff" && !user.permissions?.reports) {
@@ -291,13 +333,22 @@ export default function ReportsPage() {
     const map: Record<string, number> = {}
 
     filteredData.forEach((booking) => {
-      const status = prettifyStatus(booking.status)
-      map[status] = (map[status] || 0) + 1
+      const group = getStatusGroupName(booking.status)
+      map[group] = (map[group] || 0) + 1
     })
 
-    return Object.entries(map)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
+    const counts: { name: string; value: number }[] = STATUS_GROUPS.filter((group) => map[group.name]).map(
+      (group) => ({
+        name: group.name,
+        value: map[group.name],
+      }),
+    )
+
+    if (map[OTHER_STATUS_GROUP.name]) {
+      counts.push({ name: OTHER_STATUS_GROUP.name, value: map[OTHER_STATUS_GROUP.name] })
+    }
+
+    return counts
   }, [filteredData])
 
   const eventTypeCounts = useMemo(() => {
@@ -578,7 +629,10 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
+        <div
+          ref={statusCardRef}
+          className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm"
+        >
           <div className="mb-4 flex items-center gap-3">
             <div className="rounded-2xl bg-slate-100 p-3 text-slate-700">
               <PieChartIcon className="h-5 w-5" />
@@ -589,42 +643,68 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          <div className="h-[250px] sm:h-[300px] w-full">
-            {statusCounts.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={statusCounts}
-                    cx="50%"
-                    cy="48%"
-                    innerRadius={58}
-                    outerRadius={85}
-                    paddingAngle={3}
-                    dataKey="value"
-                    stroke="none"
-                  >
-                    {statusCounts.map((entry, index) => (
-                      <Cell key={entry.name} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(value) => [`${value} booking/s`, "Total"]}
-                    contentStyle={{
-                      borderRadius: "1rem",
-                      border: "1px solid #e2e8f0",
-                      boxShadow: "0 10px 25px -15px rgb(15 23 42 / 0.35)",
-                      fontWeight: 700,
-                    }}
-                  />
-                  <Legend iconType="circle" wrapperStyle={{ fontSize: 11, fontWeight: 800 }} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50">
-                <p className="text-sm font-black text-slate-400">No status data.</p>
+          {statusCounts.length > 0 ? (
+            <div className={isWideLayout ? "flex items-center gap-10" : "flex flex-col gap-6"}>
+              <div className={isWideLayout ? "w-[45%] shrink-0" : "w-full"}>
+                <div className="mx-auto aspect-square w-full max-w-[280px] sm:max-w-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={statusCounts}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius="56%"
+                        outerRadius="80%"
+                        paddingAngle={3}
+                        dataKey="value"
+                        stroke="none"
+                      >
+                        {statusCounts.map((entry) => (
+                          <Cell key={entry.name} fill={getStatusGroupColor(entry.name)} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value) => [`${value} booking/s`, "Total"]}
+                        contentStyle={{
+                          borderRadius: "1rem",
+                          border: "1px solid #e2e8f0",
+                          boxShadow: "0 10px 25px -15px rgb(15 23 42 / 0.35)",
+                          fontWeight: 700,
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
-            )}
-          </div>
+              <div className={isWideLayout ? "min-w-0 w-[55%]" : "w-full"}>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                  {statusCounts.map((entry) => (
+                    <div key={entry.name} className="flex min-w-0 items-center gap-2.5">
+                      <span
+                        aria-hidden="true"
+                        className="h-4 w-4 shrink-0 rounded-full border-2 border-white shadow-sm"
+                        style={{ backgroundColor: getStatusGroupColor(entry.name) }}
+                      />
+                      <span
+                        className={`min-w-0 ${
+                          isWideLayout ? "text-sm" : "text-[13px]"
+                        } font-semibold leading-snug text-slate-600`}
+                      >
+                        {entry.name}
+                      </span>
+                      <span className="ml-auto shrink-0 text-sm font-bold tabular-nums text-slate-900">
+                        {entry.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex h-[220px] w-full items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50">
+              <p className="text-sm font-black text-slate-400">No status data.</p>
+            </div>
+          )}
         </div>
       </div>
 

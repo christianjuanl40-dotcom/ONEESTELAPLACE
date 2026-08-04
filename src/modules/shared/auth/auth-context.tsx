@@ -106,18 +106,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 validRole === "staff"
                   ? { ...DEFAULT_STAFF_PERMISSIONS, ...(data.permissions || {}) }
                   : undefined
-              setUser({
-                id: firebaseUser.uid,
-                fullName: data.fullName || "",
-                name: data.fullName || "",
-                email: data.email || firebaseUser.email || "",
-                role: validRole,
-                profilePicture: data.profilePicture || "",
-                createdAt: data.createdAt || new Date().toISOString(),
-                status: data.status || "active",
-                phone: data.phone || "",
-                position: data.position || "",
-                permissions,
+              setUser((prev) => {
+                if (
+                  prev &&
+                  prev.id === firebaseUser.uid &&
+                  prev.role === validRole &&
+                  prev.fullName === (data.fullName || "") &&
+                  prev.email === (data.email || firebaseUser.email || "") &&
+                  prev.profilePicture === (data.profilePicture || "") &&
+                  prev.status === (data.status || "active") &&
+                  prev.phone === (data.phone || "") &&
+                  prev.position === (data.position || "")
+                ) {
+                  return prev
+                }
+                return {
+                  id: firebaseUser.uid,
+                  fullName: data.fullName || "",
+                  name: data.fullName || "",
+                  email: data.email || firebaseUser.email || "",
+                  role: validRole,
+                  profilePicture: data.profilePicture || "",
+                  createdAt: data.createdAt || new Date().toISOString(),
+                  status: data.status || "active",
+                  phone: data.phone || "",
+                  position: data.position || "",
+                  permissions,
+                }
               })
             }
           }

@@ -43,8 +43,10 @@ export function CMSSectionHeader({
     <div className="mb-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
-          <h2 className="text-xl font-black tracking-tight text-slate-950">{title}</h2>
-          <p className="mt-0.5 text-sm font-semibold leading-5 text-slate-500 max-w-xl">{description}</p>
+          {title && <h2 className="text-xl font-black tracking-tight text-slate-950">{title}</h2>}
+          {description && (
+            <p className="mt-0.5 text-sm font-semibold leading-5 text-slate-500 max-w-xl">{description}</p>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <div className="relative" ref={menuRef}>
