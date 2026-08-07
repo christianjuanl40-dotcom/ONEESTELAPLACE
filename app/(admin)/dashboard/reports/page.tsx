@@ -147,9 +147,165 @@ function getEventType(booking: BookingRecord) {
   return booking.eventType || booking.eventName || "Unspecified"
 }
 
-function escapeCSV(value: unknown) {
-  const text = String(value ?? "")
-  return `"${text.replace(/"/g, '""')}"`
+const EXCEL_HEADERS = [
+  "Booking ID",
+  "Event Name",
+  "Client",
+  "Date",
+  "Venue",
+  "Booking Status",
+  "Payment Status",
+  "Total Amount",
+  "Remaining Balance",
+  "Refund Status",
+  "Refund Amount",
+]
+
+const BOOKING_LIFECYCLE_MAP: Record<string, string> = {
+  pending: "Pending",
+  verifying: "Pending",
+  for_review: "Pending",
+  "for review": "Pending",
+  modification_under_review: "Pending",
+  cancellation_requested: "Pending",
+  "cancellation requested": "Pending",
+  confirmed: "Confirmed",
+  approved: "Confirmed",
+  reservation_secured: "Confirmed",
+  contract_signing_required: "Confirmed",
+  active_rental: "Ongoing",
+  completed: "Completed",
+  rental_expired: "Completed",
+  cancelled: "Cancelled",
+  canceled: "Cancelled",
+  declined: "Cancelled",
+}
+
+function getReportClientName(booking: BookingRecord) {
+  const b = booking as any
+  const name =
+    b.userInfo?.name ||
+    booking.customerName ||
+    booking.clientName ||
+    booking.name ||
+    b.customerName ||
+    b.clientName ||
+    b.name ||
+    ""
+  return name.trim() || "N/A"
+}
+
+function getReportRemainingBalance(booking: BookingRecord) {
+  const b = booking as any
+  const stored = Number(b.remainingBalance ?? 0) || 0
+  if (stored > 0) return stored
+  const totalAmount = getBookingAmount(booking)
+  const amountPaid = Number(b.amountPaid ?? b.paymentAmount ?? b.paidAmount ?? 0) || 0
+  return Math.max(totalAmount - amountPaid, 0)
+}
+
+function getReportRefundAmount(booking: BookingRecord) {
+  const amount = Number((booking as any).refundAmount ?? 0)
+  return Number.isFinite(amount) && amount > 0 ? amount : 0
+}
+
+function getBookingLifecycleLabel(status?: string) {
+  const normalized = normalizeStatus(status)
+  return BOOKING_LIFECYCLE_MAP[normalized] ?? "Pending"
+}
+
+function getReportPaymentStatus(booking: BookingRecord) {
+  const b = booking as any
+  const ps = normalizeStatus(booking.paymentStatus)
+  const stage = String(b.paymentStage || "").toLowerCase()
+  const totalAmount = getBookingAmount(booking)
+  const amountPaid = Number(b.amountPaid ?? b.paymentAmount ?? b.paidAmount ?? 0) || 0
+  const remainingBalance = getReportRemainingBalance(booking)
+  const refundStatus = normalizeStatus(b.refundStatus)
+
+  if (refundStatus === "refunded") return "Refunded"
+  if (ps === "rejected") return "Rejected"
+  if (
+    ps === "for_review" ||
+    ps === "cash_pending" ||
+    ps === "slot_pending" ||
+    ps === "pending_verification" ||
+    ps === "pending verification" ||
+    ps === "for verification"
+  ) {
+    return "For Verification"
+  }
+  if (
+    (stage === "fully paid" ||
+      ps === "paid" ||
+      ps === "fully paid" ||
+      ps === "verified" ||
+      ps === "slot_verified" ||
+      ps === "completed") &&
+    remainingBalance === 0 &&
+    totalAmount > 0
+  ) {
+    return "Fully Paid"
+  }
+  if (remainingBalance > 0 && amountPaid > 0) {
+    const downPaymentAmount = Number(b.downPaymentAmount ?? b.selectedDownpaymentAmount ?? 0) || 0
+    if (downPaymentAmount > 0 && amountPaid >= downPaymentAmount) return "DP Paid"
+    return "Partially Paid"
+  }
+  if (ps === "partial" || ps === "incomplete") return "Partially Paid"
+  if (ps === "verified" || ps === "slot_verified") return "Fully Paid"
+  return "Pending Payment"
+}
+
+async function loadLogoBase64(url: string) {
+  const response = await fetch(url)
+  if (!response.ok) return ""
+  const blob = await response.blob()
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "")
+      resolve(dataUrl.split(",")[1] || "")
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
+
+const PESO_NUMBER_FORMAT = '"₱"#,##0.00'
+const DATE_NUMBER_FORMAT = "mmm dd, yyyy"
+
+const EXCEL_THIN_BORDER = {
+  top: { style: "thin", color: { argb: "FFCBD5E1" } },
+  left: { style: "thin", color: { argb: "FFCBD5E1" } },
+  bottom: { style: "thin", color: { argb: "FFCBD5E1" } },
+  right: { style: "thin", color: { argb: "FFCBD5E1" } },
+} as const
+
+function columnLetter(index: number) {
+  let letter = ""
+  let current = index
+
+  while (current > 0) {
+    const remainder = (current - 1) % 26
+    letter = String.fromCharCode(65 + remainder) + letter
+    current = Math.floor((current - 1) / 26)
+  }
+
+  return letter
+}
+
+function computeColumnWidths(headers: string[], rows: (string | number | Date)[][]) {
+  const widths = headers.map((header) => Math.max(header.length + 3, 9))
+
+  rows.forEach((row) => {
+    row.forEach((cell, columnIndex) => {
+      const length = cell instanceof Date ? 12 : String(cell ?? "").length
+      widths[columnIndex] = Math.min(Math.max(widths[columnIndex], length + 2), 42)
+    })
+  })
+
+  return widths
 }
 
 function getStatusBadgeClass(status?: string) {
@@ -203,6 +359,7 @@ export default function ReportsPage() {
     }
   }, [user, router])
 
+  const [filterYear, setFilterYear] = useState("all")
   const [filterMonth, setFilterMonth] = useState("all")
   const [filterStatus, setFilterStatus] = useState("all")
   const [searchTerm, setSearchTerm] = useState("")
@@ -223,6 +380,19 @@ export default function ReportsPage() {
     return ["all", ...Array.from(statuses).filter(Boolean).sort()]
   }, [bookingList])
 
+  const yearOptions = useMemo(() => {
+    const years = new Set<string>()
+
+    bookingList.forEach((booking) => {
+      const parsedDate = parseBookingDate(booking)
+      if (parsedDate) years.add(parsedDate.getFullYear().toString())
+    })
+
+    const sorted = Array.from(years).sort((a, b) => Number(b) - Number(a))
+    if (filterYear !== "all" && !sorted.includes(filterYear)) sorted.push(filterYear)
+    return sorted
+  }, [bookingList, filterYear])
+
   const filteredData = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase()
 
@@ -230,9 +400,12 @@ export default function ReportsPage() {
       .filter((booking) => {
         const parsedDate = parseBookingDate(booking)
         const bookingStatus = normalizeStatus(booking.status)
+        const bookingYear = parsedDate ? parsedDate.getFullYear().toString() : ""
 
         const matchesMonth =
           filterMonth === "all" || (parsedDate && parsedDate.getMonth().toString() === filterMonth)
+
+        const matchesYear = filterYear === "all" || bookingYear === filterYear
 
         const matchesStatus = filterStatus === "all" || bookingStatus === filterStatus
 
@@ -256,18 +429,18 @@ export default function ReportsPage() {
 
         const matchesSearch = !keyword || searchableText.includes(keyword)
 
-        return matchesMonth && matchesStatus && matchesSearch
+        return matchesYear && matchesMonth && matchesStatus && matchesSearch
       })
       .sort((a, b) => {
         const dateA = parseBookingDate(a)?.getTime() || 0
         const dateB = parseBookingDate(b)?.getTime() || 0
         return dateB - dateA
       })
-  }, [bookingList, filterMonth, filterStatus, searchTerm])
+  }, [bookingList, filterYear, filterMonth, filterStatus, searchTerm])
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchTerm, filterMonth, filterStatus, rowsPerPage])
+  }, [searchTerm, filterYear, filterMonth, filterStatus, rowsPerPage])
 
   const totalPages = Math.max(1, Math.ceil(filteredData.length / rowsPerPage))
   const safePage = Math.min(currentPage, totalPages)
@@ -365,65 +538,304 @@ export default function ReportsPage() {
       .slice(0, 8)
   }, [filteredData])
 
-  const exportCSV = () => {
+  const exportExcel = async () => {
     if (filteredData.length === 0) {
       toast({
-        title: "No records to export",
-        description: "Try changing your report filters first.",
+        title: "No records available to export",
+        description: "There are no records for the selected period. Try adjusting the year or month filter.",
         className: "bg-slate-900 text-white",
       })
       return
     }
 
-    const headers = [
-      "Booking ID",
-      "Event Name",
-      "Client",
-      "Date",
-      "Venue",
-      "Status",
-      "Payment Status",
-      "Total Amount",
-      "Refund Status",
-      "Refund Amount",
-    ]
+    try {
+      const ExcelJS = (await import("exceljs")).default
+      const workbook = new ExcelJS.Workbook()
 
-    const rows = filteredData.map((booking) => [
-      booking.id || "N/A",
-      booking.eventName || booking.eventType || "Untitled Event",
-      booking.customerName || booking.clientName || booking.name || "N/A",
-      formatDate(booking),
-      booking.venue || "N/A",
-      prettifyStatus(booking.status),
-      booking.paymentStatus ? prettifyStatus(booking.paymentStatus) : "N/A",
-      getBookingAmount(booking),
-      (booking as any).refundStatus || "N/A",
-      (booking as any).refundAmount || "N/A",
-    ])
+      const generatedBy = user?.fullName || user?.name || user?.email || "System User"
+      const now = new Date()
+      const generatedDate = new Intl.DateTimeFormat("en-PH", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      }).format(now)
+      const generatedTime = new Intl.DateTimeFormat("en-PH", {
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+      }).format(now)
+      const generatedOn = `${generatedDate}, ${generatedTime}`
 
-    const csvContent = [
-      headers.map(escapeCSV).join(","),
-      ...rows.map((row) => row.map(escapeCSV).join(",")),
-    ].join("\n")
+      const reportPeriod =
+        filterYear !== "all" && filterMonth !== "all"
+          ? `${MONTHS[Number(filterMonth)]} ${filterYear}`
+          : filterYear !== "all"
+            ? `Year ${filterYear}`
+            : filterMonth !== "all"
+              ? MONTHS[Number(filterMonth)]
+              : "All Years"
 
-    const selectedMonth = filterMonth === "all" ? "all-months" : MONTHS[Number(filterMonth)].toLowerCase()
-    const fileName = `one-estela-reports-${selectedMonth}.csv`
+      workbook.creator = generatedBy
+      workbook.created = new Date()
+      workbook.company = "One Estela Place"
 
-    const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" })
-    const url = URL.createObjectURL(blob)
+      const worksheet = workbook.addWorksheet("Booking Records", {
+        views: [{ state: "frozen", ySplit: 15 }],
+      })
+      worksheet.properties.showGridLines = false
+      worksheet.properties.defaultRowHeight = 18
 
-    const link = document.createElement("a")
-    link.href = url
-    link.download = fileName
-    link.click()
+      const headerRow = 15
+      const lastColumn = columnLetter(EXCEL_HEADERS.length)
 
-    URL.revokeObjectURL(url)
+      const dataRows = filteredData.map((booking) => {
+        const parsedDate = parseBookingDate(booking)
+        const dateCell = parsedDate ? new Date(parsedDate.getTime()) : getBookingDate(booking) || "No date"
+        if (dateCell instanceof Date) dateCell.setHours(12, 0, 0, 0)
 
-    toast({
-      title: "Report exported",
-      description: "Your CSV report has been downloaded.",
-      className: "bg-slate-900 text-white",
-    })
+        return [
+          booking.id || "N/A",
+          booking.eventName || booking.eventType || "Untitled Event",
+          getReportClientName(booking),
+          dateCell,
+          booking.venue || "N/A",
+          getBookingLifecycleLabel(booking.status),
+          getReportPaymentStatus(booking),
+          getBookingAmount(booking),
+          getReportRemainingBalance(booking),
+          (booking as any).refundStatus || "N/A",
+          getReportRefundAmount(booking),
+        ]
+      })
+
+      const companyCell = worksheet.getCell("A1")
+      companyCell.value = "ONE ESTELA PLACE"
+      companyCell.font = { name: "Calibri", size: 16, bold: true, color: { argb: "FFFFFFFF" } }
+      companyCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } }
+      companyCell.alignment = { vertical: "middle", horizontal: "center" }
+      worksheet.mergeCells(1, 1, 1, EXCEL_HEADERS.length)
+      worksheet.getRow(1).height = 30
+
+      const subtitleCell = worksheet.getCell("A2")
+      subtitleCell.value = "Event Management System"
+      subtitleCell.font = { name: "Calibri", size: 10, italic: true, color: { argb: "FFCBD5E1" } }
+      subtitleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } }
+      subtitleCell.alignment = { vertical: "middle", horizontal: "center" }
+      worksheet.mergeCells(2, 1, 2, EXCEL_HEADERS.length)
+      worksheet.getRow(2).height = 16
+
+      const titleCell = worksheet.getCell("A3")
+      titleCell.value = "Booking Records Report"
+      titleCell.font = { name: "Calibri", size: 14, bold: true, color: { argb: "FF0F172A" } }
+      titleCell.alignment = { vertical: "middle", horizontal: "center" }
+      worksheet.mergeCells(3, 1, 3, EXCEL_HEADERS.length)
+      worksheet.getRow(3).height = 24
+
+      const periodCell = worksheet.getCell("A4")
+      periodCell.value = `Report Period: ${reportPeriod}`
+      periodCell.font = { name: "Calibri", size: 10, color: { argb: "FF475569" } }
+      periodCell.alignment = { vertical: "middle", horizontal: "center" }
+      worksheet.mergeCells(4, 1, 4, EXCEL_HEADERS.length)
+      worksheet.getRow(4).height = 18
+
+      const metaCell = worksheet.getCell("A5")
+      metaCell.value = `Generated Date: ${generatedDate}    •    Generated Time: ${generatedTime}    •    Generated By: ${generatedBy}`
+      metaCell.font = { name: "Calibri", size: 10, color: { argb: "FF475569" } }
+      metaCell.alignment = { vertical: "middle", horizontal: "center" }
+      worksheet.mergeCells(5, 1, 5, EXCEL_HEADERS.length)
+      worksheet.getRow(5).height = 18
+
+      const accentRow = worksheet.getRow(6)
+      accentRow.height = 4
+      for (let columnIndex = 1; columnIndex <= EXCEL_HEADERS.length; columnIndex++) {
+        accentRow.getCell(columnIndex).fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFEA580C" },
+        }
+      }
+
+      try {
+        const logoBase64 = await loadLogoBase64("/images/Favicon.png")
+        if (logoBase64) {
+          const logoImageId = workbook.addImage({
+            base64: logoBase64,
+            extension: "png",
+          })
+          worksheet.addImage(logoImageId, {
+            tl: { col: 0, row: 0 },
+            ext: { width: 30, height: 30 },
+          })
+        }
+      } catch {
+        // Logo is decorative only — fall back to the text banner when unavailable.
+      }
+
+      const summaryTotalBookings = filteredData.length
+      const summaryConfirmed = filteredData.filter(
+        (b) => getBookingLifecycleLabel(b.status) === "Confirmed",
+      ).length
+      const summaryPending = filteredData.filter(
+        (b) => getBookingLifecycleLabel(b.status) === "Pending",
+      ).length
+      const summaryCompleted = filteredData.filter(
+        (b) => getBookingLifecycleLabel(b.status) === "Completed",
+      ).length
+      const summaryCancelled = filteredData.filter(
+        (b) => getBookingLifecycleLabel(b.status) === "Cancelled",
+      ).length
+
+      const summaryBar = worksheet.getCell("A7")
+      summaryBar.value = "REPORT SUMMARY"
+      summaryBar.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FFFFFFFF" } }
+      summaryBar.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } }
+      summaryBar.alignment = { vertical: "middle", horizontal: "center" }
+      worksheet.mergeCells(7, 1, 7, EXCEL_HEADERS.length)
+      worksheet.getRow(7).height = 20
+
+      const summaryItems: { label: string; value: number; money?: boolean }[] = [
+        { label: "Total Bookings", value: summaryTotalBookings },
+        { label: "Confirmed", value: summaryConfirmed },
+        { label: "Pending", value: summaryPending },
+        { label: "Completed", value: summaryCompleted },
+        { label: "Cancelled", value: summaryCancelled },
+        { label: "Total Revenue", value: totalRevenue, money: true },
+        { label: "Total Refunds", value: totalRefunds, money: true },
+      ]
+
+      summaryItems.forEach((item, index) => {
+        const rowNumber = 8 + index
+        const rowFill = {
+          type: "pattern" as const,
+          pattern: "solid" as const,
+          fgColor: { argb: index % 2 === 1 ? "FFF8FAFC" : "FFFFFFFF" },
+        }
+
+        const labelCell = worksheet.getCell(rowNumber, 1)
+        labelCell.value = item.label
+        labelCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF334155" } }
+        labelCell.fill = rowFill
+        labelCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 }
+        labelCell.border = EXCEL_THIN_BORDER
+        worksheet.mergeCells(rowNumber, 1, rowNumber, 8)
+
+        const valueCell = worksheet.getCell(rowNumber, 9)
+        valueCell.value = item.value
+        valueCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF0F172A" } }
+        valueCell.fill = rowFill
+        valueCell.alignment = { vertical: "middle", horizontal: "right" }
+        valueCell.border = EXCEL_THIN_BORDER
+        if (item.money) valueCell.numFmt = PESO_NUMBER_FORMAT
+        worksheet.mergeCells(rowNumber, 9, rowNumber, EXCEL_HEADERS.length)
+
+        worksheet.getRow(rowNumber).height = 16
+      })
+
+      const headerCells = worksheet.getRow(headerRow)
+      headerCells.height = 22
+      EXCEL_HEADERS.forEach((header, columnIndex) => {
+        const cell = headerCells.getCell(columnIndex + 1)
+        cell.value = header
+        cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FFFFFFFF" } }
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } }
+        cell.alignment = { vertical: "middle", horizontal: "center" }
+        cell.border = EXCEL_THIN_BORDER
+      })
+
+      dataRows.forEach((values, index) => {
+        const row = worksheet.getRow(headerRow + 1 + index)
+        row.height = 20
+
+        const moneyColumns = [8, 9, 11]
+        const centerColumns = [4, 6, 7, 10]
+
+        values.forEach((value, columnIndex) => {
+          const columnNumber = columnIndex + 1
+          const cell = row.getCell(columnNumber)
+          cell.value = value
+          cell.border = EXCEL_THIN_BORDER
+          cell.font = { name: "Calibri", size: 10, color: { argb: "FF1F2937" } }
+
+          if (columnNumber === 4 && value instanceof Date) {
+            cell.numFmt = DATE_NUMBER_FORMAT
+          }
+
+          if (moneyColumns.includes(columnNumber) && typeof value === "number") {
+            cell.numFmt = PESO_NUMBER_FORMAT
+          }
+
+          const horizontal = moneyColumns.includes(columnNumber)
+            ? "right"
+            : centerColumns.includes(columnNumber)
+              ? "center"
+              : "left"
+
+          cell.alignment = { vertical: "middle", horizontal }
+        })
+
+        if (index % 2 === 1) {
+          row.eachCell((cell) => {
+            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } }
+          })
+        }
+      })
+
+      const lastDataRow = headerRow + dataRows.length
+      computeColumnWidths(EXCEL_HEADERS, dataRows).forEach((width, columnIndex) => {
+        worksheet.getColumn(columnIndex + 1).width = width
+      })
+
+      worksheet.autoFilter = `A${headerRow}:${lastColumn}${lastDataRow}`
+      worksheet.pageSetup = {
+        paperSize: 9,
+        orientation: "landscape",
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0,
+        horizontalCentered: true,
+        margins: {
+          left: 0.5,
+          right: 0.5,
+          top: 0.7,
+          bottom: 0.7,
+          header: 0.3,
+          footer: 0.3,
+        },
+      }
+      worksheet.headerFooter.oddHeader = ""
+      worksheet.headerFooter.oddFooter =
+        '&L&"Calibri"&8One Estela Place Event Management System  |  This report is system-generated.' +
+        `&C&"Calibri"&8Generated: ${generatedOn} by ${generatedBy}` +
+        '&R&"Calibri,Bold"&8Page &P of &N'
+
+      const buffer = await workbook.xlsx.writeBuffer()
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      })
+      const periodKey = `${filterYear === "all" ? "all-years" : filterYear}-${filterMonth === "all" ? "all-months" : MONTHS[Number(filterMonth)].toLowerCase()}`
+      const fileName = `one-estela-reports-${periodKey}.xlsx`
+
+      const url = URL.createObjectURL(blob)
+
+      const link = document.createElement("a")
+      link.href = url
+      link.download = fileName
+      link.click()
+
+      URL.revokeObjectURL(url)
+
+      toast({
+        title: "Report exported",
+        description: "Your Excel report has been downloaded.",
+        className: "bg-slate-900 text-white",
+      })
+    } catch {
+      toast({
+        title: "Export failed",
+        description: "Something went wrong while generating the Excel report. Please try again.",
+        className: "bg-slate-900 text-white",
+      })
+    }
   }
 
   return (
@@ -436,11 +848,9 @@ export default function ReportsPage() {
           <span>
             Gross Revenue: <b className="text-orange-600">{formatMoney(totalRevenue)}</b>
           </span>
-          {totalRefunds > 0 && (
-            <span>
-              Refunds: <b className="text-red-600">-{formatMoney(totalRefunds)}</b>
-            </span>
-          )}
+          <span>
+            Refunds: <b className="text-red-600">{totalRefunds > 0 ? "-" : ""}{formatMoney(totalRefunds)}</b>
+          </span>
           <span>
             Net Revenue: <b className="text-emerald-600">{formatMoney(netRevenue)}</b>
           </span>
@@ -460,26 +870,6 @@ export default function ReportsPage() {
             />
           </div>
 
-          <Select value={filterMonth} onValueChange={setFilterMonth}>
-            <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[160px]">
-              <div className="flex items-center gap-2">
-                <Filter className="h-3.5 w-3.5 text-slate-400" />
-                <SelectValue placeholder="All Months" />
-              </div>
-            </SelectTrigger>
-
-            <SelectContent className="rounded-xl shadow-xl">
-              <SelectItem value="all" className="font-bold">
-                All Months
-              </SelectItem>
-              {MONTHS.map((month, index) => (
-                <SelectItem key={month} value={index.toString()}>
-                  {month}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
           <Select value={filterStatus} onValueChange={setFilterStatus}>
             <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[175px]">
               <SelectValue placeholder="All Status" />
@@ -495,32 +885,85 @@ export default function ReportsPage() {
           </Select>
 
           <Button
-            onClick={exportCSV}
+            onClick={exportExcel}
             disabled={filteredData.length === 0}
             className="h-10 rounded-xl bg-orange-600 px-4 text-xs font-black text-white shadow-sm hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             <Download className="mr-1.5 h-3.5 w-3.5" />
-            Export CSV
+            Export Excel
           </Button>
         </div>
       </div>
 
       <div className="mb-6 rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="rounded-2xl bg-orange-50 p-3 text-orange-700">
-            <CalendarDays className="h-5 w-5" />
+        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl bg-orange-50 p-3 text-orange-700">
+              <CalendarDays className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-lg font-black text-slate-950">Monthly Performance</h3>
+              <p className="text-xs font-semibold text-slate-500">
+                Shows booking volume and verified revenue per month.
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-lg font-black text-slate-950">Monthly Performance</h3>
-            <p className="text-xs font-semibold text-slate-500">
-              Shows booking volume and verified revenue per month.
-            </p>
+
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <Select value={filterYear} onValueChange={setFilterYear}>
+              <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[130px]">
+                <div className="flex items-center gap-2">
+                  <Filter className="h-3.5 w-3.5 text-slate-400" />
+                  <SelectValue placeholder="All Years" />
+                </div>
+              </SelectTrigger>
+
+              <SelectContent className="rounded-xl shadow-xl">
+                <SelectItem value="all" className="font-bold">
+                  All Years
+                </SelectItem>
+                {yearOptions.map((year) => (
+                  <SelectItem key={year} value={year}>
+                    {year}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={filterMonth} onValueChange={setFilterMonth}>
+              <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[145px]">
+                <div className="flex items-center gap-2">
+                  <Filter className="h-3.5 w-3.5 text-slate-400" />
+                  <SelectValue placeholder="All Months" />
+                </div>
+              </SelectTrigger>
+
+              <SelectContent className="rounded-xl shadow-xl">
+                <SelectItem value="all" className="font-bold">
+                  All Months
+                </SelectItem>
+                {MONTHS.map((month, index) => (
+                  <SelectItem key={month} value={index.toString()}>
+                    {month}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
-        <div className="h-[280px] sm:h-[320px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={monthlyPerformance} margin={{ top: 10, right: 10, left: -18, bottom: 5 }}>
+        {filteredData.length === 0 ? (
+          <div className="flex h-[280px] w-full flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 sm:h-[320px]">
+            <div className="rounded-2xl bg-white p-3 text-slate-400 shadow-sm">
+              <BarChart3 className="h-6 w-6" />
+            </div>
+            <p className="mt-4 text-sm font-black text-slate-600">No booking data available for the selected period.</p>
+            <p className="mt-1 text-xs font-semibold text-slate-400">Try a different year or month.</p>
+          </div>
+        ) : (
+          <div className="h-[280px] sm:h-[320px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={monthlyPerformance} margin={{ top: 10, right: 10, left: -18, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
               <XAxis
                 dataKey="month"
@@ -568,7 +1011,8 @@ export default function ReportsPage() {
               />
             </ComposedChart>
           </ResponsiveContainer>
-        </div>
+          </div>
+        )}
       </div>
 
       <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -825,9 +1269,9 @@ export default function ReportsPage() {
                 <tr>
                   <td colSpan={6} className="p-12 text-center">
                     <div className="mx-auto max-w-sm">
-                      <p className="text-base font-black text-slate-600">No records found</p>
+                      <p className="text-base font-black text-slate-600">No booking records found for the selected period.</p>
                       <p className="mt-1 text-sm font-semibold text-slate-400">
-                        Try changing the month, status, or search keyword.
+                        Try adjusting the year, month, status, or search keyword.
                       </p>
                     </div>
                   </td>

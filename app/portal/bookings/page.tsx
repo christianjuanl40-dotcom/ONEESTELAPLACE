@@ -54,6 +54,8 @@ import { Label } from "@/src/modules/shared/components/ui/label"
 import { Textarea } from "@/src/modules/shared/components/ui/textarea"
 import { getPaymentMethodLabel } from "@/src/modules/shared/lib/labels"
 import { NotificationTargetWrapper } from "@/src/modules/shared/components/notification-target"
+import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
+import type { NotificationType } from "@/src/modules/shared/lib/notifications"
 import {
   ReceiptPaper,
   type ReceiptPaperData,
@@ -2720,6 +2722,12 @@ export default function MyBookingsPage() {
     useBookings()
   const { toast } = useToast()
 
+  const { markByBookingId } = useNotifications()
+  const CLIENT_BOOKING_TYPES: NotificationType[] = useMemo(
+    () => ["booking_approved", "booking_rejected", "cancellation_approved", "cancellation_declined", "modification_approved", "modification_declined"],
+    [],
+  )
+
   const [myBookings, setMyBookings] = useState<Booking[]>([])
   const [bookingToCancel, setBookingToCancel] = useState<Booking | null>(null)
   const [cancelReason, setCancelReason] = useState("")
@@ -2763,12 +2771,13 @@ export default function MyBookingsPage() {
       const found = myBookings.find((b) => b.id === bookingId)
       if (found) {
         setViewingBooking(found)
+        markByBookingId(found.id, CLIENT_BOOKING_TYPES)
         if (isHistory) {
           setShowHistory(true)
         }
       }
     }
-  }, [searchParams, myBookings])
+  }, [searchParams, myBookings, markByBookingId, CLIENT_BOOKING_TYPES])
 
   const sortedBookings = useMemo(
     () =>
@@ -2995,6 +3004,7 @@ export default function MyBookingsPage() {
 
   const handleView = (booking: Booking) => {
     setViewingBooking(booking)
+    markByBookingId(booking.id, CLIENT_BOOKING_TYPES)
   }
 
   const handleEdit = (booking: Booking) => {
@@ -3002,6 +3012,7 @@ export default function MyBookingsPage() {
   }
 
   const handleViewReceipt = async (booking: Booking) => {
+    markByBookingId(booking.id, CLIENT_BOOKING_TYPES)
     const existing =
       booking.receipt || await getStoredReceiptByBookingId(booking.id)
     if (existing) {

@@ -44,6 +44,8 @@ import { useAuth } from "@/src/modules/shared/auth/auth-context";
 import { useCMS } from "@/src/modules/admin/contexts/cms-context";
 import { BankTransferQR } from "@/src/modules/shared/components/bank-transfer-qr";
 import { NotificationTargetWrapper } from "@/src/modules/shared/components/notification-target";
+import { useNotifications } from "@/src/modules/shared/contexts/notification-context";
+import type { NotificationType } from "@/src/modules/shared/lib/notifications";
 import { PAYMENT_LABELS, getPaymentMethodLabel } from "@/src/modules/shared/lib/labels";
 import {
   ReceiptPaper,
@@ -786,6 +788,12 @@ function TransactionsContent() {
   const { user } = useAuth();
   const { paymentInfo } = useCMS();
 
+  const { markByBookingId } = useNotifications();
+  const CLIENT_PAYMENT_TYPES: NotificationType[] = useMemo(
+    () => ["payment_approved", "payment_rejected", "payment_incomplete", "remaining_balance_approved", "remaining_balance_rejected", "refund_completed"],
+    [],
+  );
+
   const [selectedBookingToPay, setSelectedBookingToPay] = useState<string | null>(null);
   const [localBookings, setLocalBookings] = useState<Booking[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
@@ -809,16 +817,35 @@ function TransactionsContent() {
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
   const [viewingReceipt, setViewingReceipt] = useState<Booking | null>(null);
 
+  const handlePay = (booking: Booking) => {
+    markByBookingId(booking.id, CLIENT_PAYMENT_TYPES);
+    setSelectedBookingToPay(booking.id);
+  };
+  const handleSettle = (booking: Booking) => {
+    markByBookingId(booking.id, CLIENT_PAYMENT_TYPES);
+    setSelectedBookingToPay(booking.id);
+  };
+  const handleView = (booking: Booking) => {
+    markByBookingId(booking.id, CLIENT_PAYMENT_TYPES);
+    setViewingReceipt(booking);
+  };
+
   useEffect(() => {
-    if (urlBookingId) setSelectedBookingToPay(urlBookingId);
-  }, [urlBookingId]);
+    if (urlBookingId) {
+      markByBookingId(urlBookingId, CLIENT_PAYMENT_TYPES);
+      setSelectedBookingToPay(urlBookingId);
+    }
+  }, [urlBookingId, markByBookingId, CLIENT_PAYMENT_TYPES]);
 
   useEffect(() => {
     if (urlViewId && localBookings.length > 0) {
       const found = localBookings.find((b) => b.id === urlViewId);
-      if (found) setViewingReceipt(found);
+      if (found) {
+        markByBookingId(found.id, CLIENT_PAYMENT_TYPES);
+        setViewingReceipt(found);
+      }
     }
-  }, [urlViewId, localBookings]);
+  }, [urlViewId, localBookings, markByBookingId, CLIENT_PAYMENT_TYPES]);
 
   useEffect(() => {
     setLocalBookings(bookings || []);
@@ -1943,9 +1970,9 @@ function TransactionsContent() {
                 >
                   <CurrentTransactionCard
                     booking={currentTransaction}
-                    onPay={(b) => setSelectedBookingToPay(b.id)}
-                    onSettle={(b) => setSelectedBookingToPay(b.id)}
-                    onView={(b) => setViewingReceipt(b)}
+                    onPay={handlePay}
+                    onSettle={handleSettle}
+                    onView={handleView}
                   />
                 </NotificationTargetWrapper>
               </div>
@@ -2046,7 +2073,7 @@ function TransactionsContent() {
                             {hasPaymentRecord(booking) && !showSettleAction && _paymentStatus !== "unpaid" && (
                               <Button
                                 variant="outline"
-                                onClick={() => setViewingReceipt(booking)}
+                                onClick={() => handleView(booking)}
                                 className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
                               >
                                 View Details
@@ -2054,8 +2081,8 @@ function TransactionsContent() {
                             )}
                             <PaymentActionButtons
                               booking={booking}
-                              onPay={(b) => setSelectedBookingToPay(b.id)}
-                              onSettle={(b) => setSelectedBookingToPay(b.id)}
+                              onPay={handlePay}
+                              onSettle={handleSettle}
                               compact
                             />
                           </div>
@@ -2218,8 +2245,8 @@ function TransactionsContent() {
                           expandedBookingId === booking.id ? null : booking.id,
                         )
                       }
-                      onView={(b) => setViewingReceipt(b)}
-                      onPay={(b) => setSelectedBookingToPay(b.id)}
+                      onView={handleView}
+                      onPay={handlePay}
                     />
                   </NotificationTargetWrapper>
                 ))}

@@ -14,6 +14,10 @@ const montserrat = Montserrat({
 export const metadata: Metadata = {
   title: "One Estela Place",
   description: "One Estela Place Booking System",
+  icons: {
+    icon: "/images/Favicon.png",
+    apple: "/images/Favicon.png",
+  },
 }
 
 export default function RootLayout({

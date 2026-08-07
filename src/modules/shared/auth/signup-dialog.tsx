@@ -15,6 +15,7 @@ import {
 import { Input } from "@/src/modules/shared/components/ui/input"
 import { Label } from "@/src/modules/shared/components/ui/label"
 import { Eye, EyeOff, Loader2, AlertCircle } from "lucide-react"
+import Image from "next/image"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 
 interface SignupDialogProps {
@@ -143,6 +144,14 @@ export function SignupDialog({ className, children }: SignupDialogProps) {
 
       <DialogContent className="w-[95vw] sm:max-w-[720px] overflow-y-auto max-h-[90dvh] p-0 rounded-2xl">
         <DialogHeader className="border-b border-slate-100 shrink-0 p-4 sm:p-6 pb-4 sm:pb-5 text-center sm:text-center">
+          <Image
+            src="/images/Favicon.png"
+            alt="One Estela Place"
+            width={40}
+            height={40}
+            priority
+            className="mx-auto mb-3 h-10 w-10 object-contain"
+          />
           <DialogTitle className="text-2xl font-black text-slate-900">Create Account</DialogTitle>
           <DialogDescription className="text-slate-500 font-medium">
             Sign up to start booking events at One Estela Place

@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/src/modules/shared/components/ui/input"
 import { Label } from "@/src/modules/shared/components/ui/label"
 import { Mail, CheckCircle, Loader2 } from "lucide-react"
+import Image from "next/image"
 import { sendPasswordResetEmail } from "firebase/auth"
 import { auth } from "@/lib/firebase"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
@@ -108,6 +109,14 @@ export function ForgotPasswordDialog({ open, onOpenChange, onBackToLogin }: Forg
       <DialogContent className="w-[95vw] sm:max-w-[440px] overflow-y-auto max-h-[90dvh] p-0 rounded-2xl">
         <div className="overflow-y-auto min-h-0 p-4 sm:p-6 pt-8 sm:pt-10 pb-6 sm:pb-8">
           <DialogHeader className="mb-5 text-center sm:text-center">
+            <Image
+              src="/images/Favicon.png"
+              alt="One Estela Place"
+              width={40}
+              height={40}
+              priority
+              className="mx-auto mb-3 h-10 w-10 object-contain"
+            />
             {step !== "success" && (
               <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100">
                 {getStepIcon(step)}

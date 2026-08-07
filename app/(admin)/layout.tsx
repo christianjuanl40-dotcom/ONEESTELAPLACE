@@ -21,6 +21,7 @@ import {
   Bell,
   Menu,
 } from "lucide-react"
+import Image from "next/image"
 
 import { Button } from "@/src/modules/shared/components/ui/button"
 
@@ -147,9 +148,14 @@ export default function AdminLayout({
               <Menu className="h-5 w-5 shrink-0 overflow-hidden" />
             </Button>
             <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-lg bg-white/15 backdrop-blur">
-                <span className="text-base font-black text-white">O</span>
-              </div>
+              <Image
+                src="/images/Favicon.png"
+                alt="One Estela Place"
+                width={36}
+                height={36}
+                priority
+                className="h-8 w-8 sm:h-9 sm:w-9 shrink-0 object-contain"
+              />
               <h1 className="text-lg font-black tracking-tight text-white hidden sm:inline">
                 One Estela Place
               </h1>

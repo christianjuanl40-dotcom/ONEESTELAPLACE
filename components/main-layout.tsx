@@ -19,6 +19,7 @@ import {
   Users,
   X,
 } from "lucide-react"
+import Image from "next/image"
 
 import { Button } from "@/src/modules/shared/components/ui/button"
 import {
@@ -85,9 +86,14 @@ export function MainLayout({ children }: MainLayoutProps) {
             </Button>
 
             <Link href="/dashboard" className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-600 text-base font-black text-white shadow-sm">
-                E
-              </div>
+              <Image
+                src="/images/Favicon.png"
+                alt="One Estela Place"
+                width={36}
+                height={36}
+                priority
+                className="h-9 w-9 shrink-0 object-contain"
+              />
               <div className="flex flex-col">
                 <span className="text-base font-black leading-none tracking-tight text-slate-900">
                   One Estela Place

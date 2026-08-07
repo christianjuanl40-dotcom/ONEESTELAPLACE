@@ -15,6 +15,7 @@ import {
   Phone,
   User,
 } from "lucide-react"
+import Image from "next/image"
 
 import { Button } from "@shared/components/ui/button"
 import {
@@ -71,9 +72,14 @@ export function PublicLayout({ children }: PublicLayoutProps) {
         <header className="fixed top-0 left-0 right-0 z-[9999] bg-gradient-to-r from-orange-600 via-orange-600 to-orange-700 shadow-lg overflow-hidden">
           <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-3 sm:px-4">
             <Link href="/" className="group flex items-center gap-3 shrink-0 min-w-0">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-xl font-black text-orange-600 shadow-sm">
-                {(cmsData?.footer?.brandName || "One Estela Place").charAt(0)}
-              </div>
+              <Image
+                src="/images/Favicon.png"
+                alt="One Estela Place"
+                width={40}
+                height={40}
+                priority
+                className="h-10 w-10 shrink-0 object-contain"
+              />
               {(() => {
                 const brand = cmsData?.footer?.brandName || "One Estela Place"
                 const words = brand.split(" ")
@@ -103,9 +109,14 @@ export function PublicLayout({ children }: PublicLayoutProps) {
         <header className="fixed top-0 left-0 right-0 z-[9999] bg-gradient-to-r from-orange-600 via-orange-600 to-orange-700 shadow-lg overflow-hidden">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-3 sm:px-4">
           <Link href="/" className="group flex items-center gap-3 shrink-0 min-w-0">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-xl font-black text-orange-600 shadow-sm transition-transform group-hover:scale-105">
-              {(cmsData?.footer?.brandName || "One Estela Place").charAt(0)}
-            </div>
+            <Image
+              src="/images/Favicon.png"
+              alt="One Estela Place"
+              width={40}
+              height={40}
+              priority
+              className="h-10 w-10 shrink-0 object-contain transition-transform group-hover:scale-105"
+            />
 
             {(() => {
               const brand = cmsData?.footer?.brandName || "One Estela Place"

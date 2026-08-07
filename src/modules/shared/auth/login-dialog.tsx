@@ -13,6 +13,7 @@ import {
 import { Input } from "@/src/modules/shared/components/ui/input"
 import { Label } from "@/src/modules/shared/components/ui/label"
 import { Eye, EyeOff, Loader2 } from "lucide-react"
+import Image from "next/image"
 
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
@@ -111,6 +112,14 @@ export function LoginDialog({ className, children }: LoginDialogProps) {
         </DialogTrigger>
         <DialogContent className="w-[95vw] sm:max-w-[440px] overflow-y-auto max-h-[90dvh] p-0 rounded-2xl">
           <div className="overflow-y-auto min-h-0 p-4 sm:p-6 pt-8 sm:pt-10 pb-6 sm:pb-8">
+            <Image
+              src="/images/Favicon.png"
+              alt="One Estela Place"
+              width={40}
+              height={40}
+              priority
+              className="mx-auto mb-4 h-10 w-10 object-contain"
+            />
             <DialogHeader className="mb-5 text-center sm:text-center">
               <DialogTitle className="text-2xl font-black text-slate-900">Welcome Back</DialogTitle>
               <DialogDescription className="text-slate-500 font-medium">

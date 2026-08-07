@@ -8,6 +8,7 @@ import {
   LayoutDashboard, Users, LogOut, BookOpen, MessageSquare,
   CreditCard, BarChart3, Settings, UserCheck, Menu, Bell, Search, X
 } from "lucide-react"
+import Image from "next/image"
 
 import { Button } from "@/src/modules/shared/components/ui/button"
 import { Badge } from "@/src/modules/shared/components/ui/badge"
@@ -81,6 +82,14 @@ export function MainLayout({ children }: MainLayoutProps) {
           <Button variant="ghost" size="icon" className="lg:hidden text-white hover:bg-orange-500 -ml-2 shrink-0" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
             <Menu className="h-5 w-5 shrink-0 overflow-hidden" />
           </Button>
+          <Image
+            src="/images/Favicon.png"
+            alt="One Estela Place"
+            width={32}
+            height={32}
+            priority
+            className="h-8 w-8 shrink-0 object-contain"
+          />
           <h1 className="text-base sm:text-lg font-black tracking-tight text-white whitespace-nowrap truncate">One Estela Place</h1>
         </div>
 
