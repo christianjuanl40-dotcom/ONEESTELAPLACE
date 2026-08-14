@@ -49,7 +49,7 @@ import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { cn } from "@/src/modules/shared/lib/utils"
 import { getRemainingDurationFromDates, getContractDurationLabel } from "@/src/modules/shared/lib/date-utils"
-import { useBookings, type Booking } from "@/src/modules/client/contexts/booking-context"
+import { useBookingData, useBookings, type Booking } from "@/src/modules/client/contexts/booking-context"
 import { createNotification, type NotificationType } from "@/src/modules/shared/lib/notifications"
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
 import { getPaymentMethodLabel } from "@/src/modules/shared/lib/labels"
@@ -221,10 +221,21 @@ export default function AdminBookingsPage() {
   const { user } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
-  const bookingCtx = useBookings()
+  const bookingCtx = useBookingData({ bookings: true, maintenance: true })
   const bookings = bookingCtx?.bookings || []
   const { markByBookingId } = useNotifications()
   const ADMIN_BOOKING_TYPES: NotificationType[] = ["booking_submitted", "cancellation_requested", "modification_requested"]
+
+  useEffect(() => {
+    console.log(
+      `[DEBUG][ADMIN BOOKINGS] component mounted — uid: ${user?.id ?? "null"}, role: ${user?.role ?? "null"}, provider isLoading: ${bookingCtx.isLoading}`,
+    )
+  }, [user?.id, user?.role])
+
+  useEffect(() => {
+    if (bookingCtx.isLoading) return
+    console.log(`[DEBUG][ADMIN BOOKINGS] data ready — raw bookings: ${bookings.length}, provider isLoading: ${bookingCtx.isLoading}`)
+  }, [bookingCtx.isLoading, bookings])
   const {
     markContractSigned,
     modifyBooking,
@@ -327,6 +338,13 @@ export default function AdminBookingsPage() {
     (safePage - 1) * ITEMS_PER_PAGE,
     safePage * ITEMS_PER_PAGE,
   )
+
+  useEffect(() => {
+    if (bookingCtx.isLoading) return
+    console.log(
+      `[DEBUG][ADMIN BOOKINGS] pipeline — raw bookings: ${bookings.length}, after filters: ${filteredBookings.length}, UI rows on page: ${paginatedBookings.length} (status="${statusFilter}", venue="${venueFilter}", search="${searchQuery}")`,
+    )
+  }, [bookings, filteredBookings, paginatedBookings, bookingCtx.isLoading, statusFilter, venueFilter, searchQuery])
 
   const [highlightedBookingId, setHighlightedBookingId] = useState<string | null>(null)
   const highlightHandledRef = useRef(false)
@@ -497,6 +515,16 @@ export default function AdminBookingsPage() {
     { value: "completed", label: "Completed" },
     { value: "cancelled", label: "Cancelled" },
   ]
+
+  if (bookingCtx?.isLoading && bookings.length === 0) {
+    return (
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
+        <div className="flex min-h-[50vh] items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-orange-600" />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="w-full min-w-0 max-w-full overflow-x-hidden">
@@ -2655,7 +2683,7 @@ function MaintenanceCalendarModal({
     addMaintenanceRecord,
     removeMaintenanceRecord,
     bookings: allBookings,
-  } = useBookings()
+  } = useBookingData({ maintenance: true, bookings: true })
   const { toast } = useToast()
 
   const venues = useMemo(() => getAllVenues(), [])

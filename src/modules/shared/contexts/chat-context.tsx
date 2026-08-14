@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { useAuth } from "../auth/auth-context"
+import { perfListener } from "../lib/perf-trace"
 import { db } from "@/lib/firebase"
 import {
   collection,
@@ -62,6 +63,8 @@ interface ChatContextValue {
   currentClientId: string | null
   isChatLoaded: boolean
   newMessageNotifications: string[]
+  unreadMessages: number
+  loadChat: () => void
   sendMessage: (
     text: string,
     senderRole: "admin" | "client" | "user" | "bot",
@@ -93,13 +96,52 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [userStatuses, setUserStatuses] = useState<Record<string, UserStatus>>({})
   const [isOpen, setIsOpen] = useState(false)
   const [newMessageNotifications, setNewMessageNotifications] = useState<string[]>([])
+  const [isMessagesActive, setIsMessagesActive] = useState(false)
+  const [unreadMessages, setUnreadMessages] = useState(0)
   const initialLoadDone = useRef(false)
 
   const currentClientId = user?.id ?? null
 
+  // Lightweight scoped unread listener (always on while signed in).
+  // Powers the chat badges WITHOUT loading the full conversation.
   useEffect(() => {
     if (!user) return
+    const isAdminScope = user.role === "admin" || user.role === "staff"
+    const unreadQuery = isAdminScope
+      ? query(messagesRef, where("sender", "==", "client"), where("isRead", "==", false))
+      : query(
+          messagesRef,
+          where("clientId", "==", user.id),
+          where("sender", "==", "admin"),
+          where("isReadByClient", "==", false),
+        )
+    console.log("[Firestore Listener START] ChatUnread", isAdminScope ? "(admin scope)" : `(client: ${user.id})`)
+    perfListener("ChatUnread", "START")
+    const unsub = onSnapshot(
+      unreadQuery,
+      (snapshot) => {
+        perfListener("ChatUnread", "FIRST_SNAPSHOT", snapshot.size)
+        setUnreadMessages(snapshot.size)
+      },
+      (error) => {
+        perfListener("ChatUnread", "ERROR")
+        console.error("[ChatUnread snapshot error]", { code: error.code, message: error.message, error })
+        setUnreadMessages(0)
+      },
+    )
+    return () => {
+      console.log("[Firestore Listener STOP] ChatUnread")
+      perfListener("ChatUnread", "STOP")
+      unsub()
+    }
+  }, [user?.id, user?.role])
+
+  // Full conversation listener — lazy. Only starts when a chat surface is
+  // opened (widget open, /portal/chat, /dashboard/chat) via loadChat().
+  useEffect(() => {
+    if (!user || !isMessagesActive) return
     console.log("[Firestore Listener START] Chat")
+    perfListener("Chat", "START")
     const unsub = onSnapshot(messagesQuery, (snapshot) => {
       const loaded: ChatMessageItem[] = []
       snapshot.forEach((docSnap) => {
@@ -130,19 +172,26 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         })
       })
       setMessages(loaded)
+      perfListener("Chat", "FIRST_SNAPSHOT", loaded.length)
       if (!initialLoadDone.current) {
         initialLoadDone.current = true
         setIsChatLoaded(true)
       }
     }, (error) => {
+      perfListener("Chat", "ERROR")
       console.error("[Chat snapshot error]", { code: error.code, message: error.message, error })
     })
 
     return () => {
       console.log("[Firestore Listener STOP] Chat")
+      perfListener("Chat", "STOP")
       unsub()
     }
-  }, [user])
+  }, [user?.id, isMessagesActive])
+
+  const loadChat = useCallback(() => {
+    setIsMessagesActive(true)
+  }, [])
 
   const sendMessage: ChatContextValue["sendMessage"] = useCallback(
     async (text, senderRole, clientId, clientName, isBot = false, imageUrl) => {
@@ -276,6 +325,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       currentClientId,
       isChatLoaded,
       newMessageNotifications,
+      unreadMessages,
+      loadChat,
       sendMessage,
       markAsRead,
       markAsReadByClient,
@@ -295,6 +346,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       currentClientId,
       isChatLoaded,
       newMessageNotifications,
+      unreadMessages,
+      loadChat,
       sendMessage,
       markAsRead,
       markAsReadByClient,

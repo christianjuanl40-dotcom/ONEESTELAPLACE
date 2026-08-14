@@ -14,7 +14,7 @@ import {
 } from "@/src/modules/shared/components/ui/tooltip"
 import Link from "next/link"
 
-import { useBookings, type Booking } from "@/src/modules/client/contexts/booking-context"
+import { useBookingData, type Booking } from "@/src/modules/client/contexts/booking-context"
 import { getCurrentBooking } from "@/src/modules/shared/lib/booking-helpers"
 import { getRemainingDurationFromDates } from "@/src/modules/shared/lib/date-utils"
 import { cn } from "@/src/modules/shared/lib/utils"
@@ -244,7 +244,7 @@ function getOfficeStatusDisplay(booking: Booking) {
 
 export default function ClientDashboardPage() {
   const { user } = useAuth()
-  const { getUserBookings, bookings } = useBookings()
+  const { getUserBookings, bookings } = useBookingData({ bookings: true })
   const myBookings = useMemo(() => {
     if (user?.id) return getUserBookings(user.id)
     return bookings

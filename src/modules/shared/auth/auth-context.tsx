@@ -17,6 +17,7 @@ import {
 } from "firebase/auth"
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
+import { perfMark } from "@/src/modules/shared/lib/perf-trace"
 import type { StaffPermissions } from "@/src/modules/shared/types/permissions"
 import { DEFAULT_STAFF_PERMISSIONS } from "@/src/modules/shared/types/permissions"
 import { uploadToCloudinary, deleteFromCloudinary, extractPublicId } from "@/src/modules/shared/lib/cloudinary"
@@ -51,6 +52,7 @@ export interface SignupInput {
 export interface AuthContextValue {
   user: AppUser | null
   isLoading: boolean
+  authLoading: boolean
   login: (email: string, password?: string) => Promise<{ success: boolean; message?: string; role?: string }>
   signup: (input: SignupInput) => Promise<{ success: boolean; message?: string }>
   logout: () => void
@@ -88,14 +90,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
+    perfMark("[AUTH] onAuthStateChanged registered")
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      perfMark(firebaseUser ? "[AUTH] onAuthStateChanged fired (signed in)" : "[AUTH] onAuthStateChanged fired (signed out)")
       if (firebaseUser) {
         try {
           const userDocRef = doc(db, "users", firebaseUser.uid)
           const userDocSnap = await getDoc(userDocRef)
+          perfMark("[AUTH] Firestore users/{uid} read complete")
+          console.log(
+            `[DEBUG][AUTH] profile read — uid: ${firebaseUser.uid}, email: ${firebaseUser.email ?? "null"}, docExists: ${userDocSnap.exists()}`,
+          )
           if (userDocSnap.exists()) {
             const data = userDocSnap.data()
             const rawRole: string = String(data.role || "").toLowerCase().trim()
+            console.log(
+              `[DEBUG][AUTH] role: ${JSON.stringify(rawRole)}, permissions: ${JSON.stringify(data.permissions ?? "none")}`,
+            )
 
             if (rawRole !== "admin" && rawRole !== "client" && rawRole !== "staff") {
               console.error("[Auth:onAuthStateChanged] INVALID ROLE:", rawRole, "- not setting user")
@@ -143,6 +154,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null)
       }
       setIsLoading(false)
+      perfMark("[AUTH] AuthProvider ready (isLoading=false)")
     })
 
     return unsubscribe
@@ -397,6 +409,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       user,
       isLoading,
+      authLoading: isLoading,
       login,
       signup,
       logout,

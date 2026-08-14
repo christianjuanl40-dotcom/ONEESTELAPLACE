@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useMemo, useRef } from "react"
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { useRouter } from "next/navigation"
-import { useBookings, Booking, calculateOfficeEndDate, type BookingStatus, type BookingStatusLabel, type PaymentStatus, type ContractStatus, type CancellationStatus, type RefundStatus, type OfficeRentalTerm } from "@/src/modules/client/contexts/booking-context"
+import { useBookingData, Booking, calculateOfficeEndDate, type BookingStatus, type BookingStatusLabel, type PaymentStatus, type ContractStatus, type CancellationStatus, type RefundStatus, type OfficeRentalTerm } from "@/src/modules/client/contexts/booking-context"
 import { 
   Building2, Tent, Calendar, Clock, MapPin, Users, AlertCircle, Plus, Receipt, ChevronLeft, ChevronRight, CheckCircle2, XCircle, ArrowLeft, X, DoorOpen, PartyPopper, PlayCircle, PauseCircle, Navigation, Loader2, Star, MessageSquare, Briefcase, FileText, Camera
 } from "lucide-react"
@@ -390,7 +390,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
   const isOpen = controlledOpen !== undefined ? controlledOpen : internalOpen
   const setIsOpen = setControlledOpen || setInternalOpen
 
-  const { bookings, maintenanceDates, addBooking } = useBookings()
+  const { bookings, maintenanceDates, addBooking } = useBookingData({ bookings: true, maintenance: true })
   const { user } = useAuth()
   const { toast } = useToast()
   const router = useRouter()

@@ -18,7 +18,7 @@ import {
 } from "lucide-react"
 
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
-import { useBookings } from "@/src/modules/client/contexts/booking-context"
+import { useBookingData } from "@/src/modules/client/contexts/booking-context"
 import { useRouter } from "next/navigation"
 import { cn } from "@/src/modules/shared/lib/utils"
 
@@ -35,7 +35,7 @@ const ROUTES = {
 export default function AdminDashboardPage() {
   const { user } = useAuth()
   const router = useRouter()
-  const bookingCtx = useBookings()
+  const bookingCtx = useBookingData({ bookings: true })
   const bookings = bookingCtx?.bookings || []
 
   useEffect(() => {
@@ -73,6 +73,16 @@ export default function AdminDashboardPage() {
       )
       .slice(0, 4)
   }, [bookings])
+
+  if (bookingCtx?.isLoading) {
+    return (
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
+        <div className="flex min-h-[50vh] items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-orange-600" />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">

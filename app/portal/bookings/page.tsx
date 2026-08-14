@@ -36,6 +36,7 @@ import {
   isRefundEligible,
   canShowCancellationNotice,
   canRequestCancellation,
+  useBookingData,
   useBookings,
 } from "@/src/modules/client/contexts/booking-context"
 import { Button } from "@/src/modules/shared/components/ui/button"
@@ -73,7 +74,7 @@ import {
   TooltipTrigger,
 } from "@/src/modules/shared/components/ui/tooltip"
 import { db } from "@/lib/firebase"
-import { collection, addDoc, getDocs, query, orderBy, doc, getDoc } from "firebase/firestore"
+import { collection, addDoc, getDocs, query, orderBy, where, limit, doc, getDoc } from "firebase/firestore"
 
 type ReviewRecord = {
   id: string
@@ -392,8 +393,11 @@ function getPaymentBadgeClass(paymentStatus?: string, paymentStage?: string, rem
   return "border-slate-200 bg-slate-50 text-slate-700"
 }
 
-function readStoredReceipts(): Promise<BookingReceipt[]> {
-  return getDocs(query(collection(db, "receipts"), orderBy("dateGenerated", "desc"))).then(
+function readStoredReceipts(bookingId?: string): Promise<BookingReceipt[]> {
+  const constraints: any[] = bookingId
+    ? [where("bookingId", "==", bookingId)]
+    : [orderBy("dateGenerated", "desc")]
+  return getDocs(query(collection(db, "receipts"), ...constraints)).then(
     (snapshot) => {
       const result: BookingReceipt[] = []
       snapshot.forEach((docSnap) => {
@@ -426,8 +430,8 @@ function readStoredReceipts(): Promise<BookingReceipt[]> {
 async function getStoredReceiptByBookingId(
   bookingId: string,
 ): Promise<BookingReceipt | undefined> {
-  const receipts = await readStoredReceipts()
-  return receipts.find((r) => r.bookingId === bookingId)
+  const receipts = await readStoredReceipts(bookingId)
+  return receipts[0]
 }
 
 function HorizontalBookingCard({
@@ -2718,8 +2722,8 @@ function ModifyBookingFlowModal({
 export default function MyBookingsPage() {
   const router = useRouter()
   const { user } = useAuth()
-  const { getUserBookings, requestCancellation, issueReceipt, requestModification, bookings } =
-    useBookings()
+  const { getUserBookings, requestCancellation, issueReceipt, requestModification, bookings, paymentRecords } =
+    useBookingData({ bookings: true, maintenance: true, payments: true })
   const { toast } = useToast()
 
   const { markByBookingId } = useNotifications()
@@ -2779,13 +2783,41 @@ export default function MyBookingsPage() {
     }
   }, [searchParams, myBookings, markByBookingId, CLIENT_BOOKING_TYPES])
 
+  const latestPaymentActivityByBooking = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const record of paymentRecords || []) {
+      const bookingId = record.bookingId
+      if (!bookingId) continue
+      const time = new Date(
+        String(record.submittedAt || record.updatedAt || ""),
+      ).getTime()
+      if (Number.isFinite(time) && time > 0 && time > (map.get(bookingId) || 0)) {
+        map.set(bookingId, time)
+      }
+    }
+    return map
+  }, [paymentRecords])
+
+  const getBookingActivityTime = (booking: Booking) => {
+    const fromPayment = latestPaymentActivityByBooking.get(booking.id)
+    if (fromPayment) return fromPayment
+    const fallback = new Date(
+      String(
+        (booking as any).paymentSubmittedAt ||
+          (booking as any).latestPaymentSubmittedAt ||
+          booking.createdAt ||
+          "",
+      ),
+    ).getTime()
+    return Number.isFinite(fallback) ? fallback : 0
+  }
+
   const sortedBookings = useMemo(
     () =>
       [...myBookings].sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        (a, b) => getBookingActivityTime(b) - getBookingActivityTime(a),
       ),
-    [myBookings],
+    [myBookings, latestPaymentActivityByBooking],
   )
 
   const { currentBooking, otherActiveBookings, historyBookings } = useMemo(() => {
@@ -2824,16 +2856,21 @@ export default function MyBookingsPage() {
     return String(booking.status || "").toLowerCase() === f
   }
 
+  const filteredOtherActive = useMemo(
+    () => otherActiveBookings.filter((b) => searchMatch(b, searchQuery)),
+    [otherActiveBookings, searchQuery],
+  )
+
   const otherActivePageSize = 10
-  const totalOtherActivePages = Math.max(1, Math.ceil(otherActiveBookings.length / otherActivePageSize))
+  const totalOtherActivePages = Math.max(1, Math.ceil(filteredOtherActive.length / otherActivePageSize))
   const safeCurrentPage = Math.min(currentPage, totalOtherActivePages)
   const paginatedOtherActive = useMemo(
     () =>
-      otherActiveBookings.slice(
+      filteredOtherActive.slice(
         (safeCurrentPage - 1) * otherActivePageSize,
         safeCurrentPage * otherActivePageSize,
       ),
-    [otherActiveBookings, safeCurrentPage],
+    [filteredOtherActive, safeCurrentPage],
   )
 
   useEffect(() => {
@@ -3157,6 +3194,25 @@ export default function MyBookingsPage() {
         />
 
         <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-end">
+          <div className="relative w-full sm:max-w-xs">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by ID, event, venue, status..."
+              className="h-11 w-full rounded-xl border-slate-200 pl-9 pr-9 text-sm focus-visible:ring-2 focus-visible:ring-orange-500"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                aria-label="Clear search"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
           <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
             <TooltipProvider delayDuration={400}>
                 <Tooltip>
@@ -3245,7 +3301,7 @@ export default function MyBookingsPage() {
       )}
 
       {/* Other Current Bookings */}
-      {!showHistory && hasOtherActive && (
+      {!showHistory && (hasOtherActive || searchQuery) && (
         <section>
           <SectionHeader
             title="Other Current Bookings"
@@ -3253,19 +3309,28 @@ export default function MyBookingsPage() {
             icon={<ListChecks className="h-4 w-4" />}
           />
           <div className="mt-3 space-y-2">
-            {paginatedOtherActive.map((booking) => (
-              <NotificationTargetWrapper
-                key={booking.id}
-                bookingTarget={booking.id}
-                isHighlighted={highlightedBookingId === booking.id}
-                storageKey="client_booking_highlight"
-              >
-                <HistoryRow
-                  booking={booking}
-                  onView={handleView}
-                />
-              </NotificationTargetWrapper>
-            ))}
+            {paginatedOtherActive.length > 0 ? (
+              paginatedOtherActive.map((booking) => (
+                <NotificationTargetWrapper
+                  key={booking.id}
+                  bookingTarget={booking.id}
+                  isHighlighted={highlightedBookingId === booking.id}
+                  storageKey="client_booking_highlight"
+                >
+                  <HistoryRow
+                    booking={booking}
+                    onView={handleView}
+                  />
+                </NotificationTargetWrapper>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center">
+                <p className="text-sm font-black text-slate-900">No matching bookings</p>
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  Try a different search term.
+                </p>
+              </div>
+            )}
             <Pagination
               page={safeCurrentPage}
               totalPages={totalOtherActivePages}
@@ -3285,8 +3350,18 @@ export default function MyBookingsPage() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search by ID, event, venue, status..."
-                className="h-9 rounded-xl border-slate-200 pl-9 text-sm focus-visible:ring-2 focus-visible:ring-orange-500"
+                className="h-9 rounded-xl border-slate-200 pl-9 pr-9 text-sm focus-visible:ring-2 focus-visible:ring-orange-500"
               />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  aria-label="Clear search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-600"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
             </div>
             <select
               value={filter}

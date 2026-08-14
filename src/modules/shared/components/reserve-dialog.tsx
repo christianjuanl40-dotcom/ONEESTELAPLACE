@@ -11,7 +11,7 @@ import { Label } from "@/src/modules/shared/components/ui/label"
 import { Clock, ChevronLeft, ChevronRight, ArrowRight, Loader2, Calendar as CalendarIcon, PartyPopper, CheckCircle2 } from "lucide-react"
 
 import { VENUE_RESERVATION_TERMS } from "@/src/modules/shared/lib/policies"
-import { useBookings } from "@/src/modules/client/contexts/booking-context"
+import { useBookingData } from "@/src/modules/client/contexts/booking-context"
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 
@@ -25,7 +25,7 @@ interface ReserveDialogProps {
 }
 
 export function ReserveDialog({ open, onOpenChange, selectedVenueId, onBackToVenues, editingBooking, onSubmitSuccess }: ReserveDialogProps) {
-  const { bookings, maintenanceDates, addBooking } = useBookings()
+  const { bookings, maintenanceDates, addBooking } = useBookingData({ bookings: true, maintenance: true })
   const { user } = useAuth()
   const { toast } = useToast()
   const allBookings = bookings || []

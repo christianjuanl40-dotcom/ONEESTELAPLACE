@@ -40,7 +40,6 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [floorFilter, setFloorFilter] = useState<"all" | "ground" | "second">("all")
 
-  const [showRoomsModal, setShowRoomsModal] = useState(false)
   const [selectedOffice, setSelectedOffice] = useState<any>(null)
   const [showRoomForm, setShowRoomForm] = useState(false)
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null)
@@ -50,9 +49,9 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
   const [bulkCount, setBulkCount] = useState<string>("1")
   const [bulkPreview, setBulkPreview] = useState<string[] | null>(null)
 
-  const resetForm = () => { setForm(EMPTY_FORM); setEditingId(null); setShowModal(false) }
+  const resetForm = () => { setForm(EMPTY_FORM); setEditingId(null); setSelectedOffice(null); setShowRoomForm(false); setEditingRoomId(null); setRoomForm(EMPTY_ROOM_FORM); setConfirmDeleteRoom(null); setShowModal(false) }
   const openNew = () => { resetForm(); setShowModal(true) }
-  const openEdit = (o: any) => { setEditingId(o.id); setForm({ name: o.name || "", capacity: o.capacity || "", price: o.price ?? "", downPaymentPercentage: o.downPaymentPercentage ?? 50, description: o.description || "", image: o.image || "", panoImage: o.panoImage || "", floor: o.floor || "ground" }); setShowModal(true) }
+  const openEdit = (o: any) => { setSelectedOffice(o); setEditingId(o.id); setForm({ name: o.name || "", capacity: o.capacity || "", price: o.price ?? "", downPaymentPercentage: o.downPaymentPercentage ?? 50, description: o.description || "", image: o.image || "", panoImage: o.panoImage || "", floor: o.floor || "ground" }); setShowRoomForm(false); setEditingRoomId(null); setRoomForm(EMPTY_ROOM_FORM); setConfirmDeleteRoom(null); setShowModal(true) }
 
   const handleSave = () => {
     if (!form.name.trim()) { toast({ title: "Name required", description: "Enter an office name.", variant: "destructive" }); return }
@@ -64,9 +63,6 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
   }
 
   const handleDelete = (id: string) => { deleteOffice(id); setConfirmDelete(null); toast({ title: "Office archived", description: "Office has been archived.", className: "bg-emerald-500 text-white border-none" }) }
-
-  const openRoomsModal = (office: any) => { setSelectedOffice(office); setShowRoomsModal(true); setShowRoomForm(false); setEditingRoomId(null); setRoomForm(EMPTY_ROOM_FORM) }
-  const closeRoomsModal = () => { setShowRoomsModal(false); setSelectedOffice(null); setShowRoomForm(false); setEditingRoomId(null); setRoomForm(EMPTY_ROOM_FORM) }
 
   const openNewRoom = () => {
     const rooms = selectedOffice ? getOfficeRooms(selectedOffice.id) : []
@@ -180,7 +176,6 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
                       <td className="px-4 py-2.5 text-right">
                         <div className="flex items-center justify-end gap-0.5">
                           <button type="button" onClick={() => openEdit(o)} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700" title="Edit Office"><Pencil className="h-3.5 w-3.5" /></button>
-                          <button type="button" onClick={() => openRoomsModal(o)} className="flex h-7 w-7 items-center justify-center rounded-md text-blue-400 hover:bg-blue-50 hover:text-blue-600" title="Manage Rooms"><DoorOpen className="h-3.5 w-3.5" /></button>
                           <button type="button" onClick={() => setConfirmDelete(o.id)} className="flex h-7 w-7 items-center justify-center rounded-md text-rose-400 hover:bg-rose-50 hover:text-rose-600" title="Delete Office"><Trash2 className="h-3.5 w-3.5" /></button>
                         </div>
                       </td>
@@ -201,7 +196,7 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-8">
-          <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-xl max-h-[calc(100dvh-32px)] overflow-y-auto">
+          <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-5 py-3.5">
               <h2 className="text-base font-black text-slate-950">{editingId ? "Edit Office" : "Add Office"}</h2>
               <button type="button" onClick={resetForm} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100"><X className="h-4 w-4" /></button>
@@ -243,6 +238,67 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
               </div>
               <CMSImageUpload label="Office Photo" value={form.image} accent="blue" storagePath="offices" onValueChange={(v) => setForm({ ...form, image: v })} />
               <CMSPanoramaUpload value={form.panoImage} storagePath="panoramas" onValueChange={(v) => setForm({ ...form, panoImage: v })} />
+
+              {editingId && selectedOffice && (
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <div className="mb-3">
+                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-600">Room Management</h3>
+                    <p className="text-[11px] font-semibold text-slate-500">{selectedOfficeRooms.length} room{selectedOfficeRooms.length !== 1 ? "s" : ""} · {selectedOffice.name}</p>
+                  </div>
+                  {!showRoomForm && (
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      <Button type="button" onClick={openNewRoom} className="h-9 rounded-lg bg-blue-600 px-3.5 text-xs font-bold text-white hover:bg-blue-700">
+                        <Plus className="mr-1 h-3.5 w-3.5" /> Add Room
+                      </Button>
+                      <Button type="button" onClick={openBulkModal} variant="outline" className="h-9 rounded-lg border-slate-200 px-3.5 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                        <Plus className="mr-1 h-3.5 w-3.5" /> Bulk Add Rooms
+                      </Button>
+                    </div>
+                  )}
+                  {showRoomForm && (
+                    <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                      <h3 className="text-sm font-bold text-slate-900 mb-3">{editingRoomId ? "Edit Room" : "Add Room"}</h3>
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">Room Name</label>
+                        <Input value={roomForm.name} onChange={(e) => setRoomForm({ ...roomForm, name: e.target.value })} placeholder="Room 1" className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm font-semibold" />
+                      </div>
+                      <div className="flex gap-2 mt-3">
+                        <Button type="button" onClick={handleSaveRoom} className="h-9 rounded-lg bg-blue-600 px-3.5 text-xs font-bold text-white hover:bg-blue-700">
+                          <Save className="mr-1.5 h-3.5 w-3.5" /> {editingRoomId ? "Save" : "Add"}
+                        </Button>
+                        <Button type="button" variant="outline" onClick={closeRoomForm} className="h-9 rounded-lg border-slate-200 text-xs font-bold">
+                          <X className="mr-1.5 h-3.5 w-3.5" /> Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  {selectedOfficeRooms.length === 0 ? (
+                    <div className="text-center py-6">
+                      <DoorOpen className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                      <p className="text-sm font-semibold text-slate-500">No rooms yet</p>
+                      <p className="text-xs text-slate-400 mt-1">Click "Add Room" to create the first room.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {selectedOfficeRooms.map((room, idx) => (
+                        <div key={room.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-xs font-bold text-slate-600">{idx + 1}</div>
+                            <div>
+                              <p className="text-sm font-bold text-slate-900">{room.name}</p>
+                              <p className="text-[11px] font-semibold text-slate-500">{selectedOffice?.capacity || "1-4 pax"} · ₱{Number(selectedOffice?.price || 0).toLocaleString("en-PH")}/mo</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-0.5">
+                            <button type="button" onClick={() => openEditRoom(room)} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"><Pencil className="h-3.5 w-3.5" /></button>
+                            <button type="button" onClick={() => setConfirmDeleteRoom(room.id)} className="flex h-7 w-7 items-center justify-center rounded-md text-rose-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 className="h-3.5 w-3.5" /></button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div className="sticky bottom-0 flex gap-2 border-t border-slate-100 bg-white px-5 py-3.5">
               <Button type="button" onClick={handleSave} className="w-full sm:w-auto h-11 flex-1 rounded-lg bg-blue-600 text-xs font-bold text-white hover:bg-blue-700">
@@ -264,78 +320,6 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
             <div className="mt-4 flex gap-2">
               <Button type="button" variant="outline" onClick={() => setConfirmDelete(null)} className="h-9 flex-1 rounded-lg border-slate-200 text-xs font-bold">Cancel</Button>
               <Button type="button" onClick={() => handleDelete(confirmDelete)} className="h-9 flex-1 rounded-lg bg-rose-600 text-xs font-bold text-white hover:bg-rose-700"><Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete</Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showRoomsModal && selectedOffice && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-8">
-          <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-xl max-h-[calc(100dvh-32px)] overflow-y-auto">
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-5 py-3.5">
-              <div>
-                <h2 className="text-base font-black text-slate-950">Manage Rooms</h2>
-                <p className="text-xs font-semibold text-slate-500">{selectedOffice.name} — {selectedOfficeRooms.length} room{selectedOfficeRooms.length !== 1 ? "s" : ""}</p>
-              </div>
-              <button type="button" onClick={closeRoomsModal} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100"><X className="h-4 w-4" /></button>
-            </div>
-            <div className="p-5">
-              {!showRoomForm && (
-                <div className="mb-4 flex items-center gap-2">
-                  <Button type="button" onClick={openNewRoom} className="h-9 rounded-lg bg-blue-600 px-3.5 text-xs font-bold text-white hover:bg-blue-700">
-                    <Plus className="mr-1 h-3.5 w-3.5" /> Add Room
-                  </Button>
-                  <Button type="button" onClick={openBulkModal} variant="outline" className="h-9 rounded-lg border-slate-200 px-3.5 text-xs font-bold text-slate-700 hover:bg-slate-50">
-                    <Plus className="mr-1 h-3.5 w-3.5" /> Bulk Add Rooms
-                  </Button>
-                </div>
-              )}
-
-              {showRoomForm && (
-                <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
-                  <h3 className="text-sm font-bold text-slate-900 mb-3">{editingRoomId ? "Edit Room" : "Add Room"}</h3>
-                  <div>
-                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">Room Name</label>
-                    <Input value={roomForm.name} onChange={(e) => setRoomForm({ ...roomForm, name: e.target.value })} placeholder="Room 1" className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm font-semibold" />
-                  </div>
-                  <div className="flex gap-2 mt-3">
-                    <Button type="button" onClick={handleSaveRoom} className="h-9 rounded-lg bg-blue-600 px-3.5 text-xs font-bold text-white hover:bg-blue-700">
-                      <Save className="mr-1.5 h-3.5 w-3.5" /> {editingRoomId ? "Save" : "Add"}
-                    </Button>
-                    <Button type="button" variant="outline" onClick={closeRoomForm} className="h-9 rounded-lg border-slate-200 text-xs font-bold">
-                      <X className="mr-1.5 h-3.5 w-3.5" /> Cancel
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {selectedOfficeRooms.length === 0 ? (
-                <div className="text-center py-8">
-                  <DoorOpen className="h-10 w-10 text-slate-300 mx-auto mb-3" />
-                  <p className="text-sm font-semibold text-slate-500">No rooms yet</p>
-                  <p className="text-xs text-slate-400 mt-1">Click "Add Room" to create the first room.</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {selectedOfficeRooms.map((room, idx) => (
-                    <div key={room.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-xs font-bold text-slate-600">
-                          {idx + 1}
-                        </div>
-                        <div>
-                          <p className="text-sm font-bold text-slate-900">{room.name}</p>
-                          <p className="text-[11px] font-semibold text-slate-500">{selectedOffice?.capacity || "1-4 pax"} · ₱{Number(selectedOffice?.price || 0).toLocaleString("en-PH")}/mo</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-0.5">
-                        <button type="button" onClick={() => openEditRoom(room)} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"><Pencil className="h-3.5 w-3.5" /></button>
-                        <button type="button" onClick={() => setConfirmDeleteRoom(room.id)} className="flex h-7 w-7 items-center justify-center rounded-md text-rose-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 className="h-3.5 w-3.5" /></button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
         </div>

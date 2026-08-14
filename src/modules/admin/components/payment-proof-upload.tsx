@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/src/modules/shared/c
 import { Badge } from "@/src/modules/shared/components/ui/badge"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { usePaymentProof } from "@/components/payment-proof-context"
-import { useBookings } from "@/src/modules/client/contexts/booking-context"
+import { useBookingData } from "@/src/modules/client/contexts/booking-context"
 import { Upload, FileImage, X, CheckCircle, AlertCircle, Clock } from "lucide-react"
 import { cn } from "@/src/modules/shared/lib/utils"
 
@@ -34,7 +34,7 @@ interface PaymentProofUploadProps {
 export function PaymentProofUpload({ open, onOpenChange, bookingId }: PaymentProofUploadProps) {
   const { toast } = useToast()
   const { uploadPaymentProof, getPaymentProofByBooking } = usePaymentProof()
-  const { getBookingById, submitPayment, modifyBooking } = useBookings()
+  const { getBookingById, submitPayment, modifyBooking } = useBookingData({ bookings: true })
   const [isUploading, setIsUploading] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [dragActive, setDragActive] = useState(false)

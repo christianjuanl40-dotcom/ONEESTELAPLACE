@@ -10,7 +10,7 @@ import { MessageSquare, X, Send, Paperclip, ShieldCheck } from "lucide-react"
 export function ClientChatWidget() {
   const pathname = usePathname()
   const { user } = useAuth()
-  const { messages, sendMessage, isChatLoaded, markAsReadByClient } = useChat()
+  const { messages, sendMessage, isChatLoaded, markAsReadByClient, loadChat, unreadMessages } = useChat()
 
   const [isOpen, setIsOpen] = useState(false)
   const [inputValue, setInputValue] = useState("")
@@ -22,7 +22,11 @@ export function ClientChatWidget() {
   const hasGreeted = useRef(false)
 
   const myMessages = messages.filter((m: any) => m.clientId === user?.id)
-  const unreadCount = myMessages.filter((m: any) => m.sender === "admin" && !m.isReadByClient).length
+  const unreadCount = unreadMessages
+
+  useEffect(() => {
+    if (isOpen) loadChat()
+  }, [isOpen, loadChat])
 
   useEffect(() => {
     if (isChatLoaded && isOpen && user?.id && myMessages.length === 0 && pathname !== "/portal/chat" && !hasGreeted.current) {

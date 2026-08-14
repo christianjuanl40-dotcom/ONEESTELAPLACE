@@ -48,13 +48,17 @@ function isSameDay(ts1?: string | number | Date, ts2?: string | number | Date): 
 export default function AdminSupportChatPage() {
   const { user } = useAuth()
   const router = useRouter()
-  const { messages, sendMessage, markAsRead } = useChat()
+  const { messages, sendMessage, markAsRead, loadChat } = useChat()
 
   useEffect(() => {
     if (user && user.role === "staff" && !user.permissions?.chat) {
       router.replace("/dashboard")
     }
   }, [user, router])
+
+  useEffect(() => {
+    loadChat()
+  }, [loadChat])
   
   const [searchQuery, setSearchQuery] = useState("")
   const [activeClientId, setActiveClientId] = useState<any>(null)

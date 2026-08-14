@@ -45,7 +45,7 @@ function isSameDay(ts1?: string | number | Date, ts2?: string | number | Date): 
 export default function ClientSupportChatPage() {
   const { user } = useAuth()
 
-  const { messages, sendMessage, isChatLoaded, markAsReadByClient } = useChat()
+  const { messages, sendMessage, isChatLoaded, markAsReadByClient, loadChat } = useChat()
   
   const [inputValue, setInputValue] = useState("")
   const [imagePreview, setImagePreview] = useState<string | null>(null)
@@ -56,6 +56,10 @@ export default function ClientSupportChatPage() {
     const id = setInterval(() => setNowTick(new Date()), 60 * 1000)
     return () => clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    loadChat()
+  }, [loadChat])
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)

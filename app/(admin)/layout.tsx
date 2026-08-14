@@ -1,10 +1,11 @@
 "use client"
 
 import type React from "react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
+import { perfMark } from "@/src/modules/shared/lib/perf-trace"
 import { useChat } from "@/src/modules/shared/contexts/chat-context"
 import { StaffProvider } from "@/src/modules/admin/contexts/staff-context"
 
@@ -63,13 +64,14 @@ export default function AdminLayout({
 }) {
   const pathname = usePathname()
   const router = useRouter()
-  const { logout, user, isLoading } = useAuth()
-  const { messages } = useChat()
+  const { user, isLoading, logout } = useAuth()
+  const { unreadMessages } = useChat()
   const { notifications, unreadCount: notificationUnread } = useNotifications()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [chatUnread, setChatUnread] = useState(0)
   const [showNotifications, setShowNotifications] = useState(false)
+  const prefetchedRef = useRef(false)
 
   const ADMIN_BOOKING_TYPES: NotificationType[] = useMemo(
     () => ["booking_submitted", "cancellation_requested", "modification_requested"],
@@ -98,12 +100,12 @@ export default function AdminLayout({
       const permKey = PERMISSION_MAP[item.key]
       return permKey ? perms[permKey] === true : false
     })
-  }, [user])
+  }, [user?.role, user?.permissions])
 
   useEffect(() => {
-    const count = messages?.filter((m) => m.sender === "client" && !m.isRead).length || 0
-    setChatUnread(count)
-  }, [messages])
+    // Lightweight scoped unread listener (chat-context) — no full conversation load.
+    setChatUnread(unreadMessages)
+  }, [unreadMessages])
 
   useEffect(() => {
     if (isLoading) return
@@ -124,6 +126,22 @@ export default function AdminLayout({
   useEffect(() => {
     setIsMobileMenuOpen(false)
   }, [pathname])
+
+  useEffect(() => {
+    if (isLoading || !user || prefetchedRef.current) return
+    const role = user.role
+    if (role !== "admin" && role !== "staff") return
+    prefetchedRef.current = true
+    const perms = user.permissions
+    if (role === "admin" || perms?.bookings) {
+      perfMark("[PREFETCH] /dashboard/bookings requested (admin warm-up)")
+      router.prefetch("/dashboard/bookings")
+    }
+    if (role === "admin" || perms?.payments) {
+      perfMark("[PREFETCH] /dashboard/payments requested (admin warm-up)")
+      router.prefetch("/dashboard/payments")
+    }
+  }, [isLoading, user, router])
 
   const handleConfirmLogout = () => {
     setShowLogoutConfirm(false)

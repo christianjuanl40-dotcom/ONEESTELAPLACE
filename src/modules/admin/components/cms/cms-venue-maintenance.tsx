@@ -5,7 +5,7 @@ import { X, Trash2 } from "lucide-react"
 import { Button } from "@shared/components/ui/button"
 import { Input } from "@shared/components/ui/input"
 import { useToast } from "@shared/hooks/use-toast"
-import { useBookings } from "@/src/modules/client/contexts/booking-context"
+import { useBookingData } from "@/src/modules/client/contexts/booking-context"
 
 interface Props {
   venueId: string
@@ -15,7 +15,7 @@ interface Props {
 }
 
 export function CMSVenueMaintenance({ venueId, venueName, open, onClose }: Props) {
-  const { maintenanceRecords, addMaintenanceRecord, removeMaintenanceRecord } = useBookings()
+  const { maintenanceRecords, addMaintenanceRecord, removeMaintenanceRecord } = useBookingData({ maintenance: true })
   const { toast } = useToast()
 
   const [startDate, setStartDate] = useState("")

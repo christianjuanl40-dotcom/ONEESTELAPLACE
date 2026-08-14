@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   Banknote,
   Calendar,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -37,7 +38,7 @@ import { Input } from "@/src/modules/shared/components/ui/input";
 import { Label } from "@/src/modules/shared/components/ui/label";
 import { useToast } from "@/src/modules/shared/hooks/use-toast";
 import {
-  useBookings,
+  useBookingData,
   type Booking,
 } from "@/src/modules/client/contexts/booking-context";
 import { useAuth } from "@/src/modules/shared/auth/auth-context";
@@ -784,7 +785,7 @@ function TransactionsContent() {
   const urlViewId = searchParams.get("view");
 
   const { toast } = useToast();
-  const { bookings, submitPayment, cancelBooking } = useBookings();
+  const { bookings, submitPayment, cancelBooking, isLoading: bookingsLoading, paymentRecords } = useBookingData({ bookings: true, payments: true });
   const { user } = useAuth();
   const { paymentInfo } = useCMS();
 
@@ -816,6 +817,31 @@ function TransactionsContent() {
   const [showHistory, setShowHistory] = useState(false);
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
   const [viewingReceipt, setViewingReceipt] = useState<Booking | null>(null);
+  const [viewingReceiptNo, setViewingReceiptNo] = useState<string | null>(null);
+
+  const viewingReceiptHistory = useMemo(() => {
+    if (!viewingReceipt) return [] as any[];
+    const bookingAny = viewingReceipt as any;
+    const history = Array.isArray(bookingAny?.paymentReceipts)
+      ? bookingAny.paymentReceipts
+      : viewingReceipt.receipt
+        ? [viewingReceipt.receipt]
+        : [];
+    return [...history].sort(
+      (a, b) =>
+        new Date(b.dateGenerated || b.dateIssued || 0).getTime() -
+        new Date(a.dateGenerated || a.dateIssued || 0).getTime(),
+    );
+  }, [viewingReceipt]);
+
+  const selectedViewingReceipt = useMemo(() => {
+    if (viewingReceiptHistory.length === 0) return null;
+    if (!viewingReceiptNo) return viewingReceiptHistory[0];
+    return (
+      viewingReceiptHistory.find((r) => r.receiptNumber === viewingReceiptNo) ||
+      viewingReceiptHistory[0]
+    );
+  }, [viewingReceiptHistory, viewingReceiptNo]);
 
   const handlePay = (booking: Booking) => {
     markByBookingId(booking.id, CLIENT_PAYMENT_TYPES);
@@ -827,6 +853,7 @@ function TransactionsContent() {
   };
   const handleView = (booking: Booking) => {
     markByBookingId(booking.id, CLIENT_PAYMENT_TYPES);
+    setViewingReceiptNo(null);
     setViewingReceipt(booking);
   };
 
@@ -842,6 +869,7 @@ function TransactionsContent() {
       const found = localBookings.find((b) => b.id === urlViewId);
       if (found) {
         markByBookingId(found.id, CLIENT_PAYMENT_TYPES);
+        setViewingReceiptNo(null);
         setViewingReceipt(found);
       }
     }
@@ -857,16 +885,40 @@ function TransactionsContent() {
     return () => clearInterval(timer);
   }, []);
 
+  const latestPaymentActivityByBooking = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const record of paymentRecords || []) {
+      const bookingId = record.bookingId;
+      if (!bookingId) continue;
+      const time = new Date(
+        String(record.submittedAt || record.updatedAt || ""),
+      ).getTime();
+      if (Number.isFinite(time) && time > 0 && time > (map.get(bookingId) || 0)) {
+        map.set(bookingId, time);
+      }
+    }
+    return map;
+  }, [paymentRecords]);
+
   const myTransactions = useMemo(() => {
-    return (
-      localBookings
-        .filter((booking) => booking.userId === user?.id)
-        .sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-        ) || []
-    );
-  }, [localBookings, user?.id]);
+    const list = (localBookings.filter((booking) => booking.userId === user?.id) || []);
+    return list.sort((a, b) => {
+      const getActivityTime = (booking: Booking) => {
+        const fromPayment = latestPaymentActivityByBooking.get(booking.id);
+        if (fromPayment) return fromPayment;
+        const fallback = new Date(
+          String(
+            (booking as any).paymentSubmittedAt ||
+              (booking as any).latestPaymentSubmittedAt ||
+              booking.createdAt ||
+              "",
+          ),
+        ).getTime();
+        return Number.isFinite(fallback) ? fallback : 0;
+      };
+      return getActivityTime(b) - getActivityTime(a);
+    });
+  }, [localBookings, user?.id, latestPaymentActivityByBooking]);
 
   const transactionsWithPayment = useMemo(
     () => myTransactions.filter(hasPaymentRecord),
@@ -927,7 +979,7 @@ function TransactionsContent() {
   const searchMatch = (booking: Booking, query: string) => {
     if (!query) return true;
     const q = query.toLowerCase().trim();
-    const fields = [
+    const bookingFields = [
       booking.id,
       booking.eventName,
       booking.eventType,
@@ -936,7 +988,17 @@ function TransactionsContent() {
       booking.paymentStatus,
       booking.paymentMethod,
     ];
-    return fields.some((f) => f && String(f).toLowerCase().includes(q));
+    const paymentFields = (paymentRecords || [])
+      .filter((r) => r.bookingId === booking.id)
+      .flatMap((r) => [
+        r.id,
+        String(r.referenceNo || ""),
+        String(r.amount || r.amountPaid || ""),
+        r.paymentMethod || r.method || "",
+        r.status || "",
+        r.verificationStatus || "",
+      ]);
+    return [...bookingFields, ...paymentFields].some((f) => f && String(f).toLowerCase().includes(q));
   };
 
   const currentTransactions = useMemo(
@@ -992,7 +1054,7 @@ function TransactionsContent() {
           searchMatch(b, searchQuery) &&
           isDateInRange(b.date, dateFrom || undefined, dateTo || undefined),
       ),
-    [historyTransactions, filter, searchQuery, dateFrom, dateTo],
+    [historyTransactions, filter, searchQuery, dateFrom, dateTo, paymentRecords],
   );
 
   const totalHistoryPages = Math.max(
@@ -1125,7 +1187,7 @@ function TransactionsContent() {
     currentTransaction,
   ]);
 
-  if (!isHydrated) {
+  if (!isHydrated || bookingsLoading) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-orange-600" />
@@ -1939,8 +2001,8 @@ function TransactionsContent() {
   return (
     <div className="w-full min-w-0 max-w-full overflow-x-hidden">
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 animate-in fade-in duration-500">
-        {hasHistoryRecords && (
-          <div className="mb-4 flex justify-end">
+        <div className="mb-4 flex items-center justify-end">
+          {hasHistoryRecords && (
             <Button
               variant="outline"
               onClick={() => setShowHistory((v) => !v)}
@@ -1949,18 +2011,39 @@ function TransactionsContent() {
               <Receipt className="mr-1.5 h-3.5 w-3.5" />
               {showHistory ? "Hide Transaction History" : "View Transaction History"}
             </Button>
-          </div>
-        )}
+          )}
+        </div>
 
       {/* Current Transactions (hidden when viewing history) */}
       {!showHistory && (
         <>
           <section>
-            <SectionHeader
-              title="Current Transaction"
-              subtitle="Active payment"
-              icon={<CreditCard className="h-4 w-4" />}
-            />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <SectionHeader
+                title="Current Transaction"
+                subtitle="Active payment"
+                icon={<CreditCard className="h-4 w-4" />}
+              />
+              <div className="relative w-full sm:ml-auto sm:max-w-xs">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search payments..."
+                  className="h-10 w-full rounded-xl border-slate-200 pl-9 pr-9 text-sm focus-visible:ring-2 focus-visible:ring-orange-500"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    aria-label="Clear search"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-600"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            </div>
             {currentTransaction ? (
               <div className="mt-3">
                 <NotificationTargetWrapper
@@ -2108,8 +2191,8 @@ function TransactionsContent() {
       >
         <DialogContent aria-describedby={undefined}
           showCloseButton={false}
-          className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] overflow-y-auto rounded-3xl bg-white shadow-2xl">
-          <div className="flex h-full min-h-0 flex-col overflow-hidden">
+          className="w-[95vw] sm:max-w-[720px] max-h-[90vh] overflow-hidden rounded-3xl bg-white shadow-2xl">
+          <div className="flex max-h-[90vh] min-h-0 flex-col overflow-hidden">
             <div className="shrink-0 border-b border-slate-100 px-5 py-5">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -2130,23 +2213,86 @@ function TransactionsContent() {
               </div>
             </div>
             {viewingReceipt && (
-              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-                <ReceiptDetails
-                  booking={viewingReceipt}
-                  isCancelled={
-                    String(viewingReceipt.status).toLowerCase() === "cancelled" ||
-                    String(viewingReceipt.status).toLowerCase() === "declined"
-                  }
-                  displayTotal={
-                    ["cancelled", "declined"].includes(
-                      String(viewingReceipt.status).toLowerCase(),
-                    )
-                      ? 0
-                      : (viewingReceipt as any).totalPrice || 0
-                  }
-                />
+              <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+                {viewingReceiptHistory.length > 0 && (
+                  <div className="max-h-[40vh] shrink-0 overflow-y-auto border-b border-slate-100 p-5 sm:max-h-none sm:min-h-0 sm:w-72 sm:shrink-0 sm:overflow-y-auto sm:border-b-0 sm:border-r">
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                      Payment Receipts
+                    </p>
+                    <div className="space-y-1.5">
+                      {viewingReceiptHistory.map((receipt, idx) => {
+                        const isSelected =
+                          selectedViewingReceipt?.receiptNumber === receipt.receiptNumber;
+                        return (
+                          <button
+                            key={receipt.receiptNumber}
+                            type="button"
+                            onClick={() =>
+                              setViewingReceiptNo(
+                                isSelected ? null : receipt.receiptNumber,
+                              )
+                            }
+                            className={cn(
+                              "flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
+                              isSelected
+                                ? "border-orange-200 bg-orange-50 shadow-sm ring-1 ring-orange-200"
+                                : "border-slate-200 bg-white hover:bg-slate-50",
+                            )}
+                          >
+                            <span className="min-w-0">
+                              <span className="block text-xs font-black text-slate-900">
+                                Payment {viewingReceiptHistory.length - idx} —{" "}
+                                {formatMoney(Number(receipt.paymentAmount ?? receipt.amountPaid ?? 0))}
+                              </span>
+                              <span className="mt-0.5 block text-[10px] font-semibold text-slate-500">
+                                {Number(receipt.remainingBalance ?? 0) > 0
+                                  ? `Remaining balance: ${formatMoney(Number(receipt.remainingBalance))}`
+                                  : "Balance fully settled"}
+                              </span>
+                              <span className="mt-1 block truncate text-[10px] font-black uppercase tracking-[0.12em] text-orange-600">
+                                {receipt.receiptNumber}
+                              </span>
+                            </span>
+                            {isSelected && (
+                              <Check className="h-4 w-4 shrink-0 text-orange-600" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                <div className="min-h-0 flex-1 overflow-y-auto p-5">
+                  <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                    Payment Receipt
+                  </p>
+                  <ReceiptDetails
+                    booking={viewingReceipt}
+                    receipt={selectedViewingReceipt}
+                    isCancelled={
+                      String(viewingReceipt.status).toLowerCase() === "cancelled" ||
+                      String(viewingReceipt.status).toLowerCase() === "declined"
+                    }
+                    displayTotal={
+                      ["cancelled", "declined"].includes(
+                        String(viewingReceipt.status).toLowerCase(),
+                      )
+                        ? 0
+                        : (viewingReceipt as any).totalPrice || 0
+                    }
+                  />
+                </div>
               </div>
             )}
+            <div className="shrink-0 border-t border-slate-100 px-5 py-4">
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => setViewingReceipt(null)}
+              >
+                Close Window
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -2161,8 +2307,18 @@ function TransactionsContent() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search by ID, event, venue, status..."
-                className="h-9 rounded-xl border-slate-200 pl-9 text-sm focus-visible:ring-2 focus-visible:ring-orange-500"
+                className="h-9 rounded-xl border-slate-200 pl-9 pr-9 text-sm focus-visible:ring-2 focus-visible:ring-orange-500"
               />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  aria-label="Clear search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-600"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
             </div>
             <select
               value={filter}
@@ -2353,14 +2509,15 @@ function OfficePaymentTracker({
 
 function ReceiptDetails({
   booking,
+  receipt,
   isCancelled,
   displayTotal,
 }: {
   booking: Booking;
+  receipt: any;
   isCancelled: boolean;
   displayTotal: number;
 }) {
-  const receipt = booking.receipt as any;
   const isOfficeRental = isOfficeRentalBooking(booking);
 
   if (!receipt) {

@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
@@ -19,6 +19,7 @@ import Image from "next/image"
 import { Button } from "@/src/modules/shared/components/ui/button"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
+import { perfMark } from "@/src/modules/shared/lib/perf-trace"
 import { useChat } from "@/src/modules/shared/contexts/chat-context"
 import { ClientChatWidget } from "@/src/modules/shared/components/chat-widget"
 import { getUnreadCount, subscribeScopeUnread } from "@/src/modules/shared/lib/chat-unread"
@@ -51,12 +52,13 @@ export default function ClientLayout({
   const { toast } = useToast()
 
   const { user, isLoading, logout } = useAuth()
-  const { messages } = useChat()
+  const { unreadMessages } = useChat()
   const { notifications, unreadCount: notificationUnread } = useNotifications()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [chatUnread, setChatUnread] = useState(0)
   const [showNotifications, setShowNotifications] = useState(false)
+  const prefetchedRef = useRef(false)
 
   const CLIENT_BOOKING_TYPES: NotificationType[] = useMemo(
     () => ["booking_approved", "booking_rejected", "cancellation_approved", "cancellation_declined", "modification_approved", "modification_declined"],
@@ -80,19 +82,13 @@ export default function ClientLayout({
     if (!user) return
     getUnreadCount("client").then(setChatUnread)
     return subscribeScopeUnread("client", setChatUnread)
-  }, [user])
+  }, [user?.id, user?.role])
 
   useEffect(() => {
-    if (!user?.id) return
-    const unreadFromMessages =
-      messages?.filter(
-        (m: any) =>
-          m.clientId === user.id && m.sender === "admin" && !m.isReadByClient,
-      ).length || 0
-    if (unreadFromMessages > 0 && chatUnread === 0) {
-      setChatUnread(unreadFromMessages)
-    }
-  }, [messages, user?.id, chatUnread])
+    // Lightweight scoped listener (chat-context) without loading the full
+    // conversation; overrides the doc counter when unread messages exist.
+    if (unreadMessages > 0) setChatUnread(unreadMessages)
+  }, [unreadMessages])
 
 
 
@@ -119,6 +115,13 @@ export default function ClientLayout({
   useEffect(() => {
     setIsMobileMenuOpen(false)
   }, [pathname])
+
+  useEffect(() => {
+    if (isLoading || !user || user.role !== "client" || prefetchedRef.current) return
+    prefetchedRef.current = true
+    perfMark("[PREFETCH] /portal/bookings requested (client warm-up)")
+    router.prefetch("/portal/bookings")
+  }, [isLoading, user, router])
 
   const handleConfirmLogout = () => {
     setShowLogoutConfirm(false)

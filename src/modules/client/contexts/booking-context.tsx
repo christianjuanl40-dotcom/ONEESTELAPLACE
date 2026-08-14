@@ -1,8 +1,9 @@
 "use client";
 
-import React, { createContext, useContext, useCallback, useEffect, useMemo, useState } from "react";
+import React, { createContext, useContext, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useToast } from "@/src/modules/shared/hooks/use-toast";
 import { useAuth } from "@/src/modules/shared/auth/auth-context";
+import { perfListener, perfMark } from "@/src/modules/shared/lib/perf-trace";
 import { db } from "@/lib/firebase"
 import { createNotification } from "@/src/modules/shared/lib/notifications"
 import {
@@ -10,10 +11,13 @@ import {
   doc,
   getDocs,
   setDoc,
+  updateDoc,
   deleteDoc,
   writeBatch,
   query,
   orderBy,
+  where,
+  limit,
   onSnapshot,
   runTransaction,
   increment,
@@ -158,9 +162,42 @@ export interface BookingReceipt {
   paymentMethod: string;
   amountPaid: number;
   paymentAmount: number;
+  remainingBalance?: number;
   paymentStatus: string;
   dateGenerated: string;
   dateIssued: string;
+  paymentSubmittedAt?: string;
+}
+
+/**
+ * Individual payment submission record. The client writes one document per
+ * submission into the Firestore `payments` collection, so a single booking
+ * can have multiple PaymentRecords (Payment 1, Payment 2, ...).
+ */
+export interface PaymentRecord {
+  id: string;
+  bookingId: string;
+  bookingCode?: string;
+  customerId?: string;
+  customerName?: string;
+  eventName?: string;
+  venueName?: string;
+  method?: string;
+  paymentMethod?: string;
+  term?: string;
+  amount?: number;
+  amountPaid?: number;
+  referenceNo?: string;
+  proofUrl?: string;
+  status?: string;
+  verificationStatus?: string;
+  isRemainingDownPayment?: boolean;
+  submittedAt?: string;
+  updatedAt?: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  adminNote?: string;
+  rejectionReason?: string;
 }
 
 export interface Booking {
@@ -240,6 +277,7 @@ export interface Booking {
   receiptNumber?: string;
   receiptIssuedAt?: string;
   receipt?: BookingReceipt;
+  paymentReceipts?: BookingReceipt[];
 
   totalPrice: number;
   downPaymentPercentage?: number;
@@ -354,6 +392,9 @@ interface BookingContextType {
   officeRentals: OfficeRental[];
   maintenanceDates: string[];
   maintenanceRecords: MaintenanceRecord[];
+  paymentRecords: PaymentRecord[];
+  isLoading: boolean;
+  _registerDataNeed: (key: BookingDataKey, now: boolean) => void;
 
   addBooking: (booking: Omit<Booking, "id" | "createdAt">) => Promise<string>;
   updateBookingStatus: (id: string, status: BookingStatus) => void;
@@ -386,9 +427,9 @@ interface BookingContextType {
     adminNote?: string;
     adminName?: string;
   }) => void;
-  verifyPayment: (id: string, reviewData?: { verifiedAmount?: number; adminNote?: string; adminName?: string }) => void;
-  rejectPayment: (id: string, reason?: string, adminName?: string) => void;
-  markIncompletePayment: (id: string, data: { verifiedAmount: number; adminNote: string; adminName?: string }) => void;
+  verifyPayment: (id: string, reviewData?: { verifiedAmount?: number; adminNote?: string; adminName?: string; paymentRecordId?: string }) => void;
+  rejectPayment: (id: string, reason?: string, adminName?: string, paymentRecordId?: string) => void;
+  markIncompletePayment: (id: string, data: { verifiedAmount: number; adminNote: string; adminName?: string; paymentRecordId?: string }) => void;
   toggleMaintenanceDate: (date: string, venueId: string) => void;
   addMaintenanceRecord: (record: Omit<MaintenanceRecord, "id" | "createdAt" | "updatedAt">) => void;
   removeMaintenanceRecord: (id: string) => void;
@@ -460,6 +501,12 @@ interface BookingContextType {
 
 const BookingContext = createContext<BookingContextType | undefined>(undefined);
 
+// Page-scoped data opt-in keys. Listeners only start while at least one
+// mounted component needs the dataset (minimal global Firestore work).
+export type BookingDataKey = "bookings" | "officeRentals" | "maintenance" | "payments";
+export type BookingDataNeeds = Partial<Record<BookingDataKey, boolean>>;
+const DATA_KEYS: BookingDataKey[] = ["bookings", "officeRentals", "maintenance", "payments"];
+
 const DEFAULT_TOTAL_PRICE = 15000;
 const REFUND_ELIGIBLE_DAYS = 14;
 const CANCELLATION_CLOSED_DAYS = 7;
@@ -505,6 +552,19 @@ function stripHeavyBookingFields(booking: any) {
     ...safeBooking
   } = booking
   return safeBooking as any
+}
+
+function stripUndefinedDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripUndefinedDeep);
+  if (value && typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      if (entry === undefined) continue;
+      result[key] = stripUndefinedDeep(entry);
+    }
+    return result;
+  }
+  return value;
 }
 
 function createLocalId(prefix: string) {
@@ -774,6 +834,19 @@ function isOfficeBooking(booking: Partial<Booking>) {
   );
 }
 
+function isUnresolvedPaymentRecord(record: PaymentRecord) {
+  const status = String(record?.status || "").toLowerCase();
+  const verificationStatus = String(record?.verificationStatus || "").toLowerCase();
+  const isResolved =
+    status === "verified" ||
+    status === "rejected" ||
+    status === "incomplete" ||
+    verificationStatus === "verified" ||
+    verificationStatus === "rejected" ||
+    verificationStatus === "incomplete";
+  return !isResolved;
+}
+
 function getOfficeReservationFee(booking: Partial<Booking>) {
   return getSafePrice(
     booking.officeReservationFee || booking.totalPrice || DEFAULT_TOTAL_PRICE,
@@ -796,9 +869,13 @@ function getRentalTermLabel(term: OfficeRentalTerm) {
   return "2 years";
 }
 
-async function loadReceipts(): Promise<BookingReceipt[]> {
+async function loadReceipts(bookingId?: string): Promise<BookingReceipt[]> {
   try {
-    const snapshot = await getDocs(query(receiptsRef, orderBy("dateGenerated", "desc")))
+    const constraints: any[] = bookingId
+      ? [where("bookingId", "==", bookingId)]
+      : [];
+    if (constraints.length === 0) constraints.push(orderBy("dateGenerated", "desc"));
+    const snapshot = await getDocs(query(receiptsRef, ...constraints))
     const result: BookingReceipt[] = []
     snapshot.forEach((docSnap) => {
       const d = docSnap.data()
@@ -816,9 +893,11 @@ async function loadReceipts(): Promise<BookingReceipt[]> {
         paymentMethod: d.paymentMethod || "",
         amountPaid: d.amountPaid || 0,
         paymentAmount: d.paymentAmount || 0,
+        remainingBalance: typeof d.remainingBalance === "number" ? d.remainingBalance : undefined,
         paymentStatus: d.paymentStatus || "",
         dateGenerated: d.dateGenerated || "",
         dateIssued: d.dateIssued || "",
+        paymentSubmittedAt: d.paymentSubmittedAt || "",
       })
     })
     return result
@@ -842,15 +921,19 @@ async function saveStoredReceipt(receipt: BookingReceipt) {
     paymentMethod: receipt.paymentMethod,
     amountPaid: receipt.amountPaid,
     paymentAmount: receipt.paymentAmount,
+    remainingBalance: typeof receipt.remainingBalance === "number" ? receipt.remainingBalance : 0,
     paymentStatus: receipt.paymentStatus,
     dateGenerated: receipt.dateGenerated,
     dateIssued: receipt.dateIssued,
+    paymentSubmittedAt: receipt.paymentSubmittedAt || "",
   })
 }
 
 async function getStoredReceiptByBookingId(bookingId: string): Promise<BookingReceipt | undefined> {
   try {
-    const snapshot = await getDocs(query(receiptsRef, orderBy("dateGenerated", "desc")))
+    const snapshot = await getDocs(
+      query(receiptsRef, where("bookingId", "==", bookingId), limit(1)),
+    )
     let found: BookingReceipt | undefined
     snapshot.forEach((docSnap) => {
       const d = docSnap.data()
@@ -869,9 +952,11 @@ async function getStoredReceiptByBookingId(bookingId: string): Promise<BookingRe
           paymentMethod: d.paymentMethod || "",
           amountPaid: d.amountPaid || 0,
           paymentAmount: d.paymentAmount || 0,
+          remainingBalance: typeof d.remainingBalance === "number" ? d.remainingBalance : undefined,
           paymentStatus: d.paymentStatus || "",
           dateGenerated: d.dateGenerated || "",
           dateIssued: d.dateIssued || "",
+          paymentSubmittedAt: d.paymentSubmittedAt || "",
         }
       }
     })
@@ -943,23 +1028,60 @@ function getReceiptPaymentPurpose(booking: Booking) {
   return "Event Venue Payment";
 }
 
-function getReceiptAmount(booking: Booking) {
-  if (isOfficeBooking(booking)) return getOfficeReservationFee(booking);
-  if (typeof booking.amountPaid === "number" && booking.amountPaid > 0) return booking.amountPaid;
+function getReceiptPaymentAmount(booking: Booking) {
+  const lastPayment = Number(booking.lastPaymentAmount);
+  if (Number.isFinite(lastPayment) && lastPayment > 0) return lastPayment;
+  const verifiedAmount = Number((booking as any).paymentVerifiedAmount);
+  if (Number.isFinite(verifiedAmount) && verifiedAmount > 0) return verifiedAmount;
+  const submittedAmount = Number(booking.paymentAmount);
+  if (Number.isFinite(submittedAmount) && submittedAmount > 0) return submittedAmount;
+  const paid = Number(booking.amountPaid);
+  if (Number.isFinite(paid) && paid > 0) {
+    if (isOfficeBooking(booking)) return getOfficeReservationFee(booking);
+    return paid;
+  }
   return getSafePrice(booking.totalPrice);
 }
 
-function buildAutoReceipt(booking: Booking, generatedAt = new Date().toISOString()) {
-  const existingReceipt = booking.receipt;
+function getReceiptRemainingBalance(booking: Booking, totalAmount: number) {
+  if (
+    typeof booking.remainingBalance === "number" &&
+    Number.isFinite(booking.remainingBalance)
+  ) {
+    return Math.max(booking.remainingBalance, 0);
+  }
+  const paid = Number(booking.amountPaid ?? 0);
+  return Math.max(totalAmount - paid, 0);
+}
+
+function generateUniqueReceiptNumber(existingReceipts?: BookingReceipt[]): string {
+  const year = new Date().getFullYear();
+  const used = new Set(
+    (existingReceipts || [])
+      .map((r) => r.receiptNumber)
+      .filter((n): n is string => Boolean(n)),
+  );
+  let receiptNumber = "";
+  do {
+    const seq = Math.floor(100000 + Math.random() * 900000);
+    receiptNumber = `ER-${year}-${seq}`;
+  } while (used.has(receiptNumber));
+  return receiptNumber;
+}
+
+function buildAutoReceipt(
+  booking: Booking,
+  generatedAt = new Date().toISOString(),
+  existingReceipts?: BookingReceipt[],
+) {
   const officeBooking = isOfficeBooking(booking);
   const officeTerm = officeBooking ? booking.officeRentalTerm || "6_months" : "";
   const contractTerm = officeBooking ? formatOfficeContractTerm(officeTerm as OfficeRentalTerm) : "";
-  const receiptNumber =
-    existingReceipt?.receiptNumber ||
-    `ER-${new Date(generatedAt).getFullYear()}-${String(Date.now()).slice(-6)}`;
+  const totalAmount = getSafePrice(booking.totalPrice);
+  const amountPaid = getReceiptPaymentAmount(booking);
 
   const receipt: BookingReceipt = {
-    receiptNumber,
+    receiptNumber: generateUniqueReceiptNumber(existingReceipts),
     bookingId: booking.id,
     fullName: booking.userInfo?.name || "Client",
     bookingDate: booking.createdAt || generatedAt,
@@ -969,27 +1091,54 @@ function buildAutoReceipt(booking: Booking, generatedAt = new Date().toISOString
       : booking.date || "Not set",
     rentalType: officeBooking ? "Office Space Rental" : "Event Venue Booking",
     bookingType: officeBooking ? "Office Space Rental" : booking.eventType || "Event Venue Booking",
-    contractTerm,
+    contractTerm: contractTerm || "",
     paymentPurpose: getReceiptPaymentPurpose(booking),
     paymentMethod: getReceiptPaymentMethodLabel(booking.paymentMethod),
-    amountPaid: getReceiptAmount(booking),
-    paymentAmount: getReceiptAmount(booking),
+    amountPaid,
+    paymentAmount: amountPaid,
+    remainingBalance: officeBooking ? 0 : getReceiptRemainingBalance(booking, totalAmount),
     paymentStatus: officeBooking ? "Reservation Secured" : booking.paymentStatus || "paid",
-    dateGenerated: existingReceipt?.dateGenerated || generatedAt,
-    dateIssued: existingReceipt?.dateIssued || generatedAt,
+    dateGenerated: generatedAt,
+    dateIssued: generatedAt,
+    paymentSubmittedAt: booking.paymentSubmittedAt || generatedAt,
   };
 
   return receipt;
 }
 
+function getReceiptHistory(booking: Booking): BookingReceipt[] {
+  if (Array.isArray(booking.paymentReceipts) && booking.paymentReceipts.length > 0) {
+    return booking.paymentReceipts;
+  }
+  if (booking.receipt) return [booking.receipt];
+  return [];
+}
+
 function attachAutoReceipt(booking: Booking) {
   const generatedAt = new Date().toISOString();
-  const receipt = buildAutoReceipt(booking, generatedAt);
+  const history = getReceiptHistory(booking);
+  const receipt = buildAutoReceipt(booking, generatedAt, history);
+
+  const last = history[history.length - 1];
+  const duplicated =
+    last != null &&
+    Number(last.paymentAmount) === Number(receipt.paymentAmount) &&
+    Number(last.remainingBalance ?? -1) === Number(receipt.remainingBalance ?? -1) &&
+    String(last.paymentMethod || "") === String(receipt.paymentMethod || "") &&
+    Boolean(last.dateGenerated) &&
+    Math.abs(new Date(generatedAt).getTime() - new Date(last.dateGenerated).getTime()) < 60000;
+
+  if (duplicated) {
+    return booking;
+  }
+
+  const nextHistory = [...history, receipt];
 
   saveStoredReceipt(receipt).catch(() => {});
 
   return {
     ...booking,
+    paymentReceipts: nextHistory,
     receiptIssued: true,
     receiptNumber: receipt.receiptNumber,
     receiptIssuedAt: receipt.dateGenerated,
@@ -1007,6 +1156,15 @@ function attachAutoReceipt(booking: Booking) {
 function normalizeBookingForNewFields(booking: Booking): Booking {
   const officeBooking = isOfficeBooking(booking);
   const savedReceipt = booking.receipt;
+  const paymentReceipts =
+    (
+      Array.isArray((booking as any).paymentReceipts) && (booking as any).paymentReceipts.length > 0
+        ? ((booking as any).paymentReceipts as BookingReceipt[])
+        : savedReceipt
+          ? [savedReceipt]
+          : []
+    ).map((receiptEntry) => stripUndefinedDeep(receiptEntry) as BookingReceipt);
+  const latestReceipt = paymentReceipts[paymentReceipts.length - 1] || savedReceipt || null;
   const computedEndDate = officeBooking
     ? calculateOfficeEndDate(booking.date, booking.officeRentalTerm)
     : "";
@@ -1018,10 +1176,11 @@ function normalizeBookingForNewFields(booking: Booking): Booking {
     downpaymentPaid: booking.downpaymentPaid ?? 0,
     downpaymentRemaining: booking.downpaymentRemaining ?? 0,
     paymentStage: booking.paymentStage ?? "Initial Payment",
-    receipt: booking.receipt || savedReceipt || (null as unknown as BookingReceipt | undefined),
-    receiptIssued: booking.receiptIssued ?? Boolean(savedReceipt),
-    receiptNumber: booking.receiptNumber || savedReceipt?.receiptNumber,
-    receiptIssuedAt: booking.receiptIssuedAt || savedReceipt?.dateGenerated || savedReceipt?.dateIssued,
+    receipt: (latestReceipt || null) as unknown as BookingReceipt | undefined,
+    paymentReceipts,
+    receiptIssued: booking.receiptIssued ?? Boolean(latestReceipt),
+    receiptNumber: booking.receiptNumber || latestReceipt?.receiptNumber,
+    receiptIssuedAt: booking.receiptIssuedAt || latestReceipt?.dateGenerated || latestReceipt?.dateIssued,
     contractSigningRequired: booking.contractSigningRequired ?? true,
     contractSigned: booking.contractSigned ?? false,
     contractSignedAt: booking.contractSignedAt,
@@ -1130,6 +1289,30 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [officeRentals, setOfficeRentals] = useState<OfficeRental[]>([]);
   const [maintenanceRecords, setMaintenanceRecords] = useState<MaintenanceRecord[]>([]);
+  const [paymentRecords, setPaymentRecords] = useState<PaymentRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const dataNeedCounts = useRef<Record<BookingDataKey, number>>({ bookings: 0, officeRentals: 0, maintenance: 0, payments: 0 });
+  const [, forceDataNeedRender] = useReducer((count: number) => count + 1, 0);
+
+  const registerDataNeed = useCallback((key: BookingDataKey, now: boolean) => {
+    // NOTE: Always applied (no early-return on same value) because React
+    // StrictMode double-invokes effects in dev: mount → cleanup → mount.
+    // A `now === before` guard would let the cleanup's decrement win, dropping
+    // the need count to 0 and permanently preventing listeners from starting.
+    dataNeedCounts.current[key] = Math.max(0, dataNeedCounts.current[key] + (now ? 1 : -1));
+    forceDataNeedRender();
+  }, []);
+
+  const activeNeeds = useMemo(() => {
+    const c = dataNeedCounts.current;
+    return {
+      bookings: c.bookings > 0,
+      officeRentals: c.officeRentals > 0,
+      maintenance: c.maintenance > 0,
+      payments: c.payments > 0,
+    };
+  }, [dataNeedCounts.current.bookings, dataNeedCounts.current.officeRentals, dataNeedCounts.current.maintenance, dataNeedCounts.current.payments]);
+  const activeKey = `${activeNeeds.bookings ? 1 : 0}${activeNeeds.officeRentals ? 1 : 0}${activeNeeds.maintenance ? 1 : 0}${activeNeeds.payments ? 1 : 0}`;
   function formatLocalDate(d: Date): string {
     const y = d.getFullYear()
     const m = String(d.getMonth() + 1).padStart(2, "0")
@@ -1158,59 +1341,235 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
 
   useEffect(() => {
-    if (typeof window === "undefined" || !user) return;
+    if (typeof window === "undefined" || !user) {
+      console.log(
+        "[DEBUG][BOOKING PROVIDER] effect early-return — window:",
+        typeof window,
+        "user:",
+        user ? `uid=${user.id} role=${user.role}` : "null",
+      )
+      setIsLoading(false);
+      return;
+    }
+    // Only start listeners for datasets that mounted components actually need
+    // (page-scoped data requests). Nothing registered = zero Firestore work.
+    if (activeKey === "0000") {
+      console.log("[DEBUG][BOOKING PROVIDER] activeKey=0000 — NO listeners started (no page requested data)")
+      setIsLoading(false);
+      return;
+    }
 
-    // Real-time subscription for bookings
-    console.log("[Firestore Listener START] Bookings")
-    const bookingsQuery = query(bookingsRef, orderBy("createdAt", "asc"))
-    const unsubBookings = onSnapshot(bookingsQuery, (snapshot) => {
-      const loaded: Booking[] = []
-      snapshot.forEach((docSnap) => {
-        const d = docSnap.data() as Booking
-        loaded.push(normalizeBookingForNewFields({ ...d, id: docSnap.id }))
-      })
-      setBookings(loaded)
-    }, (error: any) => {
-      console.error("[Bookings snapshot error]", { code: error.code, message: error.message, error })
-    })
+    const uid = user.id;
+    const isAdminScope = user.role === "admin" || user.role === "staff";
+    console.log(
+      `[DEBUG][BOOKING PROVIDER] effect running — uid=${uid} role=${user.role} adminScope=${isAdminScope} activeKey=${activeKey} needs=${JSON.stringify(activeNeeds)}`,
+    )
 
-    // Real-time subscription for office rentals
-    console.log("[Firestore Listener START] OfficeRentals")
-    const officeRentalsQuery = query(officeRentalsRef, orderBy("createdAt", "asc"))
-    const unsubOffice = onSnapshot(officeRentalsQuery, (snapshot) => {
-      const loaded: OfficeRental[] = []
-      snapshot.forEach((docSnap) => {
-        const d = docSnap.data() as OfficeRental
-        loaded.push({ ...d, id: docSnap.id })
-      })
-      setOfficeRentals(loaded)
-    }, (error: any) => {
-      console.error("[OfficeRentals snapshot error]", { code: error.code, message: error.message, error })
-    })
+    let destroyed = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const unsubs: (() => void)[] = [];
+    const loadedFlags = {
+      bookings: !activeNeeds.bookings,
+      office: !activeNeeds.officeRentals,
+      maint: !activeNeeds.maintenance,
+      payments: !activeNeeds.payments,
+    };
 
-    // Real-time subscription for maintenance records
-    console.log("[Firestore Listener START] MaintenanceRecords")
-    const maintQuery = query(maintenanceRecordsRef, orderBy("createdAt", "asc"))
-    const unsubMaint = onSnapshot(maintQuery, (snapshot) => {
-      const loaded: MaintenanceRecord[] = []
-      snapshot.forEach((docSnap) => {
-        const d = docSnap.data() as MaintenanceRecord
-        loaded.push({ ...d, id: docSnap.id })
-      })
-      setMaintenanceRecords(loaded)
-    }, (error: any) => {
-      console.error("[MaintenanceRecords snapshot error]", { code: error.code, message: error.message, error })
-    })
+    setIsLoading(true);
+
+    function markLoaded(key: keyof typeof loadedFlags) {
+      if (destroyed) return;
+      loadedFlags[key] = true;
+      if (loadedFlags.bookings && loadedFlags.office && loadedFlags.maint && loadedFlags.payments) {
+        setIsLoading(false);
+      }
+    }
+
+    // Generic real-time subscription factory with an automatic fallback for
+    // missing composite indexes (failed-precondition), mirroring the
+    // notification-context pattern. Keeps the real-time listeners while
+    // scoping CLIENT queries to the signed-in user only.
+    function startListener<T>(
+      label: string,
+      ref: any,
+      buildConstraints: () => any[],
+      buildFallbackConstraints: (() => any[] | null) | null,
+      mapDoc: (docSnap: any) => T,
+      setter: (items: T[]) => void,
+      loadedKey: keyof typeof loadedFlags,
+    ): () => void {
+      const start = (constraints: any[]) => {
+        perfListener(label, "START")
+        console.log(`[DEBUG][${label}] listener starting — collection: ${ref.path}, constraints: ${constraints.length}`)
+        let firstSnapshot = true;
+        return onSnapshot(
+          query(ref, ...constraints),
+          (snapshot) => {
+            const loaded: T[] = [];
+            snapshot.forEach((docSnap) => {
+              try {
+                loaded.push(mapDoc(docSnap));
+              } catch (e) {
+                console.error(`[DEBUG][${label}] TRANSFORM ERROR for doc ${docSnap.id}:`, e);
+              }
+            });
+            console.log(
+              `[DEBUG][${label}] snapshot received — firestore docs: ${snapshot.size}, transformed records: ${loaded.length}`,
+              `doc IDs: ${snapshot.docs.slice(0, 5).map((d) => d.id).join(", ")}${snapshot.size > 5 ? ", …" : ""}`,
+            )
+            if (firstSnapshot) {
+              firstSnapshot = false;
+              perfListener(label, "FIRST_SNAPSHOT", loaded.length);
+            } else {
+              perfListener(label, "SNAPSHOT", loaded.length);
+            }
+            setter(loaded);
+            markLoaded(loadedKey);
+          },
+          (error: any) => {
+            perfListener(label, "ERROR");
+            console.error(`[DEBUG][${label}] FIRESTORE ERROR — code: ${error?.code ?? "unknown"}, message: ${error?.message ?? "unknown"}`);
+            if (error?.code === "failed-precondition") {
+              console.error(`[DEBUG][${label}] QUERY REQUIRES INDEX (failed-precondition). Create the index from the link above.`);
+            }
+            if (error?.code === "permission-denied") {
+              console.error(`[DEBUG][${label}] PERMISSION-DENIED — Firestore rules are blocking this read (${ref.path}). Check rules in Firebase Console.`);
+            }
+            // ALWAYS resolve this dataset's loading on error — a Firestore
+            // failure must never leave the page on an infinite spinner.
+            // If a fallback succeeds later, its snapshot updates state normally.
+            markLoaded(loadedKey);
+            if (!destroyed && error?.code === "failed-precondition" && buildFallbackConstraints) {
+              const fallbackConstraints = buildFallbackConstraints();
+              if (fallbackConstraints) {
+                console.warn(`[${label}] Composite index missing — using fallback query (no orderBy).`, error.message);
+                const fallbackUnsub = start(fallbackConstraints);
+                unsubs.push(fallbackUnsub);
+                if (retryTimer) clearTimeout(retryTimer);
+                retryTimer = setTimeout(() => {
+                  if (destroyed) return;
+                  const index = unsubs.indexOf(fallbackUnsub);
+                  if (index !== -1) unsubs.splice(index, 1);
+                  fallbackUnsub();
+                  unsubs.push(start(buildConstraints()));
+                }, 60_000);
+              }
+            }
+          },
+        );
+      };
+      return start(buildConstraints());
+    }
+
+    // Real-time subscription for bookings.
+    // Admin/Staff need system-wide data; Clients get only their own bookings.
+    if (activeNeeds.bookings) {
+      console.log("[Firestore Listener START] Bookings", isAdminScope ? "(admin scope)" : `(client: ${uid})`)
+      console.log(
+        `[DEBUG][Bookings] query — collection: bookings, where: ${isAdminScope ? "NONE (admin sees ALL)" : "userId == uid"}, orderBy: createdAt ${isAdminScope ? "asc" : "desc"}, limit: NONE`,
+      )
+      const unsubBookings = startListener(
+        "Bookings",
+        bookingsRef,
+        () => (isAdminScope ? [orderBy("createdAt", "asc")] : [where("userId", "==", uid), orderBy("createdAt", "desc")]),
+        () => (isAdminScope ? null : [where("userId", "==", uid)]),
+        (docSnap) => normalizeBookingForNewFields({ ...(docSnap.data() as Booking), id: docSnap.id }),
+        setBookings,
+        "bookings",
+      );
+      unsubs.push(unsubBookings);
+    }
+
+    // Real-time subscription for office rentals (client-scoped for Clients).
+    if (activeNeeds.officeRentals) {
+      console.log("[Firestore Listener START] OfficeRentals", isAdminScope ? "(admin scope)" : `(client: ${uid})`)
+      const unsubOffice = startListener(
+        "OfficeRentals",
+        officeRentalsRef,
+        () => (isAdminScope ? [orderBy("createdAt", "asc")] : [where("userId", "==", uid), orderBy("createdAt", "desc")]),
+        () => (isAdminScope ? null : [where("userId", "==", uid)]),
+        (docSnap) => ({ ...(docSnap.data() as OfficeRental), id: docSnap.id }),
+        setOfficeRentals,
+        "office",
+      );
+      unsubs.push(unsubOffice);
+    }
+
+    // Real-time subscription for maintenance records (app-wide availability data).
+    if (activeNeeds.maintenance) {
+      console.log("[Firestore Listener START] MaintenanceRecords")
+      const unsubMaint = startListener(
+        "MaintenanceRecords",
+        maintenanceRecordsRef,
+        () => [orderBy("createdAt", "asc")],
+        null,
+        (docSnap) => ({ ...(docSnap.data() as MaintenanceRecord), id: docSnap.id }),
+        setMaintenanceRecords,
+        "maint",
+      );
+      unsubs.push(unsubMaint);
+    }
+
+    // Real-time subscription for individual payment submissions (payments collection).
+    // Each client submission is its own document, so Payment 1, Payment 2, ...
+    // are preserved as separate records instead of overwriting each other.
+    // Clients only receive their own submissions; Admin/Staff receive all.
+    if (activeNeeds.payments) {
+      console.log("[Firestore Listener START] Payments", isAdminScope ? "(admin scope)" : `(client: ${uid})`)
+      console.log(
+        `[DEBUG][Payments] query — collection: payments, where: ${isAdminScope ? "NONE (admin sees ALL)" : "customerId == uid"}, orderBy: submittedAt desc, limit: NONE`,
+      )
+      const unsubPayments = startListener(
+      "Payments",
+      paymentsRef,
+      () => (isAdminScope ? [orderBy("submittedAt", "desc")] : [where("customerId", "==", uid), orderBy("submittedAt", "desc")]),
+      () => (isAdminScope ? null : [where("customerId", "==", uid)]),
+      (docSnap) => {
+        const d = docSnap.data();
+        const submittedAt = d.submittedAt?.toDate?.()?.toISOString() || d.submittedAt || "";
+        const updatedAt = d.updatedAt?.toDate?.()?.toISOString() || d.updatedAt || "";
+        return {
+          id: docSnap.id,
+          bookingId: d.bookingId || "",
+          bookingCode: d.bookingCode || "",
+          customerId: d.customerId || "",
+          customerName: d.customerName || "",
+          eventName: d.eventName || "",
+          venueName: d.venueName || "",
+          method: d.method || "",
+          paymentMethod: d.paymentMethod || "",
+          term: d.term || "",
+          amount: typeof d.amount === "number" ? d.amount : Number(d.amount || 0),
+          amountPaid: typeof d.amountPaid === "number" ? d.amountPaid : Number(d.amountPaid || 0),
+          referenceNo: d.referenceNo || "",
+          proofUrl: d.proofUrl || "",
+          status: d.status || "",
+          verificationStatus: d.verificationStatus || "",
+          isRemainingDownPayment: Boolean(d.isRemainingDownPayment),
+          submittedAt,
+          updatedAt,
+          reviewedAt: d.reviewedAt?.toDate?.()?.toISOString() || d.reviewedAt || "",
+          reviewedBy: d.reviewedBy || "",
+          adminNote: d.adminNote || "",
+          rejectionReason: d.rejectionReason || "",
+        } as PaymentRecord;
+      },
+      setPaymentRecords,
+      "payments",
+    );
+      unsubs.push(unsubPayments);
+    }
 
     return () => {
-      console.log("[Firestore Listener STOP] Bookings")
-      console.log("[Firestore Listener STOP] OfficeRentals")
-      console.log("[Firestore Listener STOP] MaintenanceRecords")
-      unsubBookings()
-      unsubOffice()
-      unsubMaint()
+      destroyed = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (activeNeeds.bookings) perfListener("Bookings", "STOP")
+      if (activeNeeds.officeRentals) perfListener("OfficeRentals", "STOP")
+      if (activeNeeds.maintenance) perfListener("MaintenanceRecords", "STOP")
+      if (activeNeeds.payments) perfListener("Payments", "STOP")
+      unsubs.forEach((unsub) => unsub());
     }
-  }, [user]);
+  }, [user?.id, user?.role, activeKey]);
 
   const saveBookings = async (newBookings: Booking[]) => {
     const normalizedBookings = newBookings.map(normalizeBookingForNewFields);
@@ -2219,6 +2578,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
 
     const updatedBookings = bookings.map((booking) => {
       if (booking.id !== id) return booking;
+      if (booking.receiptIssued || getReceiptHistory(booking).length > 0) return booking;
       return attachAutoReceipt(booking);
     });
 
@@ -2318,6 +2678,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           paymentType: "downpayment",
           paymentMethod: "cash" as const,
           amountPaid: newAmountPaid,
+          lastPaymentAmount: paidAmount,
           downpaymentPaid: newDownpaymentPaid,
           selectedDownpaymentAmount: selectedDP,
           downpaymentRemaining: Math.max(selectedDP - newDownpaymentPaid, 0),
@@ -2365,6 +2726,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         paymentType,
         paymentMethod: "cash" as const,
         amountPaid: newAmountPaid,
+        lastPaymentAmount: paidAmount,
         downpaymentPaid: currentDownpaymentPaid,
         downpaymentRemaining: 0,
         remainingBalance: Math.max(total - newAmountPaid, 0),
@@ -2471,7 +2833,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      return {
+      return attachAutoReceipt({
         ...booking,
         amountPaid: newAmountPaid,
         lastPaymentAmount: amountReceived,
@@ -2519,10 +2881,18 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           "RECORD_ONSITE_PAYMENT",
           `Admin recorded onsite payment of ₱${amountReceived.toLocaleString()}. Payment stage: ${newPaymentStage}. Remaining balance: ₱${newRemainingBalance.toLocaleString()}. ${paymentData.adminNote ? `Note: ${paymentData.adminNote}` : ""}`,
         ),
-      } as Booking;
+      });
     });
 
     saveBookings(updatedBookings);
+    // The manual onsite record settles the most recent pending submission.
+    markPaymentRecordReviewed(id, undefined, {
+      verificationStatus: "Verified",
+      status: "Verified",
+      reviewedBy: paymentData.adminName || "Administrator",
+      reviewedAt: new Date().toISOString(),
+      adminNote: paymentData.adminNote || "",
+    });
     const onsiteBooking = bookings.find((b) => b.id === id);
     if (onsiteBooking) {
       createNotification({
@@ -2551,6 +2921,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       const updated = recalculatePaymentStage({
         ...booking,
         amountPaid: newAmountPaid,
+        lastPaymentAmount: balance,
         paymentMethod: method,
         remainingBalance: 0,
         remainingBalancePaid: true,
@@ -2580,6 +2951,14 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     });
 
     saveBookings(updatedBookings);
+    // The settled balance corresponds to the most recent pending submission.
+    markPaymentRecordReviewed(id, undefined, {
+      verificationStatus: "Verified",
+      status: "Verified",
+      reviewedBy: "Administrator",
+      reviewedAt: new Date().toISOString(),
+      adminNote: "Remaining balance settled by admin.",
+    });
     const settledBooking = bookings.find((b) => b.id === id);
     if (settledBooking) {
       createNotification({
@@ -2593,7 +2972,41 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const verifyPayment = (id: string, reviewData?: { verifiedAmount?: number; adminNote?: string; adminName?: string }) => {
+  /**
+   * Updates the status of an individual payment submission record in the
+   * `payments` collection after an admin review action. Falls back to the
+   * most recent unresolved submission when no record id is provided.
+   */
+  const markPaymentRecordReviewed = (
+    bookingId: string,
+    recordId: string | undefined,
+    patch: Partial<PaymentRecord>,
+  ) => {
+    try {
+      let target = recordId
+        ? paymentRecords.find((record) => record.id === recordId)
+        : undefined
+      if (!target) {
+        target = paymentRecords
+          .filter((record) => record.bookingId === bookingId)
+          .sort((a, b) => {
+            const aT = a.submittedAt ? new Date(a.submittedAt).getTime() : 0
+            const bT = b.submittedAt ? new Date(b.submittedAt).getTime() : 0
+            return bT - aT
+          })
+          .find((record) => isUnresolvedPaymentRecord(record))
+      }
+      if (!target) return
+      const { id: _id, ...data } = { ...target, ...patch }
+      void updateDoc(doc(paymentsRef, target.id), data).catch((error) => {
+        console.error("[Booking:markPaymentRecordReviewed] update failed:", error?.code || error?.message || error)
+      })
+    } catch (error) {
+      console.error("[Booking:markPaymentRecordReviewed] error:", error)
+    }
+  }
+
+  const verifyPayment = (id: string, reviewData?: { verifiedAmount?: number; adminNote?: string; adminName?: string; paymentRecordId?: string }) => {
     const winningBooking = bookings.find((b) => b.id === id && isOfficeBooking(b));
     const winningRoomKey = winningBooking ? getRoomKey(winningBooking) : "";
 
@@ -2761,6 +3174,15 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     });
 
     saveBookings(updatedBookings);
+    // Keep the individual payment submission record in sync so the admin
+    // payment history shows this submission as VERIFIED.
+    markPaymentRecordReviewed(id, reviewData?.paymentRecordId, {
+      verificationStatus: "Verified",
+      status: "Verified",
+      reviewedBy: reviewData?.adminName || "Administrator",
+      reviewedAt: new Date().toISOString(),
+      adminNote: reviewData?.adminNote || "",
+    });
     const verifiedBooking = bookings.find((b) => b.id === id);
     if (verifiedBooking) {
       createNotification({
@@ -2774,7 +3196,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const rejectPayment = (id: string, reason?: string, adminName?: string) => {
+  const rejectPayment = (id: string, reason?: string, adminName?: string, paymentRecordId?: string) => {
     const updatedBookings = bookings.map((booking) => {
       if (booking.id !== id) return booking;
       const rejectionReason = reason || booking.paymentRejectedReason || "Payment rejected by admin.";
@@ -2856,6 +3278,16 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     });
 
     saveBookings(updatedBookings as Booking[]);
+    // Keep the individual payment submission record in sync so the admin
+    // payment history shows this submission as REJECTED.
+    markPaymentRecordReviewed(id, paymentRecordId, {
+      verificationStatus: "Rejected",
+      status: "Rejected",
+      reviewedBy: adminName || "Administrator",
+      reviewedAt: new Date().toISOString(),
+      rejectionReason: reason || "",
+      adminNote: reason || "",
+    });
     const rejectedBooking = bookings.find((b) => b.id === id);
     if (rejectedBooking) {
       const hasApprovedDownpayment = typeof rejectedBooking.downpaymentPaid === "number" && rejectedBooking.downpaymentPaid > 0;
@@ -2872,7 +3304,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const markIncompletePayment = (id: string, data: { verifiedAmount: number; adminNote: string; adminName?: string }) => {
+  const markIncompletePayment = (id: string, data: { verifiedAmount: number; adminNote: string; adminName?: string; paymentRecordId?: string }) => {
     const updatedBookings = bookings.map((booking) => {
       if (booking.id !== id) return booking;
 
@@ -2931,6 +3363,15 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     });
 
     saveBookings(updatedBookings);
+    // Keep the individual payment submission record in sync so the admin
+    // payment history shows this submission as INCOMPLETE.
+    markPaymentRecordReviewed(id, data.paymentRecordId, {
+      verificationStatus: "Incomplete",
+      status: "Incomplete",
+      reviewedBy: data.adminName || "Administrator",
+      reviewedAt: new Date().toISOString(),
+      adminNote: data.adminNote || "",
+    });
     const incompleteBooking = bookings.find((b) => b.id === id);
     if (incompleteBooking) {
       createNotification({
@@ -3754,6 +4195,9 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         officeRentals,
         maintenanceDates,
         maintenanceRecords,
+        paymentRecords,
+        isLoading,
+        _registerDataNeed: registerDataNeed,
         addBooking,
         updateBookingStatus,
         cancelBooking,
@@ -3811,6 +4255,33 @@ export function useBookings() {
   if (context === undefined) {
     throw new Error("useBookings must be used within a BookingProvider");
   }
+
+  return context;
+}
+
+// Page-scoped data opt-in. Calling this registers the datasets this component
+// (and everything it renders) needs. Firestore listeners for a dataset only run
+// while at least one mounted component needs it, and stop when the page
+// navigates away — so the global provider stays lightweight.
+export function useBookingData(needs: BookingDataNeeds) {
+  const context = useContext(BookingContext);
+
+  if (context === undefined) {
+    throw new Error("useBookingData must be used within a BookingProvider");
+  }
+
+  const register = context._registerDataNeed;
+
+  useEffect(() => {
+    for (const key of DATA_KEYS) {
+      register(key, needs[key] === true);
+    }
+    return () => {
+      for (const key of DATA_KEYS) {
+        register(key, false);
+      }
+    };
+  }, [needs.bookings, needs.officeRentals, needs.maintenance, needs.payments, register]);
 
   return context;
 }

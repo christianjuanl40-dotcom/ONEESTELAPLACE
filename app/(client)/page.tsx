@@ -25,6 +25,7 @@ import { ReserveButton } from "@/src/modules/client/components/reserve-button"
 import { TourButton } from "@/src/modules/client/components/tour-button"
 import { useCMS } from "@/src/modules/admin/contexts/cms-context"
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
+import { perfMark } from "@/src/modules/shared/lib/perf-trace"
 import type { PastClientBooking } from "@/src/modules/admin/contexts/cms-context"
 import { cn } from "@/src/modules/shared/lib/utils"
 
@@ -211,8 +212,12 @@ export default function HomePage() {
     const redirectByRole = (role: string) => {
       const normalized = role.toLowerCase()
       if (normalized === "admin" || normalized === "staff" || normalized === "owner") {
+        perfMark("[PREFETCH] /dashboard requested (home warm-up)")
+        router.prefetch("/dashboard")
         router.replace("/dashboard")
       } else {
+        perfMark("[PREFETCH] /portal requested (home warm-up)")
+        router.prefetch("/portal")
         router.replace("/portal")
       }
     }

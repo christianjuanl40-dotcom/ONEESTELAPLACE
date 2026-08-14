@@ -25,7 +25,7 @@ export function usePresenceTracking() {
     updateDoc(doc(db, "users", user.id), {
       lastActiveAt: serverTimestamp(),
     }).catch(() => {})
-  }, [user])
+  }, [user?.id, user?.role])
 
   useEffect(() => {
     writePresence()

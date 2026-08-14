@@ -7,7 +7,7 @@ import { Badge } from "@shared/components/ui/badge"
 import { Calendar, Clock, Users, Download, Upload, CheckCircle, AlertCircle, Check } from "lucide-react"
 import { useToast } from "@shared/hooks/use-toast"
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
-import { useBookings, type Booking } from "@client/contexts/booking-context"
+import { useBookingData, type Booking } from "@client/contexts/booking-context"
 import { usePaymentProof } from "@admin/contexts/payment-proof-context"
 import { CancellationDialog } from "@admin/components/cancellation-dialog"
 import { ModifyBookingDialog } from "@admin/components/modify-booking-dialog"
@@ -21,7 +21,7 @@ interface TransactionsDialogProps {
 export function TransactionsDialog({ open, onOpenChange }: TransactionsDialogProps) {
   const { user } = useAuth()
   // PHASE 4.2: Kinuha natin yung 'bookings' (ALL) at 'updateBookingStatus' para makapag-approve si Admin
-  const { bookings, cancelBooking, modifyBooking, updateBookingStatus } = useBookings()
+  const { bookings, cancelBooking, modifyBooking, updateBookingStatus } = useBookingData({ bookings: true })
   const { getPaymentProofByBooking } = usePaymentProof()
   const { toast } = useToast()
   

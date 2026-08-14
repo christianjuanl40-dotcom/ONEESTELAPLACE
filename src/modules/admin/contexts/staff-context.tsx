@@ -104,7 +104,7 @@ export const StaffProvider = ({ children }: { children: React.ReactNode }) => {
       console.log("[Firestore Listener STOP] Staff")
       unsub()
     }
-  }, [])
+  }, [user?.role])
 
   const addStaff: StaffContextValue["addStaff"] = async (data) => {
     try {

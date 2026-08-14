@@ -19,7 +19,7 @@ import {
 } from "lucide-react"
 
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
-import { useBookings, type Booking } from "@/src/modules/client/contexts/booking-context"
+import { useBookingData, type Booking } from "@/src/modules/client/contexts/booking-context"
 import { useCMS } from "@/src/modules/admin/contexts/cms-context"
 import { ContractFileViewer } from "@/src/modules/client/components/contract-file-viewer"
 import { Card, CardContent } from "@/src/modules/shared/components/ui/card"
@@ -569,7 +569,7 @@ function StatusCard({ booking, cmsData }: { booking: StatusBooking; cmsData?: an
 
 export default function StatusPage() {
   const { user } = useAuth()
-  const { getUserBookings } = useBookings()
+  const { getUserBookings } = useBookingData({ bookings: true })
   const { cmsData } = useCMS()
   const bookings = useMemo(
     () => (user ? getUserBookings(user.id) : []),

@@ -11,15 +11,23 @@ import {
   FileImage,
   FileText,
   Filter,
+  History,
   Inbox,
   Receipt,
   Search,
   ShieldCheck,
   X,
   XCircle,
+  ZoomIn,
 } from "lucide-react"
 
+import {
+  ReceiptPaper,
+  type ReceiptPaperData,
+} from "@/src/modules/shared/components/receipt-paper"
+
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
+import { perfMark } from "@/src/modules/shared/lib/perf-trace"
 import { Button } from "@/src/modules/shared/components/ui/button"
 import { Input } from "@/src/modules/shared/components/ui/input"
 import { Textarea } from "@/src/modules/shared/components/ui/textarea"
@@ -36,12 +44,13 @@ import {
   SelectValue,
 } from "@/src/modules/shared/components/ui/select"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
-import { useBookings } from "@/src/modules/client/contexts/booking-context"
+import { useBookingData } from "@/src/modules/client/contexts/booking-context"
+import type { PaymentRecord } from "@/src/modules/client/contexts/booking-context"
 import { cn } from "@/src/modules/shared/lib/utils"
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
 import type { NotificationType } from "@/src/modules/shared/lib/notifications"
 import { db } from "@/lib/firebase"
-import { collection, query, orderBy, getDocs, addDoc, where } from "firebase/firestore"
+import { collection, query, orderBy, where, getDocs, addDoc } from "firebase/firestore"
 
 const VENUE_OPTIONS = [
   "The Milestone Event",
@@ -60,22 +69,46 @@ type PendingPaymentAction = {
   payment: BookingRecord
   amount?: number
   note?: string
+  paymentRecordId?: string
 } | null
 
 export default function AdminPaymentsPage() {
-  const { user } = useAuth()
+  const { user, isLoading: authLoading } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
-  const bookingCtx = useBookings()
+  const bookingCtx = useBookingData({ bookings: true, payments: true })
   const { markByBookingId } = useNotifications()
   const ADMIN_PAYMENT_TYPES: NotificationType[] = ["payment_submitted", "remaining_balance_submitted"]
+
+  useEffect(() => {
+    perfMark("[ADMIN PAYMENTS] page mounted")
+    console.log(
+      `[DEBUG][ADMIN PAYMENTS] component mounted — auth uid: ${user?.id ?? "null"}, role: ${user?.role ?? "null"}, permissions: ${JSON.stringify(user?.permissions ?? "none")}`,
+    )
+  }, [user?.id, user?.role])
+
+  useEffect(() => {
+    if (!authLoading) perfMark("[ADMIN PAYMENTS] auth ready")
+  }, [authLoading])
+
+  useEffect(() => {
+    if (!bookingCtx.isLoading) {
+      perfMark(
+        `[ADMIN PAYMENTS] payment data ready — payments: ${(bookingCtx.paymentRecords || []).length}, bookings: ${(bookingCtx.bookings || []).length}`,
+      )
+      console.log(
+        `[DEBUG][ADMIN PAYMENTS] data ready — paymentRecords: ${(bookingCtx.paymentRecords || []).length}, bookings: ${(bookingCtx.bookings || []).length}, provider isLoading: ${bookingCtx.isLoading}, active filter: status=${statusFilter} venue=${venueFilter} search="${searchQuery}"`,
+      )
+    }
+  }, [bookingCtx.isLoading, bookingCtx.paymentRecords, bookingCtx.bookings])
 
   useEffect(() => {
     if (user && user.role === "staff" && !user.permissions?.payments) {
       router.replace("/dashboard")
     }
   }, [user, router])
-  const [paymentRecords, setPaymentRecords] = useState<any[]>([])
+  const [paymentPage, setPaymentPage] = useState(1)
+  const PAYMENTS_PER_PAGE = 10
   const [statusFilter, setStatusFilter] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
   const [venueFilter, setVenueFilter] = useState("all")
@@ -84,16 +117,6 @@ export default function AdminPaymentsPage() {
   const [actionNote, setActionNote] = useState("")
   const [incompletePaymentTarget, setIncompletePaymentTarget] = useState<BookingRecord | null>(null)
   const [onsiteVerifyTarget, setOnsiteVerifyTarget] = useState<BookingRecord | null>(null)
-  const [paymentPage, setPaymentPage] = useState(1)
-  const PAYMENTS_PER_PAGE = 10
-
-  useEffect(() => {
-    if (!selectedPayment) return
-    const found = bookingCtx.bookings.find((b: any) => b.id === selectedPayment.id)
-    if (found && found !== selectedPayment) {
-      setSelectedPayment(found)
-    }
-  }, [bookingCtx.bookings, selectedPayment?.id])
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search)
@@ -113,96 +136,70 @@ export default function AdminPaymentsPage() {
     }
   }, [])
 
-  useEffect(() => {
-    const loadPaymentRecords = async () => {
-      try {
-        const q = query(collection(db, "paymentProofs"), orderBy("submittedAt", "desc"))
-        const snapshot = await getDocs(q)
-        const records: any[] = []
-        snapshot.forEach((docSnap) => {
-          const d = docSnap.data()
-          records.push({ id: docSnap.id, ...d })
-        })
-        setPaymentRecords(records)
-      } catch {
-        // ignore
-      }
+  const paymentBookings = useMemo(() => {
+    const allRecords: PaymentRecord[] = bookingCtx.paymentRecords || []
+    const bookingById = new Map<string, BookingRecord>()
+    ;(bookingCtx.bookings || []).forEach((b: BookingRecord) => bookingById.set(b.id, b))
+
+    // Group individual payment submissions per booking. Every submission from
+    // the client writes its own document in the `payments` collection, so
+    // Payment 1, Payment 2, ... are preserved as separate records.
+    const recordsByBooking = new Map<string, PaymentRecord[]>()
+    for (const record of allRecords) {
+      const key = record.bookingId || ""
+      if (!key) continue
+      const list = recordsByBooking.get(key) || []
+      list.push(record)
+      recordsByBooking.set(key, list)
     }
 
-    loadPaymentRecords()
-  }, [])
-
-  const paymentBookings = useMemo(() => {
-    const bookingRecords = (bookingCtx.bookings || []).filter((booking) => isPaymentRecord(booking))
-
-    const paymentRecordsAsBookings = paymentRecords.map((pr: any) => ({
-      id: pr.bookingId || pr.id,
-      bookingId: pr.bookingId,
-      bookingCode: pr.bookingCode,
-      userInfo: undefined,
-      eventName: pr.eventName || "",
-      venue: pr.venueName || "",
-      venueName: pr.venueName || "",
-      paymentMethod: pr.paymentMethod === "bank" ? "bank" : pr.paymentMethod === "cash" ? "cash" : pr.method,
-      actualPaymentMethod: pr.method,
-      paymentType: pr.term === "Down Payment" ? "downpayment" : pr.term === "Full Payment" ? "full" : "slot_reservation",
-      paymentStatus: pr.verificationStatus === "Pending" || pr.status === "For Verification" ? "for_review" : "verified",
-      hasActivePaymentSubmission: true,
-      paymentSubmittedAt: pr.submittedAt,
-      paymentAmount: pr.amount,
-      pendingPaymentAmount: pr.amount,
-      amountPaid: pr.amountPaid,
-      proofUrl: pr.proofUrl,
-      bankReferenceNumber: pr.referenceNo,
-      paymentReference: pr.referenceNo,
-      paymentSubmissionType: pr.paymentMethod === "cash" ? "onsite" : "bank_transfer",
-      isSlotSecured: false,
-      verifiedByAdmin: false,
-      status: pr.status === "For Verification" ? "verifying" : "pending",
-      totalPrice: pr.amount,
-      updatedAt: pr.updatedAt,
-      createdAt: pr.submittedAt,
-      latestPaymentMethod: pr.method,
-      latestPaymentAmount: pr.amount,
-      latestPaymentSubmittedAt: pr.submittedAt,
-    }))
-
-    const merged = [...bookingRecords, ...paymentRecordsAsBookings]
-    const seen = new Set<string>()
-    const allPaymentRecords = paymentRecords
-    const deduped = merged.filter((item) => {
-      const key = item.id || ""
-      if (seen.has(key)) return false
-      seen.add(key)
-
-      const matchingPayment = allPaymentRecords.find(
-        (pr: any) => (pr.bookingId === key || pr.id === key) && pr.proofUrl
-      )
-
-      if (matchingPayment && !item.proofUrl) {
-        item.proofUrl = matchingPayment.proofUrl
-      }
-
-      const totalFromPaymentRecords = allPaymentRecords
-        .filter((pr: any) => pr.bookingId === key || pr.id === key)
-        .reduce((sum: number, pr: any) => sum + getSafePrice(pr.amountPaid || pr.amount), 0)
-
-      if (getSafePrice(item.amountPaid) === 0 && totalFromPaymentRecords > 0) {
-        item.amountPaid = totalFromPaymentRecords
-      }
-
-      return true
+    const built: BookingRecord[] = []
+    recordsByBooking.forEach((list, bookingId) => {
+      // Newest submission first within a booking.
+      list.sort((a, b) => getPaymentTime(b.submittedAt) - getPaymentTime(a.submittedAt))
+      const latest = list[0]
+      const base = bookingById.get(bookingId) || {}
+      built.push(buildPaymentBookingEntry(base, list, latest, bookingId))
     })
 
-    return deduped.sort((a, b) => {
-      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0
-      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0
-      return (isNaN(bTime) ? 0 : bTime) - (isNaN(aTime) ? 0 : aTime)
+    // Legacy bookings that carry payment info but have no individual
+    // submission records yet (older single-payment bookings).
+    const legacyBookings = (bookingCtx.bookings || [])
+      .filter((booking: BookingRecord) => isPaymentRecord(booking) && !recordsByBooking.has(booking.id))
+      .map((booking: BookingRecord) => buildLegacyPaymentBookingEntry(booking))
+
+    const merged = [...built, ...legacyBookings]
+    return merged.sort((a, b) => {
+      const aTime = getPaymentTime(a.paymentSubmittedAt || a.latestPaymentSubmittedAt || a.createdAt)
+      const bTime = getPaymentTime(b.paymentSubmittedAt || b.latestPaymentSubmittedAt || b.createdAt)
+      return bTime - aTime
     })
-  }, [bookingCtx.bookings, paymentRecords])
+  }, [bookingCtx.bookings, bookingCtx.paymentRecords])
+
+  useEffect(() => {
+    if (!selectedPayment) return
+    const found = paymentBookings.find((b: any) => b.id === selectedPayment.id)
+    if (found && found !== selectedPayment) {
+      setSelectedPayment(found)
+    }
+  }, [paymentBookings, selectedPayment?.id])
 
   const filteredPayments = useMemo(() => {
     return paymentBookings.filter((booking) => {
+      const submissionSearch = (booking?.incomingPayments || [])
+        .map((pr: PaymentRecord) =>
+          [
+            pr.id,
+            pr.referenceNo,
+            pr.bookingId,
+            String(pr.amount || pr.amountPaid || ""),
+            pr.status,
+            pr.verificationStatus,
+            pr.submittedAt,
+          ].join(" "),
+        )
+        .join(" ")
+
       const searchText = [
         booking?.id,
         booking?.eventName,
@@ -213,6 +210,7 @@ export default function AdminPaymentsPage() {
         booking?.bankReferenceNumber,
         booking?.userInfo?.name,
         booking?.userInfo?.email,
+        submissionSearch,
       ]
         .join(" ")
         .toLowerCase()
@@ -244,6 +242,22 @@ export default function AdminPaymentsPage() {
     (safePaymentPage - 1) * PAYMENTS_PER_PAGE,
     safePaymentPage * PAYMENTS_PER_PAGE,
   )
+
+  const uiReadyLoggedRef = useRef(false)
+  useEffect(() => {
+    if (uiReadyLoggedRef.current || bookingCtx.isLoading) return
+    uiReadyLoggedRef.current = true
+    perfMark(
+      `[ADMIN PAYMENTS] UI ready — ${filteredPayments.length} payment row(s), ${paginatedPayments.length} row(s) on this page`,
+    )
+  }, [filteredPayments, paginatedPayments, bookingCtx.isLoading])
+
+  useEffect(() => {
+    if (bookingCtx.isLoading) return
+    console.log(
+      `[DEBUG][ADMIN PAYMENTS] pipeline — raw payments: ${(bookingCtx.paymentRecords || []).length}, grouped rows: ${paymentBookings.length}, after filters: ${filteredPayments.length}, UI rows on page: ${paginatedPayments.length} (status="${statusFilter}", venue="${venueFilter}", search="${searchQuery}")`,
+    )
+  }, [paymentBookings, filteredPayments, paginatedPayments, bookingCtx.isLoading, statusFilter, venueFilter, searchQuery])
 
   const [highlightedPaymentId, setHighlightedPaymentId] = useState<string | null>(null)
   const paymentHighlightHandledRef = useRef(false)
@@ -314,17 +328,42 @@ export default function AdminPaymentsPage() {
     }
   }, [highlightedPaymentId, filteredPayments, safePaymentPage])
 
-  const openActionModal = (payment: BookingRecord, type: PaymentAction) => {
+const openActionModal = (payment: BookingRecord, type: PaymentAction, submission?: PaymentRecord | null) => {
+    const recordId = submission?.id
+    const amount = getPaymentRecordAmount(submission)
+    const isCashSubmission =
+      submission?.paymentMethod === "cash" || String(submission?.method || "").toLowerCase().includes("office")
+    const actionPayment = submission
+      ? {
+          ...payment,
+          paymentAmount: amount,
+          pendingPaymentAmount: amount,
+          paymentMethod: isCashSubmission ? ("cash" as const) : ("bank" as const),
+          bankReferenceNumber: submission.referenceNo || payment.bankReferenceNumber,
+          paymentReference: submission.referenceNo || payment.paymentReference,
+        }
+      : payment
     if (type === "incomplete") {
-      setIncompletePaymentTarget(payment)
+      setIncompletePaymentTarget({ ...actionPayment, paymentRecordId: recordId, submissionAmount: amount })
       return
     }
-    if (type === "verify" && payment.paymentMethod === "cash") {
-      setOnsiteVerifyTarget(payment)
+    if (type === "verify" && actionPayment.paymentMethod === "cash") {
+      setOnsiteVerifyTarget({ ...actionPayment, paymentRecordId: recordId, submissionAmount: amount })
       return
     }
-    setPendingAction({ payment, type })
+    setPendingAction({ payment: actionPayment, type, paymentRecordId: recordId, amount: amount > 0 ? amount : undefined })
     setActionNote("")
+  }
+
+  const paymentSubmissionById = (recordId?: string | null): PaymentRecord | undefined => {
+    if (!recordId) return undefined
+    return (bookingCtx.paymentRecords || []).find((record) => record.id === recordId)
+  }
+
+  const submissionListFor = (bookingId: string): PaymentRecord[] => {
+    return (bookingCtx.paymentRecords || [])
+      .filter((record) => record.bookingId === bookingId)
+      .sort((a, b) => getPaymentTime(b.submittedAt) - getPaymentTime(a.submittedAt))
   }
 
   const closeActionModal = () => {
@@ -335,7 +374,7 @@ export default function AdminPaymentsPage() {
   const handleConfirmPaymentAction = async () => {
     if (!pendingAction) return
 
-    const { payment, type } = pendingAction
+    const { payment, type, paymentRecordId, amount } = pendingAction
     const bookingId = payment.id
     const note = actionNote.trim()
 
@@ -355,26 +394,30 @@ export default function AdminPaymentsPage() {
       // Use BookingContext as single source of truth for payment actions
       const reviewerName = user?.name || "Administrator"
       if (type === "verify") {
-        bookingCtx.verifyPayment(bookingId, { adminNote: note || undefined, adminName: reviewerName })
+        bookingCtx.verifyPayment(bookingId, {
+          verifiedAmount: amount,
+          adminNote: note || undefined,
+          adminName: reviewerName,
+          paymentRecordId,
+        })
       } else if (type === "reject") {
-        bookingCtx.rejectPayment(bookingId, note, reviewerName)
+        bookingCtx.rejectPayment(bookingId, note, reviewerName, paymentRecordId)
       } else if (type === "incomplete") {
-        bookingCtx.markIncompletePayment(bookingId, { verifiedAmount: 0, adminNote: note, adminName: reviewerName })
+        bookingCtx.markIncompletePayment(bookingId, { verifiedAmount: 0, adminNote: note, adminName: reviewerName, paymentRecordId })
       }
 
       let updatedBooking: BookingRecord
+      const paymentForAction = amount ? { ...payment, paymentAmount: amount, pendingPaymentAmount: amount } : payment
       if (type === "verify") {
-        updatedBooking = buildVerifiedPaymentBooking(payment)
+        updatedBooking = buildVerifiedPaymentBooking(paymentForAction)
       } else if (type === "reject") {
-        updatedBooking = buildRejectedPaymentBooking(payment, note)
+        updatedBooking = buildRejectedPaymentBooking(paymentForAction, note)
       } else {
-        updatedBooking = buildIncompletePaymentBooking(payment, note, 0)
+        updatedBooking = buildIncompletePaymentBooking(paymentForAction, note, 0)
       }
       if (updatedBooking && !updatedBooking.proofUrl) {
-        const matchingPayment = paymentRecords.find(
-          (pr: any) => updatedBooking && (pr.bookingId === updatedBooking.id || pr.id === updatedBooking.id) && pr.proofUrl
-        )
-        if (matchingPayment) {
+        const matchingPayment = paymentSubmissionById(paymentRecordId)
+        if (matchingPayment?.proofUrl) {
           updatedBooking = { ...updatedBooking, proofUrl: matchingPayment.proofUrl }
         }
       }
@@ -403,6 +446,16 @@ export default function AdminPaymentsPage() {
     }
   }
 
+  if (bookingCtx?.isLoading) {
+    return (
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
+        <div className="flex min-h-[50vh] items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-orange-600" />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="w-full min-w-0 max-w-full overflow-x-hidden">
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
@@ -418,17 +471,17 @@ export default function AdminPaymentsPage() {
           onClose={() => setOnsiteVerifyTarget(null)}
           onConfirm={(updatedBooking) => {
             // Use BookingContext verifyPayment as single source of truth
+            const paymentRecordId = (updatedBooking as BookingRecord).paymentRecordId
             bookingCtx.verifyPayment(updatedBooking.id, {
               verifiedAmount: updatedBooking.lastPaymentAmount || updatedBooking.paymentVerifiedAmount,
               adminNote: updatedBooking.adminLogs?.[updatedBooking.adminLogs.length - 1]?.message || undefined,
               adminName: user?.name || "Administrator",
+              paymentRecordId,
             })
             let updated = updatedBooking
-            if (!updated.proofUrl) {
-              const matchingPayment = paymentRecords.find(
-                (pr: any) => updated && (pr.bookingId === updated.id || pr.id === updated.id) && pr.proofUrl
-              )
-              if (matchingPayment) {
+            if (!updated.proofUrl && updatedBooking.submissionAmount) {
+              const matchingPayment = paymentSubmissionById(paymentRecordId)
+              if (matchingPayment?.proofUrl) {
                 updated = { ...updated, proofUrl: matchingPayment.proofUrl }
               }
             }
@@ -447,17 +500,17 @@ export default function AdminPaymentsPage() {
           onClose={() => setIncompletePaymentTarget(null)}
           onConfirm={(updatedBooking) => {
             // Use BookingContext markIncompletePayment as single source of truth
+            const paymentRecordId = (updatedBooking as BookingRecord).paymentRecordId
             bookingCtx.markIncompletePayment(updatedBooking.id, {
               verifiedAmount: updatedBooking.lastPaymentAmount || updatedBooking.paymentVerifiedAmount || 0,
               adminNote: updatedBooking.incompletePaymentNote || updatedBooking.incompletePaymentReason || "",
               adminName: user?.name || "Administrator",
+              paymentRecordId,
             })
             let updated = updatedBooking
-            if (!updated.proofUrl) {
-              const matchingPayment = paymentRecords.find(
-                (pr: any) => updated && (pr.bookingId === updated.id || pr.id === updated.id) && pr.proofUrl
-              )
-              if (matchingPayment) {
+            if (!updated.proofUrl && updatedBooking.submissionAmount) {
+              const matchingPayment = paymentSubmissionById(paymentRecordId)
+              if (matchingPayment?.proofUrl) {
                 updated = { ...updated, proofUrl: matchingPayment.proofUrl }
               }
             }
@@ -585,14 +638,14 @@ export default function AdminPaymentsPage() {
           open={!!selectedPayment}
           onOpenChange={(open) => !open && setSelectedPayment(null)}
         >
-          <DialogContent aria-describedby={undefined} showCloseButton={false} className="w-[95vw] sm:max-w-2xl max-h-[90dvh] overflow-hidden rounded-3xl bg-white shadow-2xl">
+          <DialogContent aria-describedby={undefined} showCloseButton={false} className="w-[95vw] sm:max-w-4xl lg:max-w-5xl max-h-[90dvh] overflow-hidden rounded-3xl bg-white shadow-2xl">
             {selectedPayment && (
               <PaymentReviewModal
                 payment={selectedPayment}
                 onClose={() => setSelectedPayment(null)}
-                onAction={(type) => openActionModal(selectedPayment, type)}
+                onAction={(type, submission) => openActionModal(selectedPayment, type, submission)}
                 childModalOpen={!!pendingAction || !!incompletePaymentTarget || !!onsiteVerifyTarget}
-                paymentRecords={paymentRecords}
+                liveSubmissions={submissionListFor(selectedPayment.id)}
               />
             )}
           </DialogContent>
@@ -788,6 +841,11 @@ function PaymentCard({
           <p className="break-words text-[11px] font-bold text-orange-600">
             {payment.id}
           </p>
+          {(payment.paymentCount ?? 1) > 1 && (
+            <p className="mt-0.5 truncate text-[10px] font-bold text-slate-500">
+              Latest: {formatCurrency(getSafePrice(payment.latestPaymentAmount || payment.paymentAmount))} · {formatSubmittedAt(payment.latestPaymentSubmittedAt || payment.paymentSubmittedAt)}
+            </p>
+          )}
         </div>
       </div>
 
@@ -803,7 +861,16 @@ function PaymentCard({
       </div>
 
       <div className="col-span-2 flex shrink-0 items-center justify-between gap-3 sm:col-span-1 sm:col-start-4 sm:flex-col sm:items-end sm:gap-2.5">
-        <PaymentBadge payment={payment} />
+        <div className="flex flex-wrap items-center justify-end gap-1.5 sm:flex-col sm:items-end">
+          <PaymentBadge payment={payment} />
+
+          {(payment.paymentCount ?? 1) > 1 && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+              <History className="h-3 w-3" />
+              {payment.paymentCount} Payments
+            </span>
+          )}
+        </div>
         <Button
           variant="outline"
           onClick={onView}
@@ -854,6 +921,35 @@ function getContractStatusBadge(b: BookingRecord) {
   )
 }
 
+function formatSubmittedAt(value?: string) {
+  if (!value) return "—"
+  try {
+    const date = new Date(value)
+    if (isNaN(date.getTime())) return value
+    return new Intl.DateTimeFormat("en-PH", {
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).format(date)
+  } catch {
+    return value
+  }
+}
+
+function getBookingTimeLabel(payment: BookingRecord) {
+  if (payment.time) return payment.time
+  if (payment.reservationTime) return payment.reservationTime
+  const start = payment.startTime || payment.start || ""
+  const end = payment.endTime || payment.end || ""
+  if (start && end) return `${start} - ${end}`
+  if (start) return start
+  if (end) return end
+  return "N/A"
+}
+
 function formatContractDate(date?: string) {
   if (!date) return ""
   try {
@@ -872,42 +968,229 @@ function PaymentReviewModal({
   onClose,
   onAction,
   childModalOpen,
-  paymentRecords,
+  liveSubmissions,
 }: {
   payment: BookingRecord
   onClose: () => void
-  onAction: (type: PaymentAction) => void
+  onAction: (type: PaymentAction, submission?: PaymentRecord | null) => void
   childModalOpen?: boolean
-  paymentRecords?: any[]
+  liveSubmissions?: PaymentRecord[]
 }) {
+  const submissions: PaymentRecord[] =
+    liveSubmissions && liveSubmissions.length > 0
+      ? liveSubmissions
+      : Array.isArray(payment.incomingPayments)
+        ? payment.incomingPayments
+        : []
+  const [selectedSubmissionIndex, setSelectedSubmissionIndex] = useState(0)
+
+  useEffect(() => {
+    setSelectedSubmissionIndex(0)
+  }, [payment.id, submissions.length])
+
+  const safeIndex = Math.min(selectedSubmissionIndex, Math.max(submissions.length - 1, 0))
+  const selected = submissions.length > 0 ? submissions[safeIndex] : null
+  const submissionNumber = submissions.length > 0 ? submissions.length - safeIndex : 0
+  const submissionLabel = selected
+    ? `Payment #${submissionNumber} of ${submissions.length}`
+    : "Payment"
+
+  const [storedReceipts, setStoredReceipts] = useState<any[]>([])
+
+  useEffect(() => {
+    let mounted = true
+    readStoredReceipts(payment.id).then((receipts) => {
+      if (mounted) setStoredReceipts(receipts)
+    })
+    return () => {
+      mounted = false
+    }
+  }, [payment.id])
+
+  const receiptPool = useMemo(() => {
+    const fromBooking = Array.isArray(payment.paymentReceipts)
+      ? payment.paymentReceipts
+      : payment.receipt
+        ? [payment.receipt]
+        : []
+    const all = [...fromBooking, ...storedReceipts]
+    const seen = new Set<string>()
+    const unique: any[] = []
+    for (const receiptEntry of all) {
+      const key = receiptEntry.receiptNumber || ""
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      unique.push(receiptEntry)
+    }
+    return unique
+  }, [payment.paymentReceipts, payment.receipt, storedReceipts])
+
   const totalAmount = getSafePrice(payment.totalPrice)
   const amountPaid = getAmountPaid(payment)
+  const selectedAmount = getPaymentRecordAmount(selected) || getSafePrice(payment.pendingPaymentAmount || payment.paymentAmount || amountPaid)
   const transactionAmount = getSafePrice(payment.pendingPaymentAmount || payment.paymentAmount || amountPaid)
   const remainingBalance = Math.max(totalAmount - amountPaid, 0)
   const dpTarget = getSafePrice(payment.selectedDownpaymentAmount) || (payment.paymentType === "downpayment" ? totalAmount * (Number(payment.downPaymentPercentage || 50) / 100) : 0)
   const acceptedDPPaid = getSafePrice(payment.downpaymentPaid)
-  const thisSubmission = getSafePrice(payment.pendingPaymentAmount || payment.paymentAmount)
-  const isActionable = isForReviewPayment(payment)
+  const thisSubmission = selectedAmount
+  const submissionStatus = selected ? mapRecordStatus(selected, payment, receiptPool) : String(payment.paymentStatus || "for_review")
+  const submissionStatusLabel = selected ? getPaymentRecordStatusLabel(selected, receiptPool) : getPaymentStatusText(payment)
+  const submittedAt = selected?.submittedAt || payment.paymentSubmittedAt || ""
+  const isActionable = selected
+    ? isPendingPaymentRecord(selected) && !hasMatchingReceipt(selected, receiptPool)
+    : isForReviewPayment(payment)
   const isIncompletePayment =
+    (selected ? isIncompletePaymentRecord(selected) : false) ||
     String(payment.paymentStatus || "").toLowerCase() === "incomplete" ||
     String(payment.verificationStatus || "").toLowerCase() === "incomplete"
   const displayAmount = isIncompletePayment
     ? getSafePrice(payment.paymentVerifiedAmount || payment.lastPaymentAmount || 0)
-    : transactionAmount
+    : selectedAmount
   const displayLabel = isIncompletePayment ? "Amount Received" : "Amount Submitted"
+  const selectedMethod = selected?.paymentMethod || payment.paymentMethod
+  const selectedBankReference = selected?.referenceNo || payment.bankReferenceNumber || payment.referenceNumber || payment.transactionReferenceNumber
 
-  const paymentRecordProof = useMemo(() => {
-    if (payment.proofUrl) return null
-    if (!paymentRecords?.length) return null
-    const key = payment.id || payment.bookingId || ""
-    const match = paymentRecords.find(
-      (pr: any) => (pr.bookingId === key || pr.id === key) && pr.proofUrl
-    )
-    return match?.proofUrl || null
-  }, [payment, paymentRecords])
-
-  const effectiveProof = payment.proofUrl || payment.paymentProof || payment.proofOfPayment || payment.proofImage || payment.receiptImage || paymentRecordProof
+  const effectiveProof = selected?.proofUrl || payment.proofUrl || payment.paymentProof || payment.proofOfPayment || payment.proofImage || payment.receiptImage
   const hasImageProof = isImageProof(effectiveProof)
+  const hasPdfProof = isPdfProof(effectiveProof)
+  const hasProof = !!effectiveProof
+
+  const [proofPreviewOpen, setProofPreviewOpen] = useState(false)
+  const [proofLoadError, setProofLoadError] = useState(false)
+  const proofPreviewRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    setProofPreviewOpen(false)
+    setProofLoadError(false)
+  }, [selected?.id])
+
+  useEffect(() => {
+    if (proofPreviewOpen) {
+      proofPreviewRef.current?.focus()
+    }
+  }, [proofPreviewOpen])
+
+  const openProofInNewTab = () => {
+    const url = effectiveProof
+    if (!url) {
+      console.warn("[Payment Proof] No proof URL available to open.")
+      return
+    }
+    console.log("[Payment Proof] URL:", url.slice(0, 80) + (url.length > 80 ? "…" : ""))
+    if (/^https?:\/\//i.test(url)) {
+      window.open(url, "_blank", "noopener,noreferrer")
+      return
+    }
+    if (url.startsWith("data:")) {
+      fetch(url)
+        .then((res) => res.blob())
+        .then((blob) => {
+          const objectUrl = URL.createObjectURL(blob)
+          window.open(objectUrl, "_blank")
+          setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+        })
+        .catch((error) => {
+          console.error("[Payment Proof] Failed to open data URL, falling back to in-app preview:", error)
+          setProofPreviewOpen(true)
+        })
+      return
+    }
+    window.open(url, "_blank", "noopener,noreferrer")
+  }
+
+  const matchedReceipt = useMemo(() => {
+    if (receiptPool.length === 0) return null
+    if (!selected) return payment.receipt || null
+    const exact = receiptPool.find(
+      (receiptEntry) =>
+        receiptEntry.paymentSubmittedAt && String(receiptEntry.paymentSubmittedAt) === String(selected.submittedAt),
+    )
+    if (exact) return exact
+    const targetTime = getPaymentTime(selected.submittedAt)
+    let best: any = null
+    let bestDiff = Infinity
+    for (const receiptEntry of receiptPool) {
+      const diff = Math.abs(getPaymentTime(receiptEntry.dateGenerated || receiptEntry.dateIssued) - targetTime)
+      if (diff < bestDiff) {
+        bestDiff = diff
+        best = receiptEntry
+      }
+    }
+    return best || null
+  }, [receiptPool, selected, payment.receipt])
+
+  const paperData: ReceiptPaperData = {
+    fullName:
+      matchedReceipt?.fullName ||
+      payment.userInfo?.name ||
+      selected?.customerName ||
+      "Client",
+    email: payment.userInfo?.email || null,
+    contactNumber: payment.userInfo?.phone || null,
+    receiptNo:
+      matchedReceipt?.receiptNumber ||
+      matchedReceipt?.receiptNo ||
+      payment.receiptNumber ||
+      (selected ? "Pending Verification" : "—"),
+    generatedAt:
+      matchedReceipt?.dateGenerated ||
+      matchedReceipt?.dateIssued ||
+      submittedAt ||
+      "",
+    bookingId: payment.id || "",
+    eventType: isOfficeRental(payment)
+      ? "Office Space Rental"
+      : matchedReceipt?.eventType ||
+        payment.eventType ||
+        payment.eventName ||
+        "Event Venue Rental",
+    venue:
+      matchedReceipt?.venueReserved ||
+      matchedReceipt?.venue ||
+      payment.venueName ||
+      payment.venue ||
+      "N/A",
+    eventDate: matchedReceipt?.startDate || payment.date || "Not set",
+    reservationTime: isOfficeRental(payment)
+      ? ""
+      : getBookingTimeLabel(payment),
+    paymentMethod:
+      matchedReceipt?.paymentMethod || getPaymentMethodLabel(selectedMethod),
+    bankReference:
+      selectedMethod === "bank" ? selectedBankReference || null : null,
+    paymentTypeLabel: isOfficeRental(payment)
+      ? "Slot Reservation Only"
+      : matchedReceipt?.paymentPurpose ||
+        matchedReceipt?.paymentType ||
+        getPaymentTypeLabel(payment.paymentType),
+    totalAmount,
+    amountPaid: getSafePrice(
+      matchedReceipt?.amountPaid ??
+        matchedReceipt?.paymentAmount ??
+        displayAmount,
+    ),
+    remainingBalance: getSafePrice(
+      matchedReceipt?.remainingBalance ?? remainingBalance,
+    ),
+    paymentStatus: matchedReceipt?.paymentStatus || submissionStatusLabel,
+    isVerified: matchedReceipt
+      ? [
+          "verified",
+          "paid",
+          "slot_verified",
+          "reservation secured",
+          "reservation_secured",
+        ].includes(String(matchedReceipt.paymentStatus || "").toLowerCase())
+      : selected
+        ? isVerifiedPaymentRecord(selected) || hasMatchingReceipt(selected, receiptPool)
+        : isVerifiedPayment(payment),
+    isOfficeRental: isOfficeRental(payment),
+    contractTerm:
+      matchedReceipt?.contractTerm ||
+      payment.contractTerm ||
+      payment.rentalTerm ||
+      null,
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -919,7 +1202,13 @@ function PaymentReviewModal({
                 {payment.id || "No ID"}
               </span>
 
-              <PaymentBadge payment={payment} />
+              {selected && (
+                <span className="rounded-full bg-orange-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-orange-700">
+                  {submissionLabel}
+                </span>
+              )}
+
+              <PaymentBadge payment={{ ...payment, paymentStatus: submissionStatus }} />
             </div>
 
             <DialogTitle className="break-words text-xl font-black leading-tight text-slate-950 sm:text-2xl">
@@ -929,6 +1218,12 @@ function PaymentReviewModal({
             <p className="mt-1 break-words text-sm font-bold text-orange-600">
               {payment.eventName || "Untitled Event"}
             </p>
+
+            {submittedAt && (
+              <p className="mt-1 text-[11px] font-bold text-slate-400">
+                Submitted {formatSubmittedAt(submittedAt)}
+              </p>
+            )}
           </div>
 
           {!childModalOpen && (
@@ -942,24 +1237,177 @@ function PaymentReviewModal({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="space-y-5">
-            <ModalSection title="Payment Proof">
-              {payment.paymentMethod === "bank" ? (
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  {hasImageProof ? (
-                    <div className="mx-auto w-full max-w-[280px]">
-                      <div className="aspect-[3/4] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                        <img
-                          src={effectiveProof}
-                          alt="Payment proof"
-                          className="h-full w-full object-contain"
-                        />
+      <div className="min-h-0 flex-1 flex flex-col overflow-y-auto md:flex-row">
+          {/* ── LEFT: PAYMENT HISTORY ── */}
+          <aside className="flex shrink-0 flex-col border-b border-slate-100 md:w-[36%] md:min-h-0 md:border-b-0 md:border-r lg:w-[360px]">
+            <div className="flex shrink-0 items-center gap-1.5 border-b border-slate-100 px-4 py-3">
+              <History className="h-3.5 w-3.5 text-slate-400" />
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                Payment History
+              </p>
+              {submissions.length > 0 && (
+                <span className="ml-auto rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">
+                  {submissions.length}
+                </span>
+              )}
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+              {submissions.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center">
+                  <p className="text-xs font-black text-slate-900">
+                    No payment submissions
+                  </p>
+                  <p className="mt-1 text-[10px] font-semibold text-slate-500">
+                    This booking has no individual payment records on file.
+                  </p>
+                </div>
+              ) : (
+                submissions.map((submission, index) => {
+                  const isSelected = index === safeIndex
+                  return (
+                    <button
+                      key={submission.id}
+                      type="button"
+                      onClick={() => setSelectedSubmissionIndex(index)}
+                      className={cn(
+                        "w-full rounded-2xl border p-3.5 text-left transition",
+                        isSelected
+                          ? "border-orange-200 bg-white shadow-md ring-1 ring-orange-200"
+                          : "border-slate-200 bg-white/60 hover:border-orange-200 hover:bg-white hover:shadow-sm",
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-black text-slate-900">
+                          Payment #{submissions.length - index}
+                        </span>
+                        {isSelected && <CheckCircle2 className="h-4 w-4 shrink-0 text-orange-600" />}
                       </div>
-                    </div>
-                  ) : (
-                    <div className="mx-auto flex min-h-[250px] w-full max-w-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-center">
+                      <span className="mt-1 block text-lg font-black tracking-tight text-slate-950">
+                        {formatCurrency(getPaymentRecordAmount(submission))}
+                      </span>
+                      <span className="mt-0.5 block text-[10px] font-semibold text-slate-500">
+                        Submitted {formatSubmittedAt(submission.submittedAt)}
+                      </span>
+                      <span
+                        className={cn(
+                          "mt-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[9px] font-black uppercase tracking-[0.2em]",
+                          isRejectedPaymentRecord(submission)
+                            ? "bg-rose-50 text-rose-600"
+                            : isIncompletePaymentRecord(submission)
+                              ? "bg-amber-50 text-amber-600"
+                              : isVerifiedPaymentRecord(submission) || hasMatchingReceipt(submission, receiptPool)
+                                ? "bg-emerald-50 text-emerald-600"
+                                : "bg-amber-50 text-amber-600",
+                        )}
+                      >
+                        {isRejectedPaymentRecord(submission) && <XCircle className="h-3 w-3" />}
+                        {(isVerifiedPaymentRecord(submission) || hasMatchingReceipt(submission, receiptPool)) && (
+                          <CheckCircle2 className="h-3 w-3" />
+                        )}
+                        {getPaymentRecordStatusLabel(submission, receiptPool)}
+                      </span>
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          </aside>
+
+          {/* ── RIGHT: RECEIPT + DETAILS ── */}
+          <div className="min-w-0 flex-1 px-4 py-5 sm:px-5 md:min-h-0 md:overflow-y-auto">
+            <div className="space-y-5">
+              <ModalSection title="Payment Receipt">
+                <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3 sm:p-4">
+                  <ReceiptPaper {...paperData} />
+                </div>
+              </ModalSection>
+
+              <ModalSection title="Payment Proof">
+                {selectedMethod === "cash" ? (
+                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-5 text-center">
+                    <Banknote className="mx-auto mb-3 h-10 w-10 text-emerald-500" />
+
+                    <p className="text-sm font-black text-emerald-950">
+                      Cash Payment at Office
+                    </p>
+
+                    <p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-emerald-700">
+                      No uploaded proof required. Confirm this booking only after the physical cash payment is received.
+                    </p>
+                  </div>
+                ) : hasImageProof ? (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    {proofLoadError ? (
+                      <div className="flex min-h-[200px] flex-col items-center justify-center rounded-2xl border border-dashed border-rose-200 bg-white p-5 text-center">
+                        <FileImage className="mb-3 h-10 w-10 text-rose-300" />
+                        <p className="text-sm font-black text-rose-600">
+                          Unable to load payment proof.
+                        </p>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProofLoadError(false)
+                          setProofPreviewOpen(true)
+                        }}
+                        className="mx-auto block w-full max-w-[320px] cursor-zoom-in"
+                        aria-label="Open payment proof image in full view"
+                      >
+                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-1 shadow-sm transition hover:opacity-90">
+                          <img
+                            src={effectiveProof}
+                            alt="Uploaded payment proof"
+                            onError={() => setProofLoadError(true)}
+                            className="h-auto w-full max-w-full object-contain"
+                          />
+                        </div>
+                        <span className="mt-2 inline-flex items-center justify-center gap-1 text-[10px] font-bold text-slate-500">
+                          <ZoomIn className="h-3 w-3" />
+                          Click to view full size
+                        </span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={openProofInNewTab}
+                      className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-black text-slate-700 transition hover:bg-slate-50"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      Open proof in new tab
+                    </button>
+                  </div>
+                ) : hasPdfProof ? (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <iframe
+                      src={effectiveProof}
+                      title="Uploaded payment proof (PDF)"
+                      className="h-[55vh] w-full rounded-xl border border-slate-200 bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={openProofInNewTab}
+                      className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-black text-slate-700 transition hover:bg-slate-50"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      Open proof in new tab
+                    </button>
+                  </div>
+                ) : hasProof ? (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <button
+                      type="button"
+                      onClick={openProofInNewTab}
+                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-black text-slate-700 transition hover:bg-slate-50"
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                      Open uploaded payment proof
+                    </button>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="mx-auto flex min-h-[200px] w-full max-w-[300px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-center">
                       <FileImage className="mb-3 h-10 w-10 text-slate-300" />
 
                       <p className="text-sm font-black text-slate-900">
@@ -970,142 +1418,130 @@ function PaymentReviewModal({
                         The customer did not upload a proof image for this bank transfer payment.
                       </p>
                     </div>
+                  </div>
+                )}
+              </ModalSection>
+
+              <ModalSection title="Client Details">
+                <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                  <p className="text-sm font-black text-slate-950">
+                    {payment.userInfo?.name || "No Name"}
+                  </p>
+
+                  <p className="mt-1 break-all text-sm text-slate-500">
+                    {payment.userInfo?.email || "No email"}
+                  </p>
+                </div>
+              </ModalSection>
+
+              <ModalSection title="Amount Summary">
+                <div className="rounded-2xl border border-orange-100 bg-orange-50 p-5">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">
+                    {displayLabel}
+                  </p>
+
+                  <p className="mt-1 text-3xl font-black tracking-tight text-orange-600">
+                    {formatCurrency(displayAmount)}
+                  </p>
+
+                  <p className="mt-2 text-xs font-semibold text-orange-700/70">
+                    {getPaymentTypeLabel(payment.paymentType)}
+                  </p>
+                </div>
+              </ModalSection>
+
+              {payment.paymentType === "downpayment" && (acceptedDPPaid > 0 || thisSubmission > 0) ? (
+                <div className="rounded-2xl bg-slate-950 p-4 text-white">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+                    Downpayment Summary
+                  </p>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between">
+                      <span className="font-semibold text-slate-400">DP Target</span>
+                      <span className="font-bold text-white">₱{dpTarget.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="font-semibold text-slate-400">Accepted DP Paid</span>
+                      <span className="font-bold text-white">₱{acceptedDPPaid.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="font-semibold text-slate-400">{isIncompletePayment ? "This Payment Received" : "This Submission"}</span>
+                      <span className="font-bold text-amber-300">₱{(isIncompletePayment ? displayAmount : thisSubmission).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-white/10 pt-1.5">
+                      <span className="font-semibold text-slate-400">{isIncompletePayment ? "Remaining DP" : "Remaining DP After Verification"}</span>
+                      <span className="font-bold text-emerald-400">₱{(isIncompletePayment ? getSafePrice(payment.downpaymentRemaining || Math.max(dpTarget - acceptedDPPaid, 0)) : Math.max(dpTarget - (acceptedDPPaid + thisSubmission), 0)).toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+              ) : payment.paymentType === "downpayment" ? (
+                <div className="rounded-2xl bg-slate-950 p-4 text-white">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-amber-300">
+                      <AlertCircle className="h-5 w-5" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                        {payment.downpaymentRemaining && Number(payment.downpaymentRemaining) > 0
+                          ? "Downpayment Remaining"
+                          : acceptedDPPaid === 0 ? "Downpayment Target" : "Remaining Balance"}
+                      </p>
+                      <p className="mt-1 text-xl font-black">
+                        {formatCurrency(acceptedDPPaid === 0 ? dpTarget : remainingBalance)}
+                      </p>
+                    </div>
+                  </div>
+                  {payment.downpaymentRemaining !== undefined && Number(payment.downpaymentRemaining) > 0 && (
+                    <p className="mt-2 text-[10px] font-semibold text-amber-300">
+                      Downpayment remaining: {formatCurrency(getSafePrice(payment.downpaymentRemaining))}
+                    </p>
                   )}
                 </div>
-              ) : (
-                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-5 text-center">
-                  <Banknote className="mx-auto mb-3 h-10 w-10 text-emerald-500" />
+              ) : null}
 
-                  <p className="text-sm font-black text-emerald-950">
-                    Cash Payment at Office
-                  </p>
-
-                  <p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-emerald-700">
-                    Confirm this booking only after the physical cash payment is received.
-                  </p>
+              <ModalSection title="Payment Details">
+                <div className="space-y-3 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                  <InfoLine label="Method" value={getPaymentMethodLabel(selectedMethod)} />
+                  {selectedMethod === "bank" && (
+                    <InfoLine label="Bank Reference No." value={String(selectedBankReference || "No reference number")} />
+                  )}
+                  <InfoLine label="Type" value={getPaymentTypeLabel(payment.paymentType)} />
+                  <InfoLine label="Total Booking" value={formatCurrency(totalAmount)} />
+                  <InfoLine label="Status" value={submissionStatusLabel} />
+                  {submittedAt && (
+                    <InfoLine label="Submitted" value={formatSubmittedAt(submittedAt)} />
+                  )}
                 </div>
-              )}
-            </ModalSection>
+              </ModalSection>
 
-            <ModalSection title="Client Details">
-              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <p className="text-sm font-black text-slate-950">
-                  {payment.userInfo?.name || "No Name"}
-                </p>
-
-                <p className="mt-1 break-all text-sm text-slate-500">
-                  {payment.userInfo?.email || "No email"}
-                </p>
-              </div>
-            </ModalSection>
-          </div>
-
-          <div className="space-y-5">
-            <ModalSection title="Amount Summary">
-              <div className="rounded-2xl border border-orange-100 bg-orange-50 p-5">
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">
-                  {displayLabel}
-                </p>
-
-                <p className="mt-1 text-3xl font-black tracking-tight text-orange-600">
-                  {formatCurrency(displayAmount)}
-                </p>
-
-                <p className="mt-2 text-xs font-semibold text-orange-700/70">
-                  {getPaymentTypeLabel(payment.paymentType)}
-                </p>
-              </div>
-            </ModalSection>
-
-            {payment.paymentType === "downpayment" && (acceptedDPPaid > 0 || thisSubmission > 0) ? (
-              <div className="rounded-2xl bg-slate-950 p-4 text-white">
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
-                  Downpayment Summary
-                </p>
-                <div className="space-y-1.5 text-xs">
-                  <div className="flex justify-between">
-                    <span className="font-semibold text-slate-400">DP Target</span>
-                    <span className="font-bold text-white">₱{dpTarget.toLocaleString()}</span>
+              <ModalSection title="Contract Status">
+                <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                  <div className="flex items-center gap-2">
+                    {getContractStatusBadge(payment)}
                   </div>
-                  <div className="flex justify-between">
-                    <span className="font-semibold text-slate-400">Accepted DP Paid</span>
-                    <span className="font-bold text-white">₱{acceptedDPPaid.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="font-semibold text-slate-400">{isIncompletePayment ? "This Payment Received" : "This Submission"}</span>
-                    <span className="font-bold text-amber-300">₱{(isIncompletePayment ? displayAmount : thisSubmission).toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between border-t border-white/10 pt-1.5">
-                    <span className="font-semibold text-slate-400">{isIncompletePayment ? "Remaining DP" : "Remaining DP After Verification"}</span>
-                    <span className="font-bold text-emerald-400">₱{(isIncompletePayment ? getSafePrice(payment.downpaymentRemaining || Math.max(dpTarget - acceptedDPPaid, 0)) : Math.max(dpTarget - (acceptedDPPaid + thisSubmission), 0)).toLocaleString()}</span>
-                  </div>
-                </div>
-              </div>
-            ) : payment.paymentType === "downpayment" ? (
-              <div className="rounded-2xl bg-slate-950 p-4 text-white">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-amber-300">
-                    <AlertCircle className="h-5 w-5" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-                      {payment.downpaymentRemaining && Number(payment.downpaymentRemaining) > 0
-                        ? "Downpayment Remaining"
-                        : acceptedDPPaid === 0 ? "Downpayment Target" : "Remaining Balance"}
+                  {payment.contractSignedDate && (
+                    <p className="mt-2 text-[10px] font-semibold text-slate-500">
+                      Signed on {formatContractDate(payment.contractSignedDate)}
+                      {payment.contractSignedBy ? ` by ${payment.contractSignedBy}` : ""}
                     </p>
-                    <p className="mt-1 text-xl font-black">
-                      {formatCurrency(acceptedDPPaid === 0 ? dpTarget : remainingBalance)}
+                  )}
+                  {payment.contractStatus !== "Signed" && isVerifiedPayment(payment) && (
+                    <p className="mt-2 text-[10px] font-semibold text-amber-600">
+                      Customer must visit the office to sign the contract.
                     </p>
-                  </div>
+                  )}
                 </div>
-                {payment.downpaymentRemaining !== undefined && Number(payment.downpaymentRemaining) > 0 && (
-                  <p className="mt-2 text-[10px] font-semibold text-amber-300">
-                    Downpayment remaining: {formatCurrency(getSafePrice(payment.downpaymentRemaining))}
-                  </p>
-                )}
-              </div>
-            ) : null}
-
-            <ModalSection title="Payment Details">
-              <div className="space-y-3 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <InfoLine label="Method" value={getPaymentMethodLabel(payment.paymentMethod)} />
-                {payment.paymentMethod === "bank" && (
-                  <InfoLine label="Bank Reference No." value={getBankReferenceNumber(payment)} />
-                )}
-                <InfoLine label="Type" value={getPaymentTypeLabel(payment.paymentType)} />
-                <InfoLine label="Total Booking" value={formatCurrency(totalAmount)} />
-                <InfoLine label="Status" value={getPaymentStatusText(payment)} />
-              </div>
-            </ModalSection>
-
-            <ModalSection title="Contract Status">
-              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <div className="flex items-center gap-2">
-                  {getContractStatusBadge(payment)}
-                </div>
-                {payment.contractSignedDate && (
-                  <p className="mt-2 text-[10px] font-semibold text-slate-500">
-                    Signed on {formatContractDate(payment.contractSignedDate)}
-                    {payment.contractSignedBy ? ` by ${payment.contractSignedBy}` : ""}
-                  </p>
-                )}
-                {payment.contractStatus !== "Signed" && isVerifiedPayment(payment) && (
-                  <p className="mt-2 text-[10px] font-semibold text-amber-600">
-                    Customer must visit the office to sign the contract.
-                  </p>
-                )}
-              </div>
-            </ModalSection>
+              </ModalSection>
+            </div>
           </div>
-        </div>
       </div>
 
       <div className="shrink-0 border-t border-slate-100 bg-white px-6 py-5">
         {isActionable ? (
-          <div className={`grid gap-3 ${payment.paymentMethod === "cash" ? "sm:grid-cols-1" : "sm:grid-cols-3"}`}>
-            {payment.paymentMethod !== "cash" && (
+          <div className={`grid gap-3 ${selectedMethod === "cash" ? "sm:grid-cols-1" : "sm:grid-cols-3"}`}>
+            {selectedMethod !== "cash" && (
               <Button
-                onClick={() => onAction("reject")}
+                onClick={() => onAction("reject", selected)}
                 variant="outline"
                 className="h-11 rounded-xl border-rose-200 text-sm font-black text-rose-500 hover:bg-rose-50"
               >
@@ -1113,9 +1549,9 @@ function PaymentReviewModal({
               </Button>
             )}
 
-            {payment.paymentMethod !== "cash" && (
+            {selectedMethod !== "cash" && (
               <Button
-                onClick={() => onAction("incomplete")}
+                onClick={() => onAction("incomplete", selected)}
                 variant="outline"
                 className="h-11 rounded-xl border-amber-200 text-sm font-black text-amber-600 hover:bg-amber-50"
               >
@@ -1124,7 +1560,7 @@ function PaymentReviewModal({
             )}
 
             <Button
-              onClick={() => onAction("verify")}
+              onClick={() => onAction("verify", selected)}
               className="h-11 rounded-xl bg-emerald-500 text-sm font-black text-white hover:bg-emerald-600"
             >
               Verify Payment
@@ -1140,6 +1576,52 @@ function PaymentReviewModal({
           </Button>
         )}
       </div>
+
+      {proofPreviewOpen && hasImageProof && (
+        <div
+          ref={proofPreviewRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Payment proof image preview"
+          tabIndex={-1}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.stopPropagation()
+              setProofPreviewOpen(false)
+            }
+          }}
+          className="fixed inset-0 z-[10003] flex items-center justify-center bg-black/85 p-4 sm:p-6"
+          onClick={() => setProofPreviewOpen(false)}
+        >
+          <button
+            type="button"
+            aria-label="Close image preview"
+            onClick={(e) => {
+              e.stopPropagation()
+              setProofPreviewOpen(false)
+            }}
+            className="absolute top-4 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur transition hover:bg-white/25"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          {proofLoadError ? (
+            <div className="flex flex-col items-center gap-3 rounded-2xl bg-slate-900 p-8 text-center">
+              <FileImage className="h-10 w-10 text-slate-500" />
+              <p className="text-sm font-black text-white">
+                Unable to load payment proof.
+              </p>
+            </div>
+          ) : (
+            <img
+              src={effectiveProof}
+              alt="Payment proof (full view)"
+              onClick={(e) => e.stopPropagation()}
+              onError={() => setProofLoadError(true)}
+              className="max-h-[90vh] max-w-[95vw] rounded-lg object-contain shadow-2xl sm:max-w-[90vw]"
+            />
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -1251,8 +1733,11 @@ function EmptyState() {
   )
 }
 
-function readStoredReceipts(): Promise<any[]> {
-  return getDocs(query(collection(db, "receipts"), orderBy("dateGenerated", "desc"))).then(
+function readStoredReceipts(bookingId?: string): Promise<any[]> {
+  const constraints: any[] = bookingId
+    ? [where("bookingId", "==", bookingId)]
+    : [orderBy("dateGenerated", "desc")]
+  return getDocs(query(collection(db, "receipts"), ...constraints)).then(
     (snapshot) => {
       const result: any[] = []
       snapshot.forEach((docSnap) => {
@@ -1309,12 +1794,198 @@ function getPaymentTypeLabel(type?: string) {
 }
 
 function isImageProof(proof: unknown) {
-  const value = String(proof || "")
+  const value = String(proof || "").toLowerCase()
+  if (!value) return false
+  if (value.startsWith("data:image")) return true
+  return /\.(jpe?g|png|webp|gif|avif|bmp|svg|heic|heif)(\?|#|$)/.test(value)
+}
+
+function isPdfProof(proof: unknown) {
+  const value = String(proof || "").toLowerCase()
+  if (!value) return false
+  if (value.startsWith("data:application/pdf")) return true
+  return /\.pdf(\?|#|$)/.test(value)
+}
+
+function getPaymentTime(value?: string | number | Date | null) {
+  if (!value) return 0
+  const time = new Date(String(value)).getTime()
+  return Number.isFinite(time) ? time : 0
+}
+
+function mapPaymentTerm(term?: string, fallback?: string) {
+  const normalized = String(term || "").toLowerCase()
+  if (normalized.includes("down payment") || normalized.includes("downpayment")) return "downpayment"
+  if (normalized.includes("full")) return "full"
+  if (normalized.includes("slot")) return "slot_reservation"
+  return fallback || "full"
+}
+
+function isUnresolvedPaymentRecord(record: PaymentRecord | null | undefined, receipts?: any[]) {
+  if (!record) return false
+  if (isVerifiedPaymentRecord(record)) return false
+  if (isRejectedPaymentRecord(record)) return false
+  if (isIncompletePaymentRecord(record)) return false
+  if (hasMatchingReceipt(record, receipts)) return false
+  return true
+}
+
+function getOverallPaymentStatus(
+  base: BookingRecord,
+  submissions: PaymentRecord[],
+  receipts?: any[],
+) {
+  if (submissions.length === 0) {
+    return String(base.paymentStatus || (isVerifiedPayment(base) ? "verified" : "for_review"))
+  }
+  const anyRejected = submissions.some((record) => isRejectedPaymentRecord(record))
+  if (anyRejected) return "rejected"
+  const anyIncomplete = submissions.some((record) => isIncompletePaymentRecord(record))
+  if (anyIncomplete) return "incomplete"
+  const anyPending = submissions.some((record) => isUnresolvedPaymentRecord(record, receipts))
+  if (anyPending) return "for_review"
+  return String(base.paymentStatus || "verified")
+}
+
+function isPendingPaymentRecord(record: PaymentRecord | null | undefined) {
+  if (!record) return false
+  const status = String(record.status || "").toLowerCase()
+  const verificationStatus = String(record.verificationStatus || "").toLowerCase()
   return (
-    value.startsWith("data:image") ||
-    value.startsWith("http://") ||
-    value.startsWith("https://")
+    status === "for review" ||
+    status === "for_review" ||
+    status === "for verification" ||
+    status === "awaiting onsite payment" ||
+    status === "pending" ||
+    verificationStatus === "for review" ||
+    verificationStatus === "for_review" ||
+    verificationStatus === "pending" ||
+    verificationStatus === "pending onsite verification"
   )
+}
+
+function isVerifiedPaymentRecord(record: PaymentRecord | null | undefined) {
+  if (!record) return false
+  const status = String(record.status || "").toLowerCase()
+  const verificationStatus = String(record.verificationStatus || "").toLowerCase()
+  return status === "verified" || verificationStatus === "verified"
+}
+
+function isRejectedPaymentRecord(record: PaymentRecord | null | undefined) {
+  if (!record) return false
+  const status = String(record.status || "").toLowerCase()
+  const verificationStatus = String(record.verificationStatus || "").toLowerCase()
+  return status === "rejected" || verificationStatus === "rejected"
+}
+
+function isIncompletePaymentRecord(record: PaymentRecord | null | undefined) {
+  if (!record) return false
+  const status = String(record.status || "").toLowerCase()
+  const verificationStatus = String(record.verificationStatus || "").toLowerCase()
+  return status === "incomplete" || verificationStatus === "incomplete"
+}
+
+function hasMatchingReceipt(record: PaymentRecord | null | undefined, receipts?: any[]) {
+  if (!record || !Array.isArray(receipts) || receipts.length === 0) return false
+  const target = getPaymentTime(record.submittedAt)
+  if (target === 0) return false
+  const exact = receipts.some(
+    (r) => r.paymentSubmittedAt && String(r.paymentSubmittedAt) === String(record.submittedAt),
+  )
+  if (exact) return true
+  const windowMs = 10 * 60 * 1000
+  return receipts.some((r) => {
+    const t = getPaymentTime(r.dateGenerated || r.dateIssued)
+    return t > 0 && Math.abs(t - target) <= windowMs
+  })
+}
+
+function mapRecordStatus(record: PaymentRecord | null | undefined, base: BookingRecord, receipts?: any[]) {
+  if (isRejectedPaymentRecord(record)) return "rejected"
+  if (isIncompletePaymentRecord(record)) return "incomplete"
+  if (isVerifiedPaymentRecord(record)) return "verified"
+  if (isPendingPaymentRecord(record) && !hasMatchingReceipt(record, receipts)) return "for_review"
+  if (isPendingPaymentRecord(record)) return "verified"
+  if (hasMatchingReceipt(record, receipts)) return "verified"
+  return String(base.paymentStatus || (isVerifiedPayment(base) ? "verified" : "for_review"))
+}
+
+function getPaymentRecordStatusLabel(record: PaymentRecord | null | undefined, receipts?: any[]) {
+  if (record === null || record === undefined) return "For Review"
+  if (isRejectedPaymentRecord(record)) return "Rejected"
+  if (isIncompletePaymentRecord(record)) return "Incomplete Payment"
+  if (isVerifiedPaymentRecord(record)) return "Verified"
+  if (isPendingPaymentRecord(record)) return hasMatchingReceipt(record, receipts) ? "Verified" : "For Review"
+  return "For Review"
+}
+
+function getPaymentRecordAmount(record: PaymentRecord | null | undefined) {
+  return getSafePrice(record?.amount || record?.amountPaid || 0)
+}
+
+function buildPaymentBookingEntry(
+  base: BookingRecord,
+  submissions: PaymentRecord[],
+  latest: PaymentRecord,
+  bookingId: string,
+): BookingRecord {
+  const bank = latest.paymentMethod === "bank" || String(latest.method || "").toLowerCase().includes("bank")
+  const cash = latest.paymentMethod === "cash" || String(latest.method || "").toLowerCase().includes("office")
+  const method = bank ? "bank" : cash ? "cash" : latest.paymentMethod === "cash" ? "cash" : latest.paymentMethod === "bank" ? "bank" : base.paymentMethod
+  const amount = getPaymentRecordAmount(latest)
+  const proof = latest.proofUrl || base.proofUrl || base.paymentProof
+  const receipts = Array.isArray(base.paymentReceipts)
+    ? base.paymentReceipts
+    : base.receipt
+      ? [base.receipt]
+      : []
+  const hasAnyPendingSubmission = submissions.some((record) => isUnresolvedPaymentRecord(record, receipts))
+
+  return {
+    ...base,
+    id: bookingId,
+    bookingId,
+    incomingPayments: submissions,
+    paymentCount: submissions.length,
+    latestPayment: latest,
+    paymentRecordId: latest.id,
+    userInfo: base.userInfo || (latest.customerName ? { name: latest.customerName, email: "", phone: "" } : undefined),
+    eventName: base.eventName || latest.eventName || "",
+    venue: base.venue || latest.venueName || "",
+    venueName: base.venueName || latest.venueName || "",
+    paymentMethod: method,
+    actualPaymentMethod: latest.method || base.actualPaymentMethod,
+    paymentType: mapPaymentTerm(latest.term, base.paymentType),
+    paymentStatus: getOverallPaymentStatus(base, submissions, receipts),
+    hasActivePaymentSubmission: hasAnyPendingSubmission,
+    pendingPaymentAmount: amount,
+    paymentAmount: amount,
+    paymentVerifiedAmount: typeof base.paymentVerifiedAmount === "number" ? base.paymentVerifiedAmount : undefined,
+    proofUrl: proof,
+    paymentProof: proof,
+    bankReferenceNumber: latest.referenceNo || base.bankReferenceNumber,
+    paymentReference: latest.referenceNo || base.paymentReference,
+    paymentSubmissionType: cash ? "onsite" : "bank_transfer",
+    paymentSubmittedAt: latest.submittedAt,
+    latestPaymentAmount: amount,
+    latestPaymentMethod: latest.method,
+    latestPaymentSubmittedAt: latest.submittedAt,
+    totalPrice: base.totalPrice || latest.amount || 0,
+    createdAt: base.createdAt || latest.submittedAt,
+    updatedAt: latest.updatedAt || base.updatedAt,
+    paymentReceipts: base.paymentReceipts,
+    status: base.status || (isPendingPaymentRecord(latest) ? "verifying" : "confirmed"),
+  }
+}
+
+function buildLegacyPaymentBookingEntry(booking: BookingRecord): BookingRecord {
+  return {
+    ...booking,
+    incomingPayments: [],
+    paymentCount: 1,
+    latestPayment: null,
+    paymentRecordId: null,
+  }
 }
 
 function isPaymentRecord(booking: BookingRecord) {
@@ -1666,7 +2337,17 @@ function buildIncompletePaymentBooking(booking: BookingRecord, note: string, ver
 }
 
 function ensureReceiptForVerifiedBooking(booking: BookingRecord) {
-  readStoredReceipts().then((receipts) => {
+  // The BookingContext already generates and persists a receipt per verified
+  // payment (paymentReceipts / receipts collection). Only fall back to the
+  // legacy single-receipt flow when the booking has no receipt history yet.
+  if (
+    (Array.isArray(booking.paymentReceipts) && booking.paymentReceipts.length > 0) ||
+    booking.receipt ||
+    booking.receiptIssued
+  ) {
+    return
+  }
+  readStoredReceipts(booking.id).then((receipts) => {
     const existingReceipt = receipts.find((receipt) => receipt.bookingId === booking.id)
     if (existingReceipt || booking.receipt || booking.receiptIssued) return
 

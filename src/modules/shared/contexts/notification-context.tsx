@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
 import { useAuth } from "../auth/auth-context"
+import { perfListener } from "../lib/perf-trace"
 import { db } from "@/lib/firebase"
 import {
   collection,
@@ -50,6 +51,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     let destroyed = false
 
     console.log("[Notification Listener START]", { userId })
+    perfListener("Notifications", "START")
+
+    let firstSnapshot = true
 
     function mapSnapshot(snapshot: any): NotificationItem[] {
       const items: NotificationItem[] = []
@@ -91,9 +95,16 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       return onSnapshot(q,
         (snapshot) => {
           const items = sortDesc(mapSnapshot(snapshot))
+          if (firstSnapshot) {
+            firstSnapshot = false
+            perfListener("Notifications", "FIRST_SNAPSHOT", items.length)
+          } else {
+            perfListener("Notifications", "SNAPSHOT", items.length)
+          }
           setNotifications(items)
         },
         (error) => {
+          perfListener("Notifications", "ERROR")
           if (error.code === "failed-precondition") {
             if (destroyed) return
             activeUnsub?.()
@@ -115,9 +126,16 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       activeUnsub = onSnapshot(q,
         (snapshot) => {
           const items = sortDesc(mapSnapshot(snapshot))
+          if (firstSnapshot) {
+            firstSnapshot = false
+            perfListener("Notifications", "FIRST_SNAPSHOT", items.length)
+          } else {
+            perfListener("Notifications", "SNAPSHOT", items.length)
+          }
           setNotifications(items)
         },
         (error) => {
+          perfListener("Notifications", "ERROR")
           console.error("[Notifications fallback snapshot error]", { code: error.code, message: error.message })
         },
       )
@@ -139,6 +157,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       activeUnsub?.()
       if (retryTimer) clearTimeout(retryTimer)
       if (fallbackTimer) clearTimeout(fallbackTimer)
+      perfListener("Notifications", "STOP")
       console.log("[Notification Listener STOP]", { userId })
     }
   }, [userId])

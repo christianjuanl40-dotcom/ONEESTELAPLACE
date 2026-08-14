@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from "react"
 import { doc, onSnapshot, setDoc } from "firebase/firestore"
+import { perfListener } from "@/src/modules/shared/lib/perf-trace"
 import { db } from "@/lib/firebase"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { DEFAULT_POLICY_CONTENT, POLICY_LABELS, ALL_POLICY_KEYS, type PolicyKey } from "@/src/modules/shared/lib/policies"
@@ -536,22 +537,26 @@ export const CMSProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     console.log("[Firestore Listener START] CMS")
+    perfListener("CMS", "START")
     const unsub = onSnapshot(
       cmsDocRef,
       (docSnap) => {
         if (docSnap.exists()) {
+          perfListener("CMS", "FIRST_SNAPSHOT", 1)
           const parsed = docSnap.data() as CMSData
           const normalized = normalizeCMSData(parsed)
           setCmsData(normalized)
           try { setCachedPolicies(normalized.policies) } catch (e) { console.error("FAILED setCachedPolicies", e) }
           try { setCachedVenuesAndOffices(normalized.venues, normalized.offices) } catch (e) { console.error("FAILED setCachedVenuesAndOffices", e) }
         } else {
+          perfListener("CMS", "FIRST_SNAPSHOT", 0)
           setCmsData(defaultCMSData)
           setCachedPolicies(defaultCMSData.policies)
           setCachedVenuesAndOffices(defaultCMSData.venues, defaultCMSData.offices)
         }
       },
       (error) => {
+        perfListener("CMS", "ERROR")
         console.error("[CMS snapshot error]", { code: error.code, message: error.message, error })
         setCmsData(defaultCMSData)
       }
@@ -559,6 +564,7 @@ export const CMSProvider = ({ children }: { children: React.ReactNode }) => {
 
     return () => {
       console.log("[Firestore Listener STOP] CMS")
+      perfListener("CMS", "STOP")
       unsub()
     }
   }, [])

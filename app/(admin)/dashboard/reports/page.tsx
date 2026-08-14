@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/src/modules/shared/components/ui/select"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
-import { useBookings } from "@/src/modules/client/contexts/booking-context"
+import { useBookingData } from "@/src/modules/client/contexts/booking-context"
 import {
   Bar,
   BarChart,
@@ -349,7 +349,7 @@ export default function ReportsPage() {
   const { user } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
-  const { bookings = [] } = useBookings()
+  const { bookings = [], isLoading: bookingsLoading } = useBookingData({ bookings: true })
   const { ref: statusCardRef, width: statusCardWidth } = useContainerWidth<HTMLDivElement>()
   const isWideLayout = statusCardWidth >= 700
 
@@ -836,6 +836,16 @@ export default function ReportsPage() {
         className: "bg-slate-900 text-white",
       })
     }
+  }
+
+  if (bookingsLoading && bookingList.length === 0) {
+    return (
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
+        <div className="flex min-h-[50vh] items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-orange-600" />
+        </div>
+      </div>
+    )
   }
 
   return (

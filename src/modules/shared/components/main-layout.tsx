@@ -14,7 +14,7 @@ import { Button } from "@/src/modules/shared/components/ui/button"
 import { Badge } from "@/src/modules/shared/components/ui/badge"
 import { Input } from "@/src/modules/shared/components/ui/input"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
-import { useBookings } from "@/src/modules/client/contexts/booking-context"
+import { useBookingData } from "@/src/modules/client/contexts/booking-context"
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { useChat } from "@/src/modules/shared/contexts/chat-context"
 
@@ -30,7 +30,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   const { logout, user, isLoading } = useAuth() 
   const chat = useChat()
   const unreadCount = "getUnreadCount" in chat ? chat.getUnreadCount() : 0
-  const { bookings } = useBookings()
+  const { bookings } = useBookingData({ bookings: true })
   
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
