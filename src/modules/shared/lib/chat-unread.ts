@@ -1,5 +1,5 @@
 import { db } from "@/lib/firebase"
-import { doc, getDoc, setDoc, onSnapshot, updateDoc, increment as fireIncrement } from "firebase/firestore"
+import { doc, getDoc, setDoc, onSnapshot, increment as fireIncrement } from "firebase/firestore"
 
 function docRef(scope: "client" | "admin") {
   return doc(db, "unreadCounts", scope)
@@ -15,12 +15,16 @@ export async function setUnreadCount(scope: "client" | "admin", value: number) {
   await setDoc(docRef(scope), { count: next }, { merge: true })
 }
 
+// setDoc + merge (NOT updateDoc): the unreadCounts/{scope} document may not
+// exist yet (e.g. first notification for a fresh client). updateDoc fails with
+// "No document to update" in that case, while merge creates the document with
+// the incremented count and never overwrites unrelated fields when it exists.
 export async function incrementUnread(scope: "client" | "admin", by = 1) {
-  await updateDoc(docRef(scope), { count: fireIncrement(by) })
+  await setDoc(docRef(scope), { count: fireIncrement(by) }, { merge: true })
 }
 
 export async function clearUnread(scope: "client" | "admin") {
-  await setDoc(docRef(scope), { count: 0 })
+  await setDoc(docRef(scope), { count: 0 }, { merge: true })
 }
 
 export function subscribeUnreadUpdates(callback: (count: number) => void) {

@@ -53,6 +53,14 @@ import {
   type ReceiptPaperData,
 } from "@/src/modules/shared/components/receipt-paper";
 import { cn } from "@/src/modules/shared/lib/utils";
+import { collection, getDocs, orderBy, query, where } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import type { PaymentRecord } from "@/src/modules/client/contexts/booking-context";
+import {
+  calculatePaymentSummary,
+  getRecordsForBooking,
+  type PaymentRecordLike,
+} from "@/src/modules/shared/lib/payment-calculations";
 
 const PAYMENT_WINDOW_HOURS = 24;
 const PAYMENT_WINDOW_MS = PAYMENT_WINDOW_HOURS * 60 * 60 * 1000;
@@ -166,7 +174,10 @@ function getPaymentTermLabel(
   return type === "full" ? "Full Payment" : "Down Payment";
 }
 
-function getTransactionDisplayAmount(booking: Booking): number {
+function getTransactionDisplayAmount(
+  booking: Booking,
+  remainingDownpaymentOverride?: number,
+): number {
   const b = booking as any;
   const totalPrice = Number(b.totalPrice || 0);
   const isDownPayment =
@@ -176,6 +187,17 @@ function getTransactionDisplayAmount(booking: Booking): number {
   if (isDownPayment) {
     const dpRemaining = Number(b.downpaymentRemaining || 0);
     const dpPaid = Number(b.downpaymentPaid || 0);
+
+    // Mid-downpayment top-ups must show what the client STILL OWES toward
+    // the downpayment (canonical credited remainder), never the original
+    // full downpayment target.
+    if (
+      typeof remainingDownpaymentOverride === "number" &&
+      remainingDownpaymentOverride > 0 &&
+      dpRemaining > 0
+    ) {
+      return remainingDownpaymentOverride;
+    }
 
     if (dpRemaining > 0 && dpPaid > 0) {
       return dpRemaining;
@@ -211,7 +233,7 @@ function hasPaymentRecord(booking: Booking) {
   if (amt > 0 || payAmt > 0) return true;
   if (proof) return true;
   if (ps === "unpaid") return true;
-  return ["for review", "pending verification", "partial payment", "partial", "fully paid", "verified", "rejected", "incomplete"].includes(ps);
+  return ["for review", "pending verification", "partial payment", "partial", "fully paid", "verified", "paid", "completed", "rejected", "incomplete", "for_review", "cash_pending", "slot_pending", "pending_verification", "slot_verified"].includes(ps);
 }
 
 function paymentMatchesFilter(paymentStatus: string, status: string, filter: TransactionFilter) {
@@ -219,10 +241,10 @@ function paymentMatchesFilter(paymentStatus: string, status: string, filter: Tra
   const ps = paymentStatus.toLowerCase();
   const st = status.toLowerCase();
   if (filter === "verified") {
-    return ["verified", "paid", "slot_verified"].includes(ps);
+    return ["verified", "paid", "slot_verified", "completed"].includes(ps);
   }
   if (filter === "for_review") {
-    return ["for_review", "cash_pending", "slot_pending", "pending_verification"].includes(ps);
+    return ["for_review", "cash_pending", "slot_pending", "pending_verification", "for review", "pending verification"].includes(ps);
   }
   if (filter === "rejected") return ps === "rejected";
   if (filter === "incomplete") {
@@ -255,12 +277,20 @@ function isDateInRange(value: string, from?: string, to?: string) {
 
 function getStatusBadgeClass(paymentStatus?: string, status?: string, paymentStage?: string, remainingBalance?: number, booking?: any) {
   const bookingStatus = String(status || "").toLowerCase();
+  const payStatus = String(paymentStatus || "").toLowerCase();
   const refundStatus = String(booking?.refundStatus || "").toLowerCase();
 
   if (refundStatus === "refunded") return "border-slate-200 bg-slate-50 text-slate-700";
   if (refundStatus === "requested") return "border-orange-100 bg-orange-50 text-orange-700";
   if (["cancelled", "declined"].includes(bookingStatus)) return "border-rose-100 bg-rose-50 text-rose-700";
   if (bookingStatus === "completed") return "border-blue-100 bg-blue-50 text-blue-700";
+  // Canonical payment-level statuses are authoritative over the booking-level
+  // status: an incomplete payment must NOT render as "For Verification".
+  if (payStatus === "incomplete") return "border-amber-100 bg-amber-50 text-amber-700";
+  if (payStatus === "rejected") return "border-rose-100 bg-rose-50 text-rose-700";
+  if (payStatus === "for_review" || payStatus === "for review" || payStatus === "pending_verification" || payStatus === "pending verification") return "border-amber-100 bg-amber-50 text-amber-700";
+  if (payStatus === "partial") return "border-amber-100 bg-amber-50 text-amber-700";
+  if (payStatus === "completed" || payStatus === "paid" || payStatus === "verified" || payStatus === "slot_verified") return "border-emerald-100 bg-emerald-50 text-emerald-700";
   if (bookingStatus === "pending") return "border-orange-100 bg-orange-50 text-orange-700";
   if (bookingStatus === "verifying") return "border-amber-100 bg-amber-50 text-amber-700";
   if (["confirmed", "reservation_secured", "active_rental", "contract_signing_required"].includes(bookingStatus)) return "border-emerald-100 bg-emerald-50 text-emerald-700";
@@ -271,12 +301,21 @@ function getStatusBadgeClass(paymentStatus?: string, status?: string, paymentSta
 
 function getStatusLabel(paymentStatus?: string, status?: string, paymentStage?: string, remainingBalance?: number, booking?: any) {
   const normStatus = String(status || "").toLowerCase();
+  const payStatus = String(paymentStatus || "").toLowerCase();
   const refundStatus = String(booking?.refundStatus || "").toLowerCase();
 
   if (refundStatus === "refunded") return "Refunded";
   if (refundStatus === "requested") return "Refund Requested";
   if (["cancelled", "declined"].includes(normStatus)) return "Cancelled";
   if (normStatus === "completed") return "Completed";
+  // Canonical payment-level statuses are authoritative: an INCOMPLETE PAYMENT
+  // is a distinct payment state and must NOT be shown as "For Verification"
+  // just because the booking status is "verifying".
+  if (payStatus === "incomplete") return "Incomplete Payment";
+  if (payStatus === "rejected") return "Rejected";
+  if (payStatus === "partial") return "Partial Payment";
+  if (payStatus === "for_review" || payStatus === "for review" || payStatus === "pending_verification" || payStatus === "pending verification") return "For Verification";
+  if (payStatus === "completed" || payStatus === "fully paid" || payStatus === "fully_paid") return "Fully Paid";
   if (normStatus === "pending") return "Pending";
   if (normStatus === "verifying") return "For Verification";
   if (["confirmed", "reservation_secured", "active_rental", "contract_signing_required"].includes(normStatus)) return "Paid";
@@ -318,53 +357,120 @@ function getBookingStatusLabel(status?: string) {
   return v ? v.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "—";
 }
 
+async function readStoredReceipts(bookingId?: string): Promise<any[]> {
+  try {
+    const constraints: any[] = bookingId
+      ? [where("bookingId", "==", bookingId)]
+      : [orderBy("dateGenerated", "desc")];
+    const snapshot = await getDocs(query(collection(db, "receipts"), ...constraints));
+    const result: any[] = [];
+    snapshot.forEach((docSnap) => {
+      const d = docSnap.data();
+      result.push({ id: docSnap.id, ...d });
+    });
+    return result;
+  } catch {
+    return [];
+  }
+}
+
+function getSettlementState(booking: Booking, records?: PaymentRecordLike[] | null) {
+  const summary = calculatePaymentSummary(booking, records || []);
+  const status = String(booking.status || "").toLowerCase();
+  const isCancelled = ["cancelled", "declined"].includes(status);
+  const isCompleted = status === "completed";
+  // Existing business rule (same signal the original payment flow used): a
+  // booking whose submission is still awaiting admin resolution is UNDER
+  // REVIEW and must expose neither Pay Now nor Settle Remaining Balance.
+  // summary.hasPendingSubmission covers bookings whose records carry the
+  // pending state; hasActivePaymentSubmission covers the booking-document
+  // marker written at submission time and cleared by every admin action.
+  // A merely PARTIAL booking therefore never exposes the settle action on
+  // its own — only once its pending submission has been resolved.
+  const isUnderReview =
+    summary.hasPendingSubmission ||
+    summary.overallStatus === "for_review";
+
+  return {
+    isCancelled,
+    isCompleted,
+    isUnderReview,
+    summary,
+  };
+}
+
+function getLatestPaymentStatus(
+  records: PaymentRecord[] | undefined,
+  bookingId: string,
+): string {
+  const latest = (records || [])
+    .filter((r) => r.bookingId === bookingId)
+    .sort(
+      (a, b) =>
+        new Date(b.submittedAt || 0).getTime() -
+        new Date(a.submittedAt || 0).getTime(),
+    )[0];
+  return String(latest?.status || latest?.verificationStatus || "");
+}
+
 function PaymentActionButtons({
   booking,
   onPay,
   onSettle,
   compact,
+  paymentCount = 0,
+  latestPaymentStatus = "",
+  records,
 }: {
   booking: Booking;
   onPay: (b: Booking) => void;
   onSettle: (b: Booking) => void;
   compact?: boolean;
+  paymentCount?: number;
+  latestPaymentStatus?: string;
+  records?: PaymentRecordLike[] | null;
 }) {
-  const total = (booking as any).totalPrice || 0;
-  const amountPaid = (booking as any).amountPaid ?? 0;
-  const remaining = (booking as any).remainingBalance ?? Math.max(total - amountPaid, 0);
-  const paymentStatus = String(booking.paymentStatus || "").toLowerCase();
-  const balanceStatus = String((booking as any).balanceStatus || "").toLowerCase();
-  const paymentStage = String((booking as any).paymentStage || "").toLowerCase();
   const remainingMs = getRemainingMs(booking);
   const isExpired = booking.status === "pending" && remainingMs <= 0;
-  const isCashPending = booking.paymentMethod === "cash" && booking.paymentStatus === "cash_pending";
-  const isUnderReview = (booking as any).hasActivePaymentSubmission || paymentStatus === "for_review";
-  const isDownpaymentActive =
-    booking.status === "confirmed" && booking.paymentType === "downpayment" && !["cancelled", "declined"].includes(String(booking.status).toLowerCase()) && remaining > 0 && paymentStatus !== "paid";
-  const hasRemainingPaymentDue =
-    remaining > 0 &&
-    !["cancelled", "declined"].includes(String(booking.status).toLowerCase()) && (
-      paymentStatus === "partial" ||
-      paymentStatus === "incomplete" ||
-      balanceStatus === "with remaining balance" ||
-      paymentStage === "complete downpayment" ||
-      paymentStage === "settle remaining balance"
-    );
-  const isPendingRemainingDP = isUnderReview &&
-    !["cancelled", "declined"].includes(String(booking.status).toLowerCase()) &&
-    booking.paymentType === "downpayment" &&
-    Number((booking as any).downpaymentPaid || 0) > 0;
+  const isCashPending =
+    booking.paymentMethod === "cash" &&
+    booking.paymentStatus === "cash_pending";
+  const { isUnderReview, isCancelled, isCompleted, summary } = getSettlementState(
+    booking,
+    records,
+  );
 
-  if (isUnderReview) return null;
+  // The settlement button is driven ENTIRELY by the canonical payment summary.
+  // It appears ONLY for a booking that completed its required downpayment but
+  // still has an outstanding balance (overallStatus === "partial"). Fully paid,
+  // for-review, incomplete and rejected bookings never show it.
+  const canSettleRemainingBalance =
+    summary.overallStatus === "partial" &&
+    summary.moneyReceivedTotal >= summary.requiredDownpayment &&
+    summary.moneyReceivedTotal < summary.bookingTotal &&
+    summary.remainingBalance > 0 &&
+    !isCancelled &&
+    !isCompleted;
 
-  const isFullyPaid =
-    paymentStatus === "paid" ||
-    paymentStatus === "fully paid" ||
-    remaining <= 0;
-  if (isFullyPaid) return null;
-
-  const showSettle = isDownpaymentActive || hasRemainingPaymentDue || isPendingRemainingDP;
-  const showPayNow = booking.status === "pending" && !isCashPending && !isExpired && !showSettle;
+  // Pending bookings keep the existing Pay Now flow (24h window, no payment
+  // submitted yet). Every other active booking with a payable balance gets
+  // the settlement button.
+  const showPayNow =
+    booking.status === "pending" &&
+    !isCashPending &&
+    !isExpired &&
+    !isUnderReview;
+  const showSettle = canSettleRemainingBalance;
+  // INCOMPLETE / REJECTED — the required downpayment is NOT yet complete, so
+  // the client MUST still have a way to submit another payment toward it.
+  // An old incomplete/rejected record must never leave the client without a
+  // payment action; only a completed downpayment (partial) upgrades this to
+  // Settle Remaining Balance, and fully_paid shows no action at all.
+  const showMakePayment =
+    !isCancelled &&
+    !isCompleted &&
+    !showSettle &&
+    (summary.overallStatus === "incomplete" || summary.overallStatus === "rejected");
 
   if (showSettle) {
     return (
@@ -399,6 +505,23 @@ function PaymentActionButtons({
     );
   }
 
+  if (showMakePayment) {
+    return (
+      <Button
+        onClick={() => onPay(booking)}
+        className={cn(
+          compact
+            ? "h-9 rounded-lg px-4 text-xs font-bold"
+            : "h-9 rounded-lg px-4 text-xs font-bold shadow-sm",
+          "bg-orange-600 text-white hover:bg-orange-700 w-full whitespace-nowrap sm:w-auto"
+        )}
+      >
+        <CreditCard className="mr-1 h-3.5 w-3.5" />
+        {"Make Payment"}
+      </Button>
+    );
+  }
+
   return null;
 }
 
@@ -407,41 +530,32 @@ function CurrentTransactionCard({
   onPay,
   onSettle,
   onView,
+  paymentCount = 0,
+  latestPaymentStatus = "",
+  records,
 }: {
   booking: Booking;
   onPay: (b: Booking) => void;
   onSettle: (b: Booking) => void;
   onView: (b: Booking) => void;
+  paymentCount?: number;
+  latestPaymentStatus?: string;
+  records?: PaymentRecordLike[] | null;
 }) {
   const total = (booking as any).totalPrice || 0;
   const amountPaid = (booking as any).amountPaid ?? 0;
   const remaining = (booking as any).remainingBalance ?? Math.max(total - amountPaid, 0);
   const paymentStatus = String(booking.paymentStatus || "").toLowerCase();
-  const balanceStatus = String((booking as any).balanceStatus || "").toLowerCase();
-  const paymentStage = String((booking as any).paymentStage || "").toLowerCase();
-  const isDownpaymentActive =
-    booking.status === "confirmed" && booking.paymentType === "downpayment" && !["cancelled", "declined"].includes(String(booking.status).toLowerCase()) && remaining > 0 && paymentStatus !== "paid";
-  const hasRemainingPaymentDue =
-    remaining > 0 &&
-    !["cancelled", "declined"].includes(String(booking.status).toLowerCase()) && (
-      paymentStatus === "partial" ||
-      paymentStatus === "incomplete" ||
-      balanceStatus === "with remaining balance" ||
-      paymentStage === "complete downpayment" ||
-      paymentStage === "settle remaining balance"
-    );
   const remainingMs = getRemainingMs(booking);
   const isExpired = booking.status === "pending" && remainingMs <= 0;
   const isCashPending = booking.paymentMethod === "cash" && booking.paymentStatus === "cash_pending";
-  const isUnderReview = (booking as any).hasActivePaymentSubmission || paymentStatus === "for_review";
-  const isPendingRemainingDP = isUnderReview &&
-    !["cancelled", "declined"].includes(String(booking.status).toLowerCase()) &&
-    booking.paymentType === "downpayment" &&
-    Number((booking as any).downpaymentPaid || 0) > 0;
-
-  const showSettleAction =
-    !isUnderReview &&
-    (isDownpaymentActive || hasRemainingPaymentDue || isPendingRemainingDP);
+  // Canonical credited remainder — what the client still owes toward the
+  // required downpayment (verified payments + received amounts of short
+  // incomplete payments already subtracted from the requirement).
+  const cardDownpaymentRemainder = calculatePaymentSummary(
+    booking,
+    records || [],
+  ).remainingDownpayment;
 
   return (
     <div className="group flex w-full min-w-0 flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-4">
@@ -456,7 +570,7 @@ function CurrentTransactionCard({
               {booking.eventName || "Untitled"}
             </p>
             <p className="mt-0.5 text-sm font-bold text-orange-600">
-              {formatMoney(getTransactionDisplayAmount(booking))}
+              {formatMoney(getTransactionDisplayAmount(booking, cardDownpaymentRemainder))}
             </p>
           </div>
         </div>
@@ -488,7 +602,7 @@ function CurrentTransactionCard({
             <span className="shrink-0 whitespace-nowrap text-xs font-semibold text-slate-500">• {booking.id}</span>
           </p>
           <p className="mt-1.5 break-words whitespace-normal text-[11px] font-bold text-orange-600">
-            {formatMoney(getTransactionDisplayAmount(booking))}
+            {formatMoney(getTransactionDisplayAmount(booking, cardDownpaymentRemainder))}
           </p>
         </div>
       </div>
@@ -506,7 +620,7 @@ function CurrentTransactionCard({
             {booking.eventName || "Untitled"}
           </p>
           <p className="break-words whitespace-normal text-[11px] font-bold text-orange-600">
-            {formatMoney(getTransactionDisplayAmount(booking))}
+            {formatMoney(getTransactionDisplayAmount(booking, cardDownpaymentRemainder))}
           </p>
         </div>
       </div>
@@ -541,7 +655,7 @@ function CurrentTransactionCard({
             {getStatusLabel(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance, booking)}
           </span>
           <div className="flex flex-col items-stretch gap-2 w-full sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-2">
-            {hasPaymentRecord(booking) && !showSettleAction && paymentStatus !== "unpaid" && (
+            {hasPaymentRecord(booking) && paymentStatus !== "unpaid" && (
               <Button
                 variant="outline"
                 onClick={() => onView(booking)}
@@ -550,7 +664,7 @@ function CurrentTransactionCard({
                 View Details
               </Button>
             )}
-            <PaymentActionButtons booking={booking} onPay={onPay} onSettle={onSettle} compact />
+            <PaymentActionButtons booking={booking} onPay={onPay} onSettle={onSettle} compact paymentCount={paymentCount} latestPaymentStatus={latestPaymentStatus} records={records} />
           </div>
         </div>
       </div>
@@ -818,28 +932,150 @@ function TransactionsContent() {
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
   const [viewingReceipt, setViewingReceipt] = useState<Booking | null>(null);
   const [viewingReceiptNo, setViewingReceiptNo] = useState<string | null>(null);
+  const [storedReceiptsByBooking, setStoredReceiptsByBooking] = useState<Map<string, any[]>>(new Map());
+
+  useEffect(() => {
+    if (!viewingReceipt?.id) return;
+    let mounted = true;
+    readStoredReceipts(viewingReceipt.id).then((receipts) => {
+      if (!mounted) return;
+      setStoredReceiptsByBooking((prev) => {
+        const next = new Map(prev);
+        next.set(viewingReceipt.id, receipts);
+        return next;
+      });
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [viewingReceipt?.id]);
+
+  const viewingStoredReceipts = useMemo(() => {
+    if (!viewingReceipt) return [] as any[];
+    return storedReceiptsByBooking.get(viewingReceipt.id) || [];
+  }, [viewingReceipt, storedReceiptsByBooking]);
 
   const viewingReceiptHistory = useMemo(() => {
     if (!viewingReceipt) return [] as any[];
     const bookingAny = viewingReceipt as any;
-    const history = Array.isArray(bookingAny?.paymentReceipts)
+    const bookingReceipts: any[] = Array.isArray(bookingAny?.paymentReceipts)
       ? bookingAny.paymentReceipts
       : viewingReceipt.receipt
         ? [viewingReceipt.receipt]
         : [];
-    return [...history].sort(
-      (a, b) =>
-        new Date(b.dateGenerated || b.dateIssued || 0).getTime() -
-        new Date(a.dateGenerated || a.dateIssued || 0).getTime(),
+    const bookingRecords: PaymentRecordLike[] = getRecordsForBooking(
+      paymentRecords,
+      viewingReceipt.id,
     );
-  }, [viewingReceipt]);
+    const storedReceipts = viewingStoredReceipts as any[];
+    // Same receipt may be persisted both inside the booking doc
+    // (paymentReceipts) and in the `receipts` collection — dedupe by
+    // receiptNumber / timestamp so it never renders twice.
+    const seenReceipts = new Set<string>();
+    const allReceipts: any[] = [];
+    for (const receipt of [...bookingReceipts, ...storedReceipts]) {
+      const key = String(
+        receipt.receiptNumber ||
+          receipt.paymentSubmittedAt ||
+          receipt.dateGenerated ||
+          "",
+      );
+      if (!key || seenReceipts.has(key)) continue;
+      seenReceipts.add(key);
+      allReceipts.push(receipt);
+    }
+
+    // Build one entry PER PAYMENT. Firestore payment records are the
+    // authoritative history (Payment 1..N); each record is matched to its
+    // e-receipt by the pinned submission timestamp. Payment records without
+    // a receipt (e.g. an incomplete payment) still appear in the history.
+    const entries: any[] = [];
+    const usedReceipts = new Set<any>();
+
+    for (const record of bookingRecords) {
+      let matched: any | undefined;
+      // A receipt is matched ONLY when it explicitly belongs to this payment
+      // record: primary rule is the exact paymentId tie written at generation
+      // time; legacy receipts (created before paymentId existed) fall back to
+      // the pinned exact paymentSubmittedAt. There is NO timestamp-window /
+      // nearest-receipt fallback — a payment without its own receipt record
+      // renders "No receipt record" and never inherits another payment's
+      // receipt.
+      for (const receipt of allReceipts) {
+        if (usedReceipts.has(receipt)) continue;
+        if (
+          record.id &&
+          String(receipt.paymentId || "") &&
+          String(receipt.paymentId) === String(record.id)
+        ) {
+          matched = receipt;
+          usedReceipts.add(receipt);
+          break;
+        }
+        if (
+          String(receipt.paymentSubmittedAt || "") &&
+          String(receipt.paymentSubmittedAt) === String(record.submittedAt)
+        ) {
+          matched = receipt;
+          usedReceipts.add(receipt);
+          break;
+        }
+      }
+      const amount = Number(record.amount ?? record.amountPaid ?? 0);
+      entries.push({
+        ...(matched || {}),
+        paymentId: record.id,
+        amount,
+        amountPaid: matched ? matched.amountPaid : amount,
+        paymentAmount: matched ? matched.paymentAmount : amount,
+        submittedAt: record.submittedAt || record.updatedAt || "",
+        status: record.status || record.verificationStatus || "",
+        dateGenerated: matched
+          ? matched.dateGenerated
+          : record.submittedAt || "",
+        receipt: matched || null,
+        source: "payment",
+      });
+    }
+
+    for (const receipt of allReceipts) {
+      if (usedReceipts.has(receipt)) continue;
+      entries.push({
+        ...receipt,
+        paymentId: receipt.paymentId || "",
+        submittedAt:
+          receipt.paymentSubmittedAt ||
+          receipt.dateGenerated ||
+          receipt.dateIssued ||
+          "",
+        status: receipt.paymentStatus || "",
+        receipt,
+        source: "receipt",
+      });
+    }
+
+    const merged = entries.sort(
+      (a, b) =>
+        new Date(
+          b.submittedAt || b.dateGenerated || b.dateIssued || 0,
+        ).getTime() -
+        new Date(
+          a.submittedAt || a.dateGenerated || a.dateIssued || 0,
+        ).getTime(),
+    );
+
+    return merged;
+  }, [viewingReceipt, paymentRecords, viewingStoredReceipts]);
 
   const selectedViewingReceipt = useMemo(() => {
     if (viewingReceiptHistory.length === 0) return null;
     if (!viewingReceiptNo) return viewingReceiptHistory[0];
     return (
-      viewingReceiptHistory.find((r) => r.receiptNumber === viewingReceiptNo) ||
-      viewingReceiptHistory[0]
+      viewingReceiptHistory.find(
+        (r) =>
+          r.paymentId === viewingReceiptNo ||
+          r.receiptNumber === viewingReceiptNo,
+      ) || viewingReceiptHistory[0]
     );
   }, [viewingReceiptHistory, viewingReceiptNo]);
 
@@ -920,9 +1156,45 @@ function TransactionsContent() {
     });
   }, [localBookings, user?.id, latestPaymentActivityByBooking]);
 
+  // Canonical payment state — every booking rendered on this page carries the
+  // SAME values the Admin Payment Verification page computes from the booking's
+  // complete payment history, so Client and Admin can never disagree:
+  //   paymentStatus    = canonical overall status
+  //   amountPaid       = total money actually received (verified payments +
+  //                      received amounts of incomplete payments)
+  //   remainingBalance = bookingTotal − money received
+  const summarizedTransactions = useMemo(
+    () =>
+      myTransactions.map((booking) => {
+        const records = getRecordsForBooking(paymentRecords, booking.id);
+        const summary = calculatePaymentSummary(booking, records);
+        // Canonical state is only authoritative once there is payment activity.
+        // A fresh booking (ps "unpaid", nothing submitted, no records) keeps its
+        // raw fields so the UI renders the booking-level "Pending" state and the
+        // "unpaid" guards, exactly as before the canonicalization.
+        const hasPaymentActivity =
+          summary.moneyReceivedTotal > 0 ||
+          records.length > 0 ||
+          Number((booking as any).paymentAmount || 0) > 0 ||
+          Boolean(
+            (booking as any).proofUrl ||
+              (booking as any).paymentProof ||
+              (booking as any).proofOfPayment,
+          );
+        if (!hasPaymentActivity) return booking;
+        return {
+          ...booking,
+          paymentStatus: summary.overallStatus,
+          amountPaid: summary.moneyReceivedTotal,
+          remainingBalance: summary.remainingBalance,
+        } as Booking;
+      }),
+    [myTransactions, paymentRecords],
+  );
+
   const transactionsWithPayment = useMemo(
-    () => myTransactions.filter(hasPaymentRecord),
-    [myTransactions],
+    () => summarizedTransactions.filter(hasPaymentRecord),
+    [summarizedTransactions],
   );
 
   useEffect(() => {
@@ -1196,9 +1468,12 @@ function TransactionsContent() {
   }
 
   if (selectedBookingToPay) {
-    const booking = myTransactions.find(
-      (item) => item.id === selectedBookingToPay,
-    );
+    // Prefer the canonical-summarized entry (paymentStatus / amountPaid /
+    // remainingBalance are derived from the verified payment records) and
+    // fall back to the raw booking for bookings without payment records.
+    const booking =
+      summarizedTransactions.find((item) => item.id === selectedBookingToPay) ||
+      myTransactions.find((item) => item.id === selectedBookingToPay);
 
     if (!booking) {
       return (
@@ -1228,12 +1503,24 @@ function TransactionsContent() {
       (booking.status === "reservation_secured" ||
         booking.officeReservationStatus === "reservation_secured");
     const ps = String(booking.paymentStatus || "").toLowerCase();
-    const isUnderReview = (booking as any).hasActivePaymentSubmission || ps === "for_review";
+    const isUnderReview = ps === "for_review";
     const bs = String((booking as any).balanceStatus || "").toLowerCase();
     const paymentStage = String((booking as any).paymentStage || "").toLowerCase();
-    const totalPrice = booking.totalPrice || 15000;
+    const totalPrice = Number(booking.totalPrice || 0);
     const selectedDP = Number((booking as any).selectedDownpaymentAmount || Number((booking as any).downPaymentPercentage || 50) / 100 * totalPrice);
-    const downpaymentRemaining = Number((booking as any).downpaymentRemaining || Math.max(selectedDP - Number((booking as any).downpaymentPaid || 0), 0));
+    // CANONICAL DOWNPAYMENT REMAINDER — derived from the booking's complete
+    // payment history: every VERIFIED payment plus the money admin confirmed
+    // was ACTUALLY RECEIVED on short (INCOMPLETE) payments is credited toward
+    // the required downpayment. A client who submitted ₱5,500 of a ₱7,500
+    // downpayment must be asked for ₱2,000 here — NEVER the full ₱7,500
+    // again. The raw booking fields are only a fallback for bookings whose
+    // payment type carries no canonical downpayment requirement.
+    const payRecords = getRecordsForBooking(paymentRecords, booking.id);
+    const paySummary = calculatePaymentSummary(booking, payRecords);
+    const downpaymentRemaining =
+      paySummary.requiredDownpayment > 0
+        ? paySummary.remainingDownpayment
+        : Number((booking as any).downpaymentRemaining || Math.max(selectedDP - Number((booking as any).downpaymentPaid || 0), 0));
     const isSettlingBalance =
       !isOfficeRental &&
       booking.status === "confirmed" &&
@@ -1244,23 +1531,43 @@ function TransactionsContent() {
         paymentStage === "complete downpayment" || paymentStage === "settle remaining balance");
 
     const currentAmountPaid = Number((booking as any).amountPaid || 0);
-    const remainingBalance = Math.max(totalPrice - currentAmountPaid, 0);
+    // CANONICAL REMAINING BALANCE — single source of truth for what the
+    // client still owes. Derived from the booking's complete payment-record
+    // history (verified payments + received amounts of short incomplete
+    // payments). The stored booking field is only a fallback for bookings
+    // without any payment-record history.
+    const remainingBalance =
+      payRecords.length > 0
+        ? paySummary.remainingBalance
+        : Number(
+            (booking as any).remainingBalance ||
+              Math.max(totalPrice - currentAmountPaid, 0),
+          );
     const isOfficeRemainingPayment =
       isOfficeRental && currentAmountPaid > 0 && remainingBalance > 0;
     const officeReservationFee = getOfficeReservationFee(booking) || totalPrice;
     const downpaymentAmount = Number((booking as any).downPaymentPercentage || 50) / 100 * totalPrice;
-    const isCompletingDownpayment = paymentStage === "complete downpayment" || (isSettlingBalance && downpaymentRemaining > 0);
+    // "Complete Your Downpayment" only while the canonical downpayment
+    // remainder actually exists. Uses paySummary.remainingDownpayment
+    // (derived from the complete payment-record history) — NEVER the
+    // stored booking field which may be stale.
+    const isCompletingDownpayment =
+      paySummary.requiredDownpayment > 0 &&
+      paySummary.remainingDownpayment > 0 &&
+      !paySummary.downpaymentComplete;
+    // CANONICAL AMOUNT TO PAY — the settlement/settle-balance/complete-dp
+    // amount ALWAYS equals the canonical remainingBalance or
+    // remainingDownpayment. Never derive from stored booking fields,
+    // payment history amounts, or hardcoded values.
     const amountToPay = isOfficeRental
       ? (currentAmountPaid > 0 ? remainingBalance : officeReservationFee)
       : isCompletingDownpayment
-        ? downpaymentRemaining
-        : isRemainingPaymentFlow
+        ? paySummary.remainingDownpayment
+        : payRecords.length > 0
           ? remainingBalance
-          : isSettlingBalance
-            ? remainingBalance || downpaymentAmount
-            : paymentType === "full"
-              ? totalPrice
-              : downpaymentAmount;
+          : paymentType === "full"
+            ? totalPrice
+            : downpaymentAmount;
 
     const remainingMs = getRemainingMs(booking);
     const isExpired = booking.status === "pending" && remainingMs <= 0;
@@ -1294,7 +1601,7 @@ function TransactionsContent() {
 
     const submitSelectedPayment = async () => {
       if (isSubmitting) return;
-      if ((booking as any).hasActivePaymentSubmission || String(booking.paymentStatus || "").toLowerCase() === "for_review") {
+      if (String(booking.paymentStatus || "").toLowerCase() === "for_review") {
         toast({
           title: "Already Submitted",
           description: "This payment is already pending admin review.",
@@ -1371,7 +1678,7 @@ function TransactionsContent() {
         });
         return;
       }
-      if ((booking as any).hasActivePaymentSubmission || String(booking.paymentStatus || "").toLowerCase() === "for_review") {
+      if (String(booking.paymentStatus || "").toLowerCase() === "for_review") {
         toast({
           title: "Payment Already Submitted",
           description: "You already have a payment pending review. Please wait for admin verification before submitting again.",
@@ -2056,6 +2363,9 @@ function TransactionsContent() {
                     onPay={handlePay}
                     onSettle={handleSettle}
                     onView={handleView}
+                    records={getRecordsForBooking(paymentRecords, currentTransaction.id)}
+                    paymentCount={getRecordsForBooking(paymentRecords, currentTransaction.id).length}
+                    latestPaymentStatus={getLatestPaymentStatus(paymentRecords, currentTransaction.id)}
                   />
                 </NotificationTargetWrapper>
               </div>
@@ -2081,31 +2391,7 @@ function TransactionsContent() {
               <div className="mt-3 space-y-2">
                 {paginatedOtherActive.map((booking) => {
                   const isOfficeRental = isOfficeRentalBooking(booking);
-                  const _total = (booking as any).totalPrice || 0;
-                  const _amountPaid = (booking as any).amountPaid ?? 0;
-                  const _remaining = (booking as any).remainingBalance ?? Math.max(_total - _amountPaid, 0);
                   const _paymentStatus = String(booking.paymentStatus || "").toLowerCase();
-                  const _balanceStatus = String((booking as any).balanceStatus || "").toLowerCase();
-                  const _paymentStage = String((booking as any).paymentStage || "").toLowerCase();
-                  const _isUnderReview = (booking as any).hasActivePaymentSubmission || _paymentStatus === "for_review";
-                  const _isDownpaymentActive =
-                    booking.status === "confirmed" && booking.paymentType === "downpayment" && !["cancelled", "declined"].includes(String(booking.status).toLowerCase()) && _remaining > 0 && _paymentStatus !== "paid";
-                  const _hasRemainingPaymentDue =
-                    _remaining > 0 &&
-                    !["cancelled", "declined"].includes(String(booking.status).toLowerCase()) && (
-                      _paymentStatus === "partial" ||
-                      _paymentStatus === "incomplete" ||
-                      _balanceStatus === "with remaining balance" ||
-                      _paymentStage === "complete downpayment" ||
-                      _paymentStage === "settle remaining balance"
-                    );
-                  const _isPendingRemainingDP = _isUnderReview &&
-                    !["cancelled", "declined"].includes(String(booking.status).toLowerCase()) &&
-                    booking.paymentType === "downpayment" &&
-                    Number((booking as any).downpaymentPaid || 0) > 0;
-                  const showSettleAction =
-                    !_isUnderReview &&
-                    (_isDownpaymentActive || _hasRemainingPaymentDue || _isPendingRemainingDP);
                   return (
                     <NotificationTargetWrapper
                       key={booking.id}
@@ -2153,7 +2439,7 @@ function TransactionsContent() {
             {getStatusLabel(booking.paymentStatus, booking.status, (booking as any).paymentStage, (booking as any).remainingBalance, booking)}
                           </span>
                           <div className="flex flex-col items-stretch gap-2 w-full sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-2">
-                            {hasPaymentRecord(booking) && !showSettleAction && _paymentStatus !== "unpaid" && (
+                            {hasPaymentRecord(booking) && _paymentStatus !== "unpaid" && (
                               <Button
                                 variant="outline"
                                 onClick={() => handleView(booking)}
@@ -2167,6 +2453,9 @@ function TransactionsContent() {
                               onPay={handlePay}
                               onSettle={handleSettle}
                               compact
+                              records={getRecordsForBooking(paymentRecords, booking.id)}
+                              paymentCount={getRecordsForBooking(paymentRecords, booking.id).length}
+                              latestPaymentStatus={getLatestPaymentStatus(paymentRecords, booking.id)}
                             />
                           </div>
                         </div>
@@ -2222,14 +2511,23 @@ function TransactionsContent() {
                     <div className="space-y-1.5">
                       {viewingReceiptHistory.map((receipt, idx) => {
                         const isSelected =
-                          selectedViewingReceipt?.receiptNumber === receipt.receiptNumber;
+                          selectedViewingReceipt?.paymentId === receipt.paymentId ||
+                          (!!receipt.receiptNumber &&
+                            selectedViewingReceipt?.receiptNumber ===
+                              receipt.receiptNumber);
                         return (
                           <button
-                            key={receipt.receiptNumber}
+                            key={
+                              receipt.paymentId ||
+                              receipt.receiptNumber ||
+                              `payment-${idx}`
+                            }
                             type="button"
                             onClick={() =>
                               setViewingReceiptNo(
-                                isSelected ? null : receipt.receiptNumber,
+                                isSelected
+                                  ? null
+                                  : receipt.paymentId || receipt.receiptNumber,
                               )
                             }
                             className={cn(
@@ -2242,15 +2540,24 @@ function TransactionsContent() {
                             <span className="min-w-0">
                               <span className="block text-xs font-black text-slate-900">
                                 Payment {viewingReceiptHistory.length - idx} —{" "}
-                                {formatMoney(Number(receipt.paymentAmount ?? receipt.amountPaid ?? 0))}
+                                {formatMoney(
+                                  Number(
+                                    receipt.paymentAmount ??
+                                      receipt.amount ??
+                                      receipt.amountPaid ??
+                                      0,
+                                  ),
+                                )}
                               </span>
                               <span className="mt-0.5 block text-[10px] font-semibold text-slate-500">
-                                {Number(receipt.remainingBalance ?? 0) > 0
-                                  ? `Remaining balance: ${formatMoney(Number(receipt.remainingBalance))}`
-                                  : "Balance fully settled"}
+                                {receipt.receipt
+                                  ? Number(receipt.remainingBalance ?? 0) > 0
+                                    ? `Remaining balance: ${formatMoney(Number(receipt.remainingBalance))}`
+                                    : "Balance fully settled"
+                                  : receipt.status || "Awaiting verification"}
                               </span>
                               <span className="mt-1 block truncate text-[10px] font-black uppercase tracking-[0.12em] text-orange-600">
-                                {receipt.receiptNumber}
+                                {receipt.receiptNumber || "No receipt record"}
                               </span>
                             </span>
                             {isSelected && (
@@ -2268,7 +2575,7 @@ function TransactionsContent() {
                   </p>
                   <ReceiptDetails
                     booking={viewingReceipt}
-                    receipt={selectedViewingReceipt}
+                    receipt={selectedViewingReceipt?.receipt || null}
                     isCancelled={
                       String(viewingReceipt.status).toLowerCase() === "cancelled" ||
                       String(viewingReceipt.status).toLowerCase() === "declined"
@@ -2525,18 +2832,17 @@ function ReceiptDetails({
       <div className="space-y-4">
         <div>
           <h2 className="text-xl font-black leading-tight text-slate-900">
-            E-Receipt Not Generated Yet
+            No Receipt Record
           </h2>
           <p className="mt-1 text-sm font-bold leading-6 text-slate-900">
-            The system will automatically generate your e-receipt after admin
-            verifies your payment.
+            This payment has no transaction receipt on file. Every submitted
+            payment creates its own receipt automatically — if this payment is
+            missing one, please contact support.
           </p>
         </div>
         <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 sm:p-6 text-center">
           <Receipt className="mx-auto mb-3 h-10 w-10 text-slate-300" />
-          <p className="text-sm font-black text-slate-900">
-            No system-generated receipt yet.
-          </p>
+          <p className="text-sm font-black text-slate-900">No receipt record.</p>
           <p className="mt-1 text-sm font-bold text-slate-900">
             Booking ID: {booking.id}
           </p>
@@ -2567,16 +2873,18 @@ function ReceiptDetails({
     : receipt?.paymentType || receipt?.paymentPurpose || "Booking Payment";
   const paymentMethod =
     receipt?.paymentMethod || booking.paymentMethod || "Not specified";
-  const paymentStatus =
-    receipt?.paymentStatus || booking.paymentStatus || "Payment Verified";
+  const paymentStatus = receipt?.paymentStatus || booking.paymentStatus || "";
   const dateGenerated =
     receipt?.dateGenerated || receipt?.dateIssued || new Date().toISOString();
   const payStatus = String(paymentStatus).toLowerCase();
+  // Receipt styling reflects the TRANSACTION's own state — a transaction
+  // receipt for an incomplete/rejected/for-review payment must NOT render as
+  // accepted. Only verified/paid transactions get the accepted treatment.
   const isVerified =
     payStatus === "verified" ||
     payStatus === "paid" ||
     payStatus === "slot_verified" ||
-    !isCancelled;
+    payStatus === "reservation secured";
 
   const paperData: ReceiptPaperData = {
     fullName: receipt.fullName || booking.userInfo?.name || "Client",

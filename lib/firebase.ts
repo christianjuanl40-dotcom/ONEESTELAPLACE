@@ -1,5 +1,10 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentSingleTabManager,
+} from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
@@ -13,7 +18,27 @@ const firebaseConfig = {
 };
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-const db = getFirestore(app);
+
+// Firestore persistent local cache (IndexedDB): returning visits render the
+// cached snapshot immediately while background listeners synchronize with
+// Firestore. Firestore remains the single source of truth.
+let db: ReturnType<typeof getFirestore>;
+if (typeof window !== "undefined" && typeof indexedDB !== "undefined") {
+  try {
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentSingleTabManager({ forceOwnership: false }),
+      }),
+    });
+  } catch {
+    // initializeFirestore throws if Firestore was already started without the
+    // cache (e.g. another module imported first). Fall back to the default
+    // instance so the app keeps working.
+    db = getFirestore(app);
+  }
+} else {
+  db = getFirestore(app);
+}
 const auth = getAuth(app);
 
 export { app, db, auth };

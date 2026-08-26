@@ -151,6 +151,9 @@ export interface AdminLog {
 export interface BookingReceipt {
   receiptNumber: string;
   bookingId: string;
+  // Exact payment record this receipt belongs to (payments collection doc id).
+  // One receipt per VERIFIED payment — never shared between payments.
+  paymentId?: string;
   fullName: string;
   bookingDate: string;
   startDate: string;
@@ -187,10 +190,23 @@ export interface PaymentRecord {
   term?: string;
   amount?: number;
   amountPaid?: number;
+  // Original REQUESTED amount (e.g. the ₱7,500 downpayment target) preserved
+  // when admin rewrites this record to the ACTUAL money received (₱5,500)
+  // via Mark as Incomplete. Purely informational for history/UI.
+  requestedAmount?: number;
+  // Money the admin confirmed was ACTUALLY RECEIVED when marking this
+  // payment INCOMPLETE (short payment). Never ACCEPTED money, but it is
+  // credited toward completing the required downpayment so the client is
+  // only asked for the true remainder.
+  amountReceived?: number;
   referenceNo?: string;
   proofUrl?: string;
   status?: string;
   verificationStatus?: string;
+  // receiptNumber of THIS payment's transaction receipt (created at
+  // submission, updated in place by admin actions) — bidirectional link:
+  // receipt.paymentId === payment.id && payment.receiptNumber === receipt.receiptNumber
+  receiptNumber?: string;
   isRemainingDownPayment?: boolean;
   submittedAt?: string;
   updatedAt?: string;
@@ -774,13 +790,23 @@ function recalculatePaymentStage(booking: Booking): Booking {
   }
 
   if (amountPaid > 0) {
-    const isDownpaymentComplete = downpaymentPaid >= selectedDP;
+    // Only downpayment bookings carry a required-downpayment stage. A
+    // verified payment that has NOT yet reached the required downpayment
+    // leaves the booking INCOMPLETE — the stored status must never read as
+    // "partial" (settleable) until the downpayment is complete.
+    const hasDownpaymentRequirement =
+      String(booking.paymentType || "").toLowerCase() === "downpayment";
+    const isDownpaymentComplete =
+      !hasDownpaymentRequirement || downpaymentPaid >= selectedDP;
     return {
       ...booking,
       paymentStage: isDownpaymentComplete ? "Settle Remaining Balance" : "Complete Downpayment",
-      paymentStatus: "partial" as PaymentStatus,
+      paymentStatus: (isDownpaymentComplete ? "partial" : "incomplete") as PaymentStatus,
       balanceStatus: "With Remaining Balance",
-      downpaymentRemaining: isDownpaymentComplete ? 0 : Math.max(selectedDP - downpaymentPaid, 0),
+      downpaymentRemaining:
+        hasDownpaymentRequirement && !isDownpaymentComplete
+          ? Math.max(selectedDP - downpaymentPaid, 0)
+          : 0,
       downpaymentPaid: downpaymentPaid,
       remainingBalance: total - amountPaid,
     };
@@ -882,6 +908,7 @@ async function loadReceipts(bookingId?: string): Promise<BookingReceipt[]> {
       result.push({
         receiptNumber: d.receiptNumber || "",
         bookingId: d.bookingId || "",
+        paymentId: d.paymentId || undefined,
         fullName: d.fullName || "",
         bookingDate: d.bookingDate || "",
         startDate: d.startDate || "",
@@ -910,6 +937,7 @@ async function saveStoredReceipt(receipt: BookingReceipt) {
   await setDoc(doc(receiptsRef, receipt.receiptNumber), {
     receiptNumber: receipt.receiptNumber,
     bookingId: receipt.bookingId,
+    paymentId: receipt.paymentId || "",
     fullName: receipt.fullName,
     bookingDate: receipt.bookingDate,
     startDate: receipt.startDate,
@@ -941,6 +969,7 @@ async function getStoredReceiptByBookingId(bookingId: string): Promise<BookingRe
         found = {
           receiptNumber: d.receiptNumber || "",
           bookingId: d.bookingId || "",
+          paymentId: d.paymentId || undefined,
           fullName: d.fullName || "",
           bookingDate: d.bookingDate || "",
           startDate: d.startDate || "",
@@ -1073,6 +1102,7 @@ function buildAutoReceipt(
   booking: Booking,
   generatedAt = new Date().toISOString(),
   existingReceipts?: BookingReceipt[],
+  paymentId?: string,
 ) {
   const officeBooking = isOfficeBooking(booking);
   const officeTerm = officeBooking ? booking.officeRentalTerm || "6_months" : "";
@@ -1083,6 +1113,10 @@ function buildAutoReceipt(
   const receipt: BookingReceipt = {
     receiptNumber: generateUniqueReceiptNumber(existingReceipts),
     bookingId: booking.id,
+    // Reliable per-payment reference — this receipt belongs to THIS verified
+    // payment record only (payments collection doc id), never to the booking
+    // as a whole and never to another payment.
+    paymentId: paymentId || undefined,
     fullName: booking.userInfo?.name || "Client",
     bookingDate: booking.createdAt || generatedAt,
     startDate: booking.date || "Not set",
@@ -1114,10 +1148,10 @@ function getReceiptHistory(booking: Booking): BookingReceipt[] {
   return [];
 }
 
-function attachAutoReceipt(booking: Booking) {
+function attachAutoReceipt(booking: Booking, paymentId?: string) {
   const generatedAt = new Date().toISOString();
   const history = getReceiptHistory(booking);
-  const receipt = buildAutoReceipt(booking, generatedAt, history);
+  const receipt = buildAutoReceipt(booking, generatedAt, history, paymentId);
 
   const last = history[history.length - 1];
   const duplicated =
@@ -1150,6 +1184,309 @@ function attachAutoReceipt(booking: Booking) {
           "AUTO_GENERATE_E_RECEIPT",
           `System automatically generated e-receipt ${receipt.receiptNumber} after admin payment verification.`,
         ),
+  } as Booking;
+}
+
+/**
+ * HISTORICAL RECEIPT REMAINING BALANCE
+ * =====================================
+ * For each individual payment receipt, the "Remaining Balance" means:
+ *   THE BOOKING BALANCE IMMEDIATELY AFTER THAT SPECIFIC PAYMENT.
+ *
+ * It is a CUMULATIVE historical snapshot, NOT the current booking balance.
+ * Once written, it must never change when future payments are made.
+ *
+ * Calculation:
+ *   1. Sort all payment records for this booking chronologically (oldest first).
+ *   2. Sum the "credited amount" of every record from #1 through the target.
+ *   3. remainingBalance = max(0, bookingTotal - cumulativePaid)
+ *
+ * Credited amount per record status:
+ *   - VERIFIED     → the full amount (accepted money).
+ *   - INCOMPLETE   → amountReceived (actual received, not the submitted request).
+ *   - REJECTED     → ₱0.
+ *   - FOR REVIEW / PENDING / AWAITING → the submitted amount (it exists on the
+ *     receipt as a real transaction even though admin hasn't decided yet).
+ */
+function computeReceiptRemaining(
+  bookingTotal: number,
+  allRecords: PaymentRecord[],
+  targetRecordId: string | undefined,
+  targetRecordOverrides?: {
+    amount?: number;
+    amountPaid?: number;
+    amountReceived?: number;
+    status?: string;
+  },
+  bookingId?: string,
+): number {
+  // Filter records belonging to this booking
+  const matched = bookingId
+    ? allRecords.filter((record) => {
+        const target = String(bookingId || "").trim().toLowerCase()
+        const byId = String(record.bookingId || "").trim().toLowerCase()
+        const byCode = String(record.bookingCode || "").trim().toLowerCase()
+        return byId === target || byCode === target
+      })
+    : allRecords
+
+  // Sort chronologically — oldest first (ascending by submittedAt)
+  const sorted = [...matched].sort((a, b) => {
+    const aTime = new Date(a.submittedAt || a.updatedAt || 0).getTime()
+    const bTime = new Date(b.submittedAt || b.updatedAt || 0).getTime()
+    return aTime - bTime
+  })
+
+  // Apply overrides to the target record if present, then take records up to
+  // and including the target to compute cumulative paid through that payment.
+  let recordsUpToTarget: PaymentRecord[]
+
+  const targetIndex = sorted.findIndex((r) => r.id === targetRecordId)
+  if (targetIndex >= 0) {
+    recordsUpToTarget = sorted.slice(0, targetIndex + 1).map((record, i) => {
+      if (i !== targetIndex || !targetRecordOverrides) return record
+      return {
+        ...record,
+        ...(typeof targetRecordOverrides.amount === "number"
+          ? { amount: targetRecordOverrides.amount }
+          : {}),
+        ...(typeof targetRecordOverrides.amountPaid === "number"
+          ? { amountPaid: targetRecordOverrides.amountPaid }
+          : {}),
+        ...(typeof targetRecordOverrides.amountReceived === "number"
+          ? { amountReceived: targetRecordOverrides.amountReceived }
+          : {}),
+        ...(typeof targetRecordOverrides.status === "string"
+          ? { status: targetRecordOverrides.status, verificationStatus: targetRecordOverrides.status }
+          : {}),
+      }
+    })
+  } else {
+    // Target record not yet in the array (new payment at submission time).
+    // Append a synthetic record with the overrides so it's included in the
+    // cumulative sum.
+    const synthetic: PaymentRecord = {
+      id: targetRecordId || `_pending_${Date.now()}`,
+      bookingId: bookingId || "",
+      amount: targetRecordOverrides?.amount || 0,
+      amountPaid: targetRecordOverrides?.amountPaid || 0,
+      amountReceived: targetRecordOverrides?.amountReceived || 0,
+      status: targetRecordOverrides?.status || "For Verification",
+      verificationStatus: targetRecordOverrides?.status || "For Verification",
+      submittedAt: new Date().toISOString(),
+    } as PaymentRecord
+    recordsUpToTarget = [...sorted, synthetic]
+  }
+
+  // Sum the credited amount of every record up to and including the target
+  let cumulativePaid = 0
+  for (const record of recordsUpToTarget) {
+    cumulativePaid += receiptCreditedAmount(record)
+  }
+
+  return Math.max(0, bookingTotal - cumulativePaid)
+}
+
+/** Credited amount for a single receipt snapshot. */
+function receiptCreditedAmount(record: PaymentRecord): number {
+  const status = String(record?.status || record?.verificationStatus || "").toLowerCase()
+  if (status === "verified") {
+    return Number(record?.amount || record?.amountPaid || 0)
+  }
+  if (status === "incomplete") {
+    const received = Number(record?.amountReceived || 0)
+    // Incomplete always credits the ACTUAL money received.
+    // Fall back to submitted amount when amountReceived was never set.
+    return received > 0 ? received : Number(record?.amount || record?.amountPaid || 0)
+  }
+  if (status === "rejected") {
+    return 0
+  }
+  // For Review / Pending / Awaiting — NOT yet accepted money. The receipt
+  // remaining balance must reflect only verified/accepted payments, so
+  // unresolved records credit ₱0 here.
+  return 0
+}
+
+function getReceiptPaymentStatusLabel(status: string): string {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized === "verified") return "Verified";
+  if (normalized === "rejected") return "Rejected";
+  if (normalized === "incomplete") return "Incomplete";
+  if (normalized === "awaiting onsite payment") return "Awaiting Onsite Payment";
+  return "For Verification";
+}
+
+/**
+ * TRANSACTION RECEIPT — created at PAYMENT SUBMISSION time for EVERY payment
+ * attempt, regardless of outcome. A receipt is a transaction RECORD; it is
+ * NOT proof of acceptance. Only admin VERIFICATION marks a payment accepted.
+ * The receipt carries the exact paymentId so it can never be shared with or
+ * inherited by another payment.
+ */
+function buildTransactionReceipt(
+  booking: Booking,
+  payment: {
+    id: string;
+    amount: number;
+    methodLabel?: string;
+    term?: string;
+    status: string;
+    submittedAt?: string;
+    referenceNo?: string;
+  },
+  existingReceipts?: BookingReceipt[],
+  remainingOverride?: number,
+): BookingReceipt {
+  const submittedAt = payment.submittedAt || new Date().toISOString();
+  const officeBooking = isOfficeBooking(booking);
+  const officeTerm = officeBooking ? booking.officeRentalTerm || "6_months" : "";
+  const totalAmount = getSafePrice(booking.totalPrice);
+  const amount = Number(payment.amount || 0);
+
+  return {
+    receiptNumber: generateUniqueReceiptNumber(existingReceipts),
+    bookingId: booking.id,
+    paymentId: payment.id,
+    fullName: booking.userInfo?.name || "Client",
+    bookingDate: booking.createdAt || submittedAt,
+    startDate: booking.date || "Not set",
+    endDate:
+      officeBooking
+        ? addMonthsToDate(booking.date, getOfficeTermMonths(officeTerm as OfficeRentalTerm))
+        : booking.date || "Not set",
+    rentalType: officeBooking ? "Office Space Rental" : "Event Venue Booking",
+    bookingType: officeBooking ? "Office Space Rental" : booking.eventType || "Event Venue Booking",
+    contractTerm: officeBooking ? formatOfficeContractTerm(officeTerm as OfficeRentalTerm) : "",
+    paymentPurpose: payment.term || getReceiptPaymentPurpose(booking),
+    paymentMethod: payment.methodLabel || getReceiptPaymentMethodLabel(booking.paymentMethod),
+    amountPaid: amount,
+    paymentAmount: amount,
+    // Use the canonical remaining when provided; fall back to the legacy
+    // total − stored-amountPaid calculation for backward compatibility.
+    remainingBalance:
+      typeof remainingOverride === "number"
+        ? remainingOverride
+        : Math.max(totalAmount - getSafePrice(booking.amountPaid), 0),
+    // Transaction state at submission — NEVER implies acceptance.
+    paymentStatus: getReceiptPaymentStatusLabel(payment.status),
+    dateGenerated: submittedAt,
+    dateIssued: submittedAt,
+    paymentSubmittedAt: submittedAt,
+  };
+}
+
+/** Appends the transaction receipt to the booking doc's receipt history. */
+function attachTransactionReceipt(booking: Booking, receipt: BookingReceipt): Booking {
+  const history = getReceiptHistory(booking);
+  return {
+    ...booking,
+    paymentReceipts: [...history, receipt],
+    receiptIssued: true,
+    receiptNumber: receipt.receiptNumber,
+    receiptIssuedAt: receipt.dateGenerated,
+  } as Booking;
+}
+
+/** Finds THIS payment's own transaction receipt in the booking's history. */
+function findPaymentReceipt(
+  booking: Booking,
+  paymentId?: string,
+  submittedAt?: string,
+): { receipt: BookingReceipt; index: number; history: BookingReceipt[] } | null {
+  const history = getReceiptHistory(booking);
+  if (paymentId) {
+    const index = history.findIndex(
+      (receiptEntry) =>
+        String(receiptEntry.paymentId || "") &&
+        String(receiptEntry.paymentId) === String(paymentId),
+    );
+    if (index >= 0) return { receipt: history[index], index, history };
+  }
+  // Legacy fallback ONLY: receipts created before paymentId existed are tied
+  // by the pinned exact submission timestamp — never nearest/latest.
+  if (submittedAt) {
+    const index = history.findIndex(
+      (receiptEntry) =>
+        String(receiptEntry.paymentSubmittedAt || "") &&
+        !receiptEntry.paymentId &&
+        String(receiptEntry.paymentSubmittedAt) === String(submittedAt),
+    );
+    if (index >= 0) return { receipt: history[index], index, history };
+  }
+  return null;
+}
+
+/**
+ * ADMIN VERIFY — updates THIS payment's existing transaction receipt IN PLACE
+ * (same paymentId, same receipt number). Creates a receipt only when the
+ * payment genuinely has none (legacy submissions from before transaction
+ * receipts existed). Verification is what marks the receipt ACCEPTED.
+ */
+function upsertVerifiedReceipt(
+  booking: Booking,
+  paymentId: string | undefined,
+  verified: { amountPaid: number; remainingBalance: number },
+): Booking {
+  const existing = findPaymentReceipt(booking, paymentId, booking.paymentSubmittedAt);
+
+  if (existing) {
+    const nextHistory = [...existing.history];
+    nextHistory[existing.index] = {
+      ...existing.receipt,
+      amountPaid: verified.amountPaid,
+      paymentAmount: verified.amountPaid,
+      remainingBalance: verified.remainingBalance,
+      paymentStatus: "Verified",
+    };
+    saveStoredReceipt(nextHistory[existing.index]).catch(() => {});
+    return {
+      ...booking,
+      paymentReceipts: nextHistory,
+      receipt: nextHistory[nextHistory.length - 1],
+      receiptNumber: nextHistory[existing.index].receiptNumber,
+    } as Booking;
+  }
+
+  // Legacy fallback: no transaction receipt was ever created for this payment
+  // (submissions from before transaction receipts existed) — create one now,
+  // tied to THIS payment only.
+  return attachAutoReceipt({ ...booking }, paymentId);
+}
+
+/**
+ * ADMIN REJECT / INCOMPLETE — updates THIS payment's transaction receipt
+ * status in place (same paymentId). The receipt stays visible with its own
+ * transaction state and never implies acceptance.
+ */
+function patchPaymentReceiptStatus(
+  booking: Booking,
+  paymentId: string | undefined,
+  status: "Rejected" | "Incomplete",
+  extras?: { remainingBalance?: number; amountPaid?: number },
+): Booking {
+  const existing = findPaymentReceipt(booking, paymentId, booking.paymentSubmittedAt);
+  if (!existing) return booking;
+  const nextHistory = [...existing.history];
+  nextHistory[existing.index] = {
+    ...existing.receipt,
+    // The receipt amount must reflect the ACTUAL money of THIS payment —
+    // e.g. ₱5,500 received on a ₱7,500 requested downpayment marked
+    // INCOMPLETE. Only the calling action provides it; other actions leave
+    // the payment's own amount untouched.
+    ...(extras && typeof extras.amountPaid === "number" && extras.amountPaid > 0
+      ? { amountPaid: extras.amountPaid, paymentAmount: extras.amountPaid }
+      : {}),
+    ...(extras && typeof extras.remainingBalance === "number"
+      ? { remainingBalance: extras.remainingBalance }
+      : {}),
+    paymentStatus: status,
+  };
+  saveStoredReceipt(nextHistory[existing.index]).catch(() => {});
+  return {
+    ...booking,
+    paymentReceipts: nextHistory,
+    receipt: nextHistory[nextHistory.length - 1],
   } as Booking;
 }
 
@@ -1397,7 +1734,19 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       mapDoc: (docSnap: any) => T,
       setter: (items: T[]) => void,
       loadedKey: keyof typeof loadedFlags,
+      // Optional extra docs (keyed by id) that Firestore ordered queries
+      // exclude (e.g. records missing the orderBy field). They are merged
+      // into EVERY snapshot so they can never silently disappear again.
+      recoveredDocs?: Map<string, T>,
     ): () => void {
+      const applyRecovered = (loaded: T[]): T[] => {
+        if (!recoveredDocs || recoveredDocs.size === 0) return loaded
+        const ids = new Set((loaded as any[]).map((item) => String((item as any).id)))
+        const extras = [...recoveredDocs.values()].filter(
+          (item) => !ids.has(String((item as any).id)),
+        )
+        return extras.length > 0 ? [...loaded, ...extras] : loaded
+      }
       const start = (constraints: any[]) => {
         perfListener(label, "START")
         console.log(`[DEBUG][${label}] listener starting — collection: ${ref.path}, constraints: ${constraints.length}`)
@@ -1420,10 +1769,28 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
             if (firstSnapshot) {
               firstSnapshot = false;
               perfListener(label, "FIRST_SNAPSHOT", loaded.length);
+              // TEMP DEBUG: confirms the INDEXED query (not the fallback) succeeded.
+              if (label === "Bookings") {
+                console.log("[DEBUG][Bookings] INDEXED QUERY SUCCESS", { count: loaded.length });
+              }
+              if (label === "Payments") {
+                console.log("[DEBUG][Payments] INDEXED QUERY SUCCESS", { count: loaded.length });
+              }
             } else {
               perfListener(label, "SNAPSHOT", loaded.length);
             }
-            setter(loaded);
+            if (label === "Bookings" || label === "Payments") {
+              console.log(`[DEBUG][Client ${label}] SNAPSHOT UPDATE`, {
+                scope: isAdminScope ? "admin" : "client",
+                count: snapshot.size,
+                changed: snapshot.docChanges().map((change) => ({
+                  type: change.type,
+                  id: change.doc.id,
+                  data: change.doc.data(),
+                })),
+              });
+            }
+            setter(applyRecovered(loaded));
             markLoaded(loadedKey);
           },
           (error: any) => {
@@ -1496,12 +1863,15 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     }
 
     // Real-time subscription for maintenance records (app-wide availability data).
+    // Page-scoped: only pages that register the need subscribe. A high ceiling
+    // (500) bounds the initial snapshot for this admin-created collection while
+    // keeping all real availability data for the calendar/booking forms.
     if (activeNeeds.maintenance) {
       console.log("[Firestore Listener START] MaintenanceRecords")
       const unsubMaint = startListener(
         "MaintenanceRecords",
         maintenanceRecordsRef,
-        () => [orderBy("createdAt", "asc")],
+        () => [orderBy("createdAt", "asc"), limit(500)],
         null,
         (docSnap) => ({ ...(docSnap.data() as MaintenanceRecord), id: docSnap.id }),
         setMaintenanceRecords,
@@ -1516,15 +1886,19 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     // Clients only receive their own submissions; Admin/Staff receive all.
     if (activeNeeds.payments) {
       console.log("[Firestore Listener START] Payments", isAdminScope ? "(admin scope)" : `(client: ${uid})`)
-      console.log(
-        `[DEBUG][Payments] query — collection: payments, where: ${isAdminScope ? "NONE (admin sees ALL)" : "customerId == uid"}, orderBy: submittedAt desc, limit: NONE`,
-      )
-      const unsubPayments = startListener(
-      "Payments",
-      paymentsRef,
-      () => (isAdminScope ? [orderBy("submittedAt", "desc")] : [where("customerId", "==", uid), orderBy("submittedAt", "desc")]),
-      () => (isAdminScope ? null : [where("customerId", "==", uid)]),
-      (docSnap) => {
+      // Ordered payment queries (orderBy submittedAt) silently EXCLUDE any
+      // record whose doc lacks the submittedAt field — older payment records
+      // written before that field existed vanish from BOTH admin and client
+      // history, which then undercounts the accepted/verified total. One
+      // unordered recovery read per scope re-includes those docs in every
+      // snapshot; membership is still decided solely by bookingId/bookingCode.
+      const recoveredPayments = new Map<string, PaymentRecord>()
+      let lastLoadedPayments: PaymentRecord[] = []
+      const setPaymentRecordsTracked = (items: PaymentRecord[]) => {
+        lastLoadedPayments = items
+        setPaymentRecords(items)
+      }
+      const mapPaymentDoc = (docSnap: any): PaymentRecord => {
         const d = docSnap.data();
         const submittedAt = d.submittedAt?.toDate?.()?.toISOString() || d.submittedAt || "";
         const updatedAt = d.updatedAt?.toDate?.()?.toISOString() || d.updatedAt || "";
@@ -1553,9 +1927,49 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           adminNote: d.adminNote || "",
           rejectionReason: d.rejectionReason || "",
         } as PaymentRecord;
-      },
-      setPaymentRecords,
+      };
+      getDocs(
+        isAdminScope
+          ? query(paymentsRef)
+          : query(paymentsRef, where("customerId", "==", uid)),
+      )
+        .then((snapshot) => {
+          snapshot.forEach((docSnap) => {
+            try {
+              const record = mapPaymentDoc(docSnap)
+              recoveredPayments.set(record.id, record)
+            } catch (e) {
+              console.error("[DEBUG][Payments] RECOVERY TRANSFORM ERROR for doc:", e);
+            }
+          })
+          if (recoveredPayments.size > 0) {
+            console.log(
+              `[DEBUG][Payments] recovery read — ${recoveredPayments.size} record(s) available for merge (ordered queries exclude docs without submittedAt)`,
+            )
+            // The first snapshot may already have arrived before this read
+            // resolved — re-apply the merge immediately so recovered records
+            // never wait for an unrelated write to become visible.
+            const ids = new Set(lastLoadedPayments.map((record) => record.id))
+            const extras = [...recoveredPayments.values()].filter(
+              (record) => !ids.has(record.id),
+            )
+            if (extras.length > 0) {
+              setPaymentRecords([...lastLoadedPayments, ...extras])
+            }
+          }
+        })
+        .catch((error) => {
+          console.error("[DEBUG][Payments] recovery read failed:", error?.code || error?.message || error)
+        })
+      const unsubPayments = startListener(
+      "Payments",
+      paymentsRef,
+      () => (isAdminScope ? [orderBy("submittedAt", "desc")] : [where("customerId", "==", uid), orderBy("submittedAt", "desc")]),
+      () => (isAdminScope ? null : [where("customerId", "==", uid)]),
+      mapPaymentDoc,
+      setPaymentRecordsTracked,
       "payments",
+      recoveredPayments,
     );
       unsubs.push(unsubPayments);
     }
@@ -2833,7 +3247,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      return attachAutoReceipt({
+      const onsiteUpdated: Booking = {
         ...booking,
         amountPaid: newAmountPaid,
         lastPaymentAmount: amountReceived,
@@ -2881,6 +3295,12 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           "RECORD_ONSITE_PAYMENT",
           `Admin recorded onsite payment of ₱${amountReceived.toLocaleString()}. Payment stage: ${newPaymentStage}. Remaining balance: ₱${newRemainingBalance.toLocaleString()}. ${paymentData.adminNote ? `Note: ${paymentData.adminNote}` : ""}`,
         ),
+      };
+      // Recording the onsite payment verifies THIS payment's own transaction
+      // receipt in place (resolved like markPaymentRecordReviewed below).
+      return upsertVerifiedReceipt(onsiteUpdated, resolveReceiptPaymentId(id, undefined), {
+        amountPaid: amountReceived,
+        remainingBalance: newRemainingBalance,
       });
     });
 
@@ -2910,6 +3330,9 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     id: string,
     method: "cash" | "bank" = "cash",
   ) => {
+    // The settlement receipt belongs to the payment record being settled —
+    // same resolution rule markPaymentRecordReviewed applies below.
+    const receiptPaymentId = resolveReceiptPaymentId(id, undefined)
     const updatedBookings = bookings.map((booking) => {
       if (booking.id !== id) return booking;
 
@@ -2931,7 +3354,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         updatedAt: new Date().toISOString(),
       });
 
-      return attachAutoReceipt({
+      const settledUpdated: Booking = {
         ...updated,
         status: "confirmed" as BookingStatus,
         bookingStatus: "Confirmed",
@@ -2947,6 +3370,11 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           "SETTLE_REMAINING_BALANCE",
           `Admin marked remaining balance of ₱${balance.toLocaleString()} as paid.`,
         ),
+      };
+      // Settling verifies THIS payment's own transaction receipt in place.
+      return upsertVerifiedReceipt(settledUpdated, receiptPaymentId, {
+        amountPaid: balance,
+        remainingBalance: 0,
       });
     });
 
@@ -2998,6 +3426,28 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       }
       if (!target) return
       const { id: _id, ...data } = { ...target, ...patch }
+      const previousStatus = String(target.status || target.verificationStatus || "").trim() || "for_review"
+      const nextStatus = String(data.status || data.verificationStatus || "").trim() || previousStatus
+      if (previousStatus !== nextStatus) {
+        console.log("[PAYMENT] UNEXPECTED STATUS CHANGE", {
+          paymentId: target.id,
+          bookingId,
+          previousStatus,
+          newStatus: nextStatus,
+          source: "markPaymentRecordReviewed",
+        })
+      }
+      // The received-amount figure may be corrected even when the status is
+      // unchanged (admin re-marks an INCOMPLETE payment with the actual
+      // amount received), so only skip the write when NOTHING changed.
+      const amountReceivedChanged =
+        typeof data.amountReceived === "number" &&
+        Number(data.amountReceived) !== Number((target as any).amountReceived ?? Number.NaN)
+      // The record already has the desired status — there is nothing to
+      // normalize. Skipping the write avoids a redundant Firestore update
+      // that would trigger another snapshot and re-process this unchanged
+      // payment (and would otherwise loop: write → snapshot → normalize).
+      if (previousStatus === nextStatus && !amountReceivedChanged) return
       void updateDoc(doc(paymentsRef, target.id), data).catch((error) => {
         console.error("[Booking:markPaymentRecordReviewed] update failed:", error?.code || error?.message || error)
       })
@@ -3006,9 +3456,33 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  /**
+   * Resolves the payment record a receipt should belong to. Uses the explicit
+   * record id from the admin review action when present, otherwise falls back
+   * to the booking's most recent unresolved submission — the same resolution
+   * rule markPaymentRecordReviewed applies. This is what ties each generated
+   * e-receipt to EXACTLY ONE verified payment.
+   */
+  const resolveReceiptPaymentId = (
+    bookingId: string,
+    recordId?: string,
+  ): string | undefined => {
+    if (recordId) return recordId
+    return paymentRecords
+      .filter((record) => record.bookingId === bookingId)
+      .sort((a, b) => {
+        const aT = a.submittedAt ? new Date(a.submittedAt).getTime() : 0
+        const bT = b.submittedAt ? new Date(b.submittedAt).getTime() : 0
+        return bT - aT
+      })
+      .find((record) => isUnresolvedPaymentRecord(record))?.id
+  }
+
   const verifyPayment = (id: string, reviewData?: { verifiedAmount?: number; adminNote?: string; adminName?: string; paymentRecordId?: string }) => {
     const winningBooking = bookings.find((b) => b.id === id && isOfficeBooking(b));
     const winningRoomKey = winningBooking ? getRoomKey(winningBooking) : "";
+    // The receipt generated below must reference THIS verified payment only.
+    const receiptPaymentId = resolveReceiptPaymentId(id, reviewData?.paymentRecordId)
 
     const updatedBookings = bookings.map((booking) => {
       if (booking.id !== id) {
@@ -3044,7 +3518,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         const newAmountPaid = currentAmountPaid + verifiedAmount;
         const isFullyPaid = newAmountPaid >= total;
 
-        return attachAutoReceipt({
+        const officeUpdated: Booking = {
           ...booking,
           status: isFullyPaid ? "reservation_secured" : ("verifying" as BookingStatus),
           bookingStatus: isFullyPaid ? "Slot Secured" : "Pending Verification",
@@ -3075,6 +3549,22 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
               ? `Admin verified full office payment of ₱${verifiedAmount.toLocaleString()}. Reservation secured. Contract signing required.${reviewData?.adminNote ? ` Note: ${reviewData.adminNote}` : ""}`
               : `Admin verified office payment of ₱${verifiedAmount.toLocaleString()}. Total paid: ₱${newAmountPaid.toLocaleString()}. Remaining reservation fee: ₱${Math.max(total - newAmountPaid, 0).toLocaleString()}.${reviewData?.adminNote ? ` Note: ${reviewData.adminNote}` : ""}`,
           ),
+        };
+        // Verification updates THIS payment's own transaction receipt in place;
+        // a receipt is created here only if the submission pre-dates receipts.
+        // The receipt remainingBalance must reflect the canonical booking
+        // remaining AFTER this payment is verified — accounting for any money
+        // already credited from other payments (e.g. incomplete amounts).
+        const officeReceiptRemaining = computeReceiptRemaining(
+          getSafePrice(booking.totalPrice),
+          paymentRecords,
+          receiptPaymentId,
+          { amount: verifiedAmount, amountPaid: verifiedAmount, status: "Verified" },
+          booking.id,
+        );
+        return upsertVerifiedReceipt(officeUpdated, receiptPaymentId, {
+          amountPaid: verifiedAmount,
+          remainingBalance: officeReceiptRemaining,
         });
       }
 
@@ -3113,7 +3603,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         updatedAt: new Date().toISOString(),
       });
 
-      return attachAutoReceipt({
+      const dpVerified: Booking = {
         ...updated,
         status: "confirmed" as BookingStatus,
         bookingStatus: "Confirmed",
@@ -3134,13 +3624,29 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
                 ? `Admin verified payment of ₱${paymentAmount.toLocaleString()}. Remaining balance: ₱${(total - newAmountPaid).toLocaleString()}.`
                 : "Admin verified full payment and confirmed booking."}${reviewData?.adminNote ? ` Note: ${reviewData.adminNote}` : ""} Contract signing is still required.`,
           ),
+        };
+        // Verification updates THIS payment's own transaction receipt in place;
+        // a receipt is created here only if the submission pre-dates receipts.
+        // The receipt remainingBalance must reflect the canonical booking
+        // remaining AFTER this payment is verified — accounting for any money
+        // already credited from other payments (e.g. incomplete amounts).
+        const dpReceiptRemaining = computeReceiptRemaining(
+          getSafePrice(booking.totalPrice),
+          paymentRecords,
+          receiptPaymentId,
+          { amount: paymentAmount, amountPaid: paymentAmount, status: "Verified" },
+          booking.id,
+        );
+        return upsertVerifiedReceipt(dpVerified, receiptPaymentId, {
+          amountPaid: paymentAmount,
+          remainingBalance: dpReceiptRemaining,
         });
       }
 
       const paymentAmount = reviewData?.verifiedAmount || (typeof booking.paymentAmount === "number" ? booking.paymentAmount : total);
       const newAmountPaid = currentAmountPaid + paymentAmount;
 
-      return attachAutoReceipt({
+      const fullVerified: Booking = {
         ...booking,
         status: "confirmed" as BookingStatus,
         bookingStatus: "Confirmed",
@@ -3170,6 +3676,21 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
             ? "Admin verified full payment and confirmed booking."
             : `Admin verified payment of ₱${paymentAmount.toLocaleString()}.`}${reviewData?.adminNote ? ` Note: ${reviewData.adminNote}` : ""} Contract signing is still required.`,
         ),
+      };
+      // Verification updates THIS payment's own transaction receipt in place.
+      // The receipt remainingBalance must reflect the canonical booking
+      // remaining AFTER this payment is verified — accounting for any money
+      // already credited from other payments (e.g. incomplete amounts).
+      const fullReceiptRemaining = computeReceiptRemaining(
+        getSafePrice(booking.totalPrice),
+        paymentRecords,
+        receiptPaymentId,
+        { amount: paymentAmount, amountPaid: paymentAmount, status: "Verified" },
+        booking.id,
+      );
+      return upsertVerifiedReceipt(fullVerified, receiptPaymentId, {
+        amountPaid: paymentAmount,
+        remainingBalance: fullReceiptRemaining,
       });
     });
 
@@ -3182,6 +3703,18 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       reviewedBy: reviewData?.adminName || "Administrator",
       reviewedAt: new Date().toISOString(),
       adminNote: reviewData?.adminNote || "",
+    });
+    const verifiedRecord = reviewData?.paymentRecordId
+      ? paymentRecords.find((record) => record.id === reviewData?.paymentRecordId)
+      : undefined;
+    console.log("[PAYMENT] ADMIN VERIFIED PAYMENT", {
+      paymentId: verifiedRecord?.id ?? reviewData?.paymentRecordId ?? id,
+      bookingId: id,
+      amount: reviewData?.verifiedAmount ?? verifiedRecord?.amount ?? verifiedRecord?.amountPaid,
+      previousStatus: verifiedRecord
+        ? (verifiedRecord.status || verifiedRecord.verificationStatus || "unknown")
+        : "unknown",
+      newStatus: "Verified",
     });
     const verifiedBooking = bookings.find((b) => b.id === id);
     if (verifiedBooking) {
@@ -3197,6 +3730,8 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
   };
 
   const rejectPayment = (id: string, reason?: string, adminName?: string, paymentRecordId?: string) => {
+    // Same record resolution as markPaymentRecordReviewed below.
+    const rejectedReceiptPaymentId = resolveReceiptPaymentId(id, paymentRecordId)
     const updatedBookings = bookings.map((booking) => {
       if (booking.id !== id) return booking;
       const rejectionReason = reason || booking.paymentRejectedReason || "Payment rejected by admin.";
@@ -3227,11 +3762,11 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           updatedAt: new Date().toISOString(),
         });
 
-        return {
+        const dpRejected: Booking = {
           ...restored,
-          status: "verifying" as BookingStatus,
-          bookingStatus: "Pending Verification",
-          paymentStatus: "incomplete" as PaymentStatus,
+          status: "confirmed" as BookingStatus,
+          bookingStatus: "Confirmed",
+          paymentStatus: "partial" as PaymentStatus,
           isSlotSecured: true,
           downpaymentPaid: dpPaid,
           downpaymentRemaining: Math.max(selectedDP - dpPaid, 0),
@@ -3241,6 +3776,19 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
             `Admin rejected remaining balance payment. Reason: ${rejectionReason}. Approved down payment of ₱${dpPaid.toLocaleString()} is preserved. Remaining balance: ₱${(total - amountPaid).toLocaleString()}.`,
           ),
         };
+        // THIS payment's transaction receipt becomes REJECTED in place.
+        // Pass the canonical remaining so the receipt reflects the true booking
+        // balance after rejection (rejected contributes ₱0).
+        const dpRejectReceiptRemaining = computeReceiptRemaining(
+          getSafePrice(booking.totalPrice),
+          paymentRecords,
+          rejectedReceiptPaymentId,
+          { status: "Rejected" },
+          booking.id,
+        );
+        return patchPaymentReceiptStatus(dpRejected, rejectedReceiptPaymentId, "Rejected", {
+          remainingBalance: dpRejectReceiptRemaining,
+        });
       }
 
       const amountPaid = typeof booking.amountPaid === "number" ? booking.amountPaid : 0;
@@ -3263,11 +3811,11 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         updatedAt: new Date().toISOString(),
       });
 
-      return {
+      const paymentRejected: Booking = {
         ...restored,
         status: "verifying" as BookingStatus,
         bookingStatus: "Pending Verification",
-        paymentStatus: "incomplete" as PaymentStatus,
+        paymentStatus: "rejected" as PaymentStatus,
         isSlotSecured: false,
         adminLogs: makeAdminLog(
           booking,
@@ -3275,6 +3823,19 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           `Admin rejected payment proof. Reason: ${rejectionReason}. Previously approved payment of ₱${amountPaid.toLocaleString()} is preserved. Remaining: ₱${(total - amountPaid).toLocaleString()}.`,
         ),
       };
+      // THIS payment's transaction receipt becomes REJECTED in place.
+      // Pass the canonical remaining so the receipt reflects the true booking
+      // balance after rejection (rejected contributes ₱0).
+      const rejectReceiptRemaining = computeReceiptRemaining(
+        getSafePrice(booking.totalPrice),
+        paymentRecords,
+        rejectedReceiptPaymentId,
+        { status: "Rejected" },
+        booking.id,
+      );
+      return patchPaymentReceiptStatus(paymentRejected, rejectedReceiptPaymentId, "Rejected", {
+        remainingBalance: rejectReceiptRemaining,
+      });
     });
 
     saveBookings(updatedBookings as Booking[]);
@@ -3305,47 +3866,84 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
   };
 
   const markIncompletePayment = (id: string, data: { verifiedAmount: number; adminNote: string; adminName?: string; paymentRecordId?: string }) => {
+    // Same record resolution as markPaymentRecordReviewed below, so the
+    // receipt patched here belongs to EXACTLY the payment being marked.
+    const incompleteReceiptPaymentId = resolveReceiptPaymentId(id, data.paymentRecordId)
+    // Resolve THIS payment's own record so the ORIGINAL requested amount can
+    // be preserved when the record's amount fields are rewritten below.
+    const incompleteTargetRecord = (() => {
+      if (data.paymentRecordId) {
+        return paymentRecords.find((record) => record.id === data.paymentRecordId)
+      }
+      return [...paymentRecords]
+        .filter((record) => record.bookingId === id)
+        .sort((a, b) => {
+          const aT = a.submittedAt ? new Date(a.submittedAt).getTime() : 0
+          const bT = b.submittedAt ? new Date(b.submittedAt).getTime() : 0
+          return bT - aT
+        })
+        .find((record) => isUnresolvedPaymentRecord(record))
+    })()
+    const requestedAmount = getSafePrice(
+      incompleteTargetRecord?.amount || incompleteTargetRecord?.amountPaid || 0,
+    )
     const updatedBookings = bookings.map((booking) => {
       if (booking.id !== id) return booking;
 
       const total = getSafePrice(booking.totalPrice);
+      // An INCOMPLETE payment is NOT accepted money: it contributes ₱0 to the
+      // booking ledger. Only admin-VERIFIED payments are banked into
+      // amountPaid / downpaymentPaid (verifyPayment / settleRemainingBalance),
+      // so those fields are left untouched here — banking the "amount received"
+      // figure would inflate the accepted total and could push the overall
+      // status to PARTIAL/FULLY PAID on money admin never verified.
       const currentAmountPaid = typeof booking.amountPaid === "number" ? booking.amountPaid : 0;
-      const newAmountPaid = currentAmountPaid + data.verifiedAmount;
-      const newRemainingBalance = Math.max(total - newAmountPaid, 0);
+      const newRemainingBalance = Math.max(total - currentAmountPaid, 0);
       const isDownpayment = booking.paymentType === "downpayment";
       const currentDownpaymentPaid = typeof booking.downpaymentPaid === "number" ? booking.downpaymentPaid : 0;
-      const newDownpaymentPaid = isDownpayment ? currentDownpaymentPaid + data.verifiedAmount : currentDownpaymentPaid;
       const selectedDP = typeof booking.selectedDownpaymentAmount === "number" && booking.selectedDownpaymentAmount > 0
         ? booking.selectedDownpaymentAmount
         : getDownpaymentAmount(booking);
-      const newDPRemaining = isDownpayment ? Math.max(selectedDP - newDownpaymentPaid, 0) : 0;
-      const isFullyPaidAfter = newAmountPaid >= total;
-      const paymentStage = isDownpayment ? "Complete Downpayment" : (isFullyPaidAfter ? "Fully Paid" : "Settle Remaining Balance");
-      const dpRemaining = isDownpayment ? Math.max(selectedDP - newDownpaymentPaid, 0) : 0;
+      const dpRemaining = isDownpayment ? Math.max(selectedDP - currentDownpaymentPaid, 0) : 0;
+      const isFullyPaidAfter = total > 0 && currentAmountPaid >= total;
+      const hasPriorVerifiedPayment = currentAmountPaid > 0;
+      const officeBooking = isOfficeBooking(booking);
 
-      return {
+      const incompleteUpdated: Booking = {
         ...booking,
-        status: (isOfficeBooking(booking)
-          ? (isFullyPaidAfter ? "reservation_secured" : "verifying")
-          : (isFullyPaidAfter ? "confirmed" : "verifying")) as BookingStatus,
-        bookingStatus: (isOfficeBooking(booking)
-          ? (isFullyPaidAfter ? "Slot Secured" : "Pending Verification")
-          : (isFullyPaidAfter ? "Confirmed" : "Pending Verification")) as BookingStatusLabel,
-        isSlotSecured: isFullyPaidAfter,
-        amountPaid: newAmountPaid,
+        // When the booking already has a verified payment (e.g. an approved
+        // downpayment), marking a NEW payment "incomplete" must NOT demote the
+        // booking back to "verifying" / "Pending Verification". The booking
+        // stays in its verified state; only the payment is incomplete.
+        status: (officeBooking
+          ? (isFullyPaidAfter ? "reservation_secured" : (hasPriorVerifiedPayment ? booking.status : "verifying"))
+          : (isFullyPaidAfter ? "confirmed" : (hasPriorVerifiedPayment ? "confirmed" : "verifying"))) as BookingStatus,
+        bookingStatus: (officeBooking
+          ? (isFullyPaidAfter ? "Slot Secured" : (hasPriorVerifiedPayment ? booking.bookingStatus : "Pending Verification"))
+          : (isFullyPaidAfter ? "Confirmed" : (hasPriorVerifiedPayment ? booking.bookingStatus : "Pending Verification"))) as BookingStatusLabel,
+        isSlotSecured: isFullyPaidAfter || (hasPriorVerifiedPayment ? booking.isSlotSecured === true : false),
+        amountPaid: currentAmountPaid,
         lastPaymentAmount: data.verifiedAmount,
-        downpaymentPaid: isDownpayment ? newDownpaymentPaid : 0,
+        downpaymentPaid: typeof booking.downpaymentPaid === "number" ? booking.downpaymentPaid : 0,
         downpaymentRemaining: dpRemaining,
         selectedDownpaymentAmount: isDownpayment ? selectedDP : 0,
         paymentStatus: (isFullyPaidAfter ? ("paid" as PaymentStatus) : ("incomplete" as PaymentStatus)),
-        remainingBalance: isDownpayment ? dpRemaining : newRemainingBalance,
+        // remainingBalance is always the true booking balance (total − paid),
+        // never the downpayment remainder — the DP remainder lives in
+        // downpaymentRemaining. This keeps "Settle Remaining Balance" visible
+        // on the client with the correct amount.
+        remainingBalance: newRemainingBalance,
         balanceStatus: isFullyPaidAfter ? "Settled" : "With Remaining Balance",
-        paymentStage,
+        paymentStage: isFullyPaidAfter
+          ? "Fully Paid"
+          : (isDownpayment && dpRemaining > 0 ? "Complete Downpayment" : "Settle Remaining Balance"),
         hasActivePaymentSubmission: false,
         incompletePaymentNote: data.adminNote,
         incompletePaymentReason: data.adminNote,
         paymentVerifiedAt: new Date().toISOString(),
+        paymentReviewedAt: new Date().toISOString(),
         paymentVerifiedBy: data.adminName || "Administrator",
+        // Informational only (admin UI "Amount Received") — never banked.
         paymentVerifiedAmount: data.verifiedAmount,
         verifiedByAdmin: true,
         verifiedAt: new Date().toISOString(),
@@ -3357,22 +3955,80 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         adminLogs: makeAdminLog(
           booking,
           "INCOMPLETE_PAYMENT_RECORDED",
-          `Admin recorded incomplete payment. Amount received: ₱${data.verifiedAmount.toLocaleString()}. Total paid: ₱${newAmountPaid.toLocaleString()}.${isDownpayment ? ` Downpayment remaining: ₱${dpRemaining.toLocaleString()}.` : ` Remaining: ₱${newRemainingBalance.toLocaleString()}.`}${isFullyPaidAfter ? "" : " Slot is NOT secured — payment incomplete."} Note: ${data.adminNote}`,
+          `Admin recorded incomplete payment. Amount received (NOT accepted): ₱${data.verifiedAmount.toLocaleString()}. Total accepted: ₱${currentAmountPaid.toLocaleString()}.${isDownpayment ? ` Downpayment remaining: ₱${dpRemaining.toLocaleString()}.` : ` Remaining: ₱${newRemainingBalance.toLocaleString()}.`}${isFullyPaidAfter ? "" : " Slot is NOT secured — payment incomplete."} Note: ${data.adminNote}`,
         ),
       } as Booking;
+
+      // THIS payment's transaction receipt is updated in place to INCOMPLETE
+      // (same paymentId) — it stays visible and never implies acceptance.
+      // The receipt amount becomes the ACTUAL money received (₱5,500 of a
+      // ₱7,500 request), never the requested figure.
+      //
+      // The receipt remainingBalance must reflect the canonical booking
+      // remaining AFTER this incomplete payment's received money is credited
+      // — not just total − stored amountPaid (which excludes incomplete money).
+      const incompleteReceiptRemaining = computeReceiptRemaining(
+        getSafePrice(booking.totalPrice),
+        paymentRecords,
+        incompleteReceiptPaymentId,
+        {
+          amountReceived: data.verifiedAmount,
+          amount: data.verifiedAmount,
+          amountPaid: data.verifiedAmount,
+          status: "Incomplete",
+        },
+        booking.id,
+      );
+      return patchPaymentReceiptStatus(
+        incompleteUpdated,
+        incompleteReceiptPaymentId,
+        "Incomplete",
+        { remainingBalance: incompleteReceiptRemaining, amountPaid: data.verifiedAmount },
+      );
     });
 
     saveBookings(updatedBookings);
     // Keep the individual payment submission record in sync so the admin
-    // payment history shows this submission as INCOMPLETE.
+    // payment history shows this submission as INCOMPLETE. The record's
+    // amount fields now carry the ACTUAL money received (₱5,500 of a
+    // ₱7,500 request); the original requested amount is preserved in
+    // requestedAmount for history/UI. amountReceived stays credited toward
+    // the downpayment remainder — never toward the accepted total.
     markPaymentRecordReviewed(id, data.paymentRecordId, {
       verificationStatus: "Incomplete",
       status: "Incomplete",
+      amount: data.verifiedAmount,
+      amountPaid: data.verifiedAmount,
+      ...(requestedAmount > 0 && requestedAmount !== data.verifiedAmount
+        ? { requestedAmount }
+        : {}),
+      amountReceived: data.verifiedAmount,
       reviewedBy: data.adminName || "Administrator",
       reviewedAt: new Date().toISOString(),
       adminNote: data.adminNote || "",
     });
     const incompleteBooking = bookings.find((b) => b.id === id);
+    const updatedIncompleteBooking = updatedBookings.find((b) => b.id === id) as any;
+    if (updatedIncompleteBooking) {
+      console.log("[DEBUG][Incomplete Payment] UPDATE", {
+        bookingId: id,
+        paymentId: data.paymentRecordId ?? undefined,
+        updates: {
+          status: updatedIncompleteBooking.status,
+          bookingStatus: updatedIncompleteBooking.bookingStatus,
+          paymentStatus: updatedIncompleteBooking.paymentStatus,
+          paymentStage: updatedIncompleteBooking.paymentStage,
+          balanceStatus: updatedIncompleteBooking.balanceStatus,
+          amountPaid: updatedIncompleteBooking.amountPaid,
+          lastPaymentAmount: updatedIncompleteBooking.lastPaymentAmount,
+          remainingBalance: updatedIncompleteBooking.remainingBalance,
+          downpaymentRemaining: updatedIncompleteBooking.downpaymentRemaining,
+          hasActivePaymentSubmission: updatedIncompleteBooking.hasActivePaymentSubmission,
+          isSlotSecured: updatedIncompleteBooking.isSlotSecured,
+          incompletePaymentNote: updatedIncompleteBooking.incompletePaymentNote,
+        },
+      });
+    }
     if (incompleteBooking) {
       createNotification({
         type: "payment_incomplete",
@@ -3719,12 +4375,21 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         };
     });
 
+    // Transaction receipt for THIS submission — created below when the payment
+    // record is written, then persisted on the booking doc in the same save.
+    let submissionReceipt: BookingReceipt | undefined
     const updatedBooking = updatedBookings.find(b => b.id === id) as any
     if (updatedBooking) {
       try {
         const methodLabel = paymentData.method === "cash" ? "Pay at the Office" : "Bank Transfer"
         const isRemainingDP = paymentData.type === "downpayment" && (typeof updatedBooking.downpaymentPaid === "number" ? updatedBooking.downpaymentPaid : 0) > 0
         const paymentId = `PAY-${Date.now()}`
+        // submittedAt is pinned to the booking's paymentSubmittedAt so the
+        // transaction receipt carries the exact same timestamp and links to
+        // THIS payment submission only.
+        const submittedAt = updatedBooking.paymentSubmittedAt ?? new Date().toISOString()
+        const termLabel = paymentData.type === "downpayment" ? "Down Payment" : paymentData.type === "full" ? "Full Payment" : "Slot Reservation"
+        const recordStatus = paymentData.method === "cash" ? "Awaiting Onsite Payment" : "For Verification"
         const paymentRecord = {
           id: paymentId,
           bookingId: id,
@@ -3735,24 +4400,78 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           venueName: updatedBooking.venue ?? "",
           method: methodLabel,
           paymentMethod: paymentData.method,
-          term: paymentData.type === "downpayment" ? "Down Payment" : paymentData.type === "full" ? "Full Payment" : "Slot Reservation",
+          term: termLabel,
           amount: Number(paymentData.amount || getSafePrice(updatedBooking.totalPrice)),
           amountPaid: Number(paymentData.amount || 0),
           referenceNo: paymentData.bankReferenceNumber?.trim() ?? "",
           proofUrl: paymentData.proof ?? "",
-          status: paymentData.method === "cash" ? "Awaiting Onsite Payment" : "For Verification",
+          status: recordStatus,
           verificationStatus: paymentData.method === "cash" ? "Pending Onsite Verification" : "Pending",
+          receiptNumber: undefined as string | undefined,
           isRemainingDownPayment: isRemainingDP,
-          submittedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          submittedAt,
+          updatedAt: submittedAt,
         }
+        // TRANSACTION RECEIPT — created immediately for EVERY payment attempt
+        // (for_review / awaiting onsite). It records THIS transaction with its
+        // exact paymentId; it does NOT imply acceptance. Admin actions later
+        // update this same receipt in place (Verified / Incomplete / Rejected).
+        //
+        // The receipt remainingBalance must reflect the canonical booking
+        // remaining BEFORE this new payment is submitted — accounting for any
+        // money already credited from other payments (e.g. incomplete amounts).
+        const originalBooking = bookings.find(b => b.id === id)
+        const submissionReceiptRemaining = originalBooking
+          ? computeReceiptRemaining(
+              getSafePrice(originalBooking.totalPrice),
+              paymentRecords,
+              paymentId,
+              { amount: Number(paymentRecord.amount), amountPaid: Number(paymentRecord.amountPaid || 0), status: recordStatus },
+              id,
+            )
+          : Math.max(getSafePrice(updatedBooking.totalPrice) - getSafePrice(updatedBooking.amountPaid), 0)
+        const transactionReceipt = buildTransactionReceipt(
+          updatedBooking as Booking,
+          {
+            id: paymentId,
+            amount: Number(paymentRecord.amount),
+            methodLabel,
+            term: termLabel,
+            status: recordStatus,
+            submittedAt,
+            referenceNo: paymentRecord.referenceNo,
+          },
+          getReceiptHistory(updatedBooking as Booking),
+          submissionReceiptRemaining,
+        )
+        paymentRecord.receiptNumber = transactionReceipt.receiptNumber
+        submissionReceipt = transactionReceipt
         setDoc(doc(paymentsRef, paymentId), paymentRecord).catch(console.error)
+        saveStoredReceipt(transactionReceipt).catch(console.error)
+        console.log("[PAYMENT] NEW PAYMENT CREATED", {
+          paymentId,
+          bookingId: id,
+          amount: paymentRecord.amount,
+          status: paymentRecord.status,
+          verificationStatus: paymentRecord.verificationStatus,
+          receiptNumber: transactionReceipt.receiptNumber,
+        })
       } catch (error) {
         console.error("Failed to save payment record:", error)
       }
     }
 
-    saveBookings(updatedBookings as Booking[]);
+    // Persist booking updates WITH this payment's transaction receipt in a
+    // single write so the receipt is visible to both listeners immediately.
+    let bookingsToSave = updatedBookings as Booking[]
+    if (updatedBooking && submissionReceipt) {
+      bookingsToSave = bookingsToSave.map((booking) =>
+        booking.id === id
+          ? attachTransactionReceipt(booking, submissionReceipt as BookingReceipt)
+          : booking,
+      )
+    }
+    saveBookings(bookingsToSave);
     if (updatedBooking) {
       window.dispatchEvent(new Event("oneestela_payments_updated"))
       const payName = updatedBooking.userInfo?.name || updatedBooking.eventName || "A client"
@@ -4263,6 +4982,12 @@ export function useBookings() {
 // (and everything it renders) needs. Firestore listeners for a dataset only run
 // while at least one mounted component needs it, and stop when the page
 // navigates away — so the global provider stays lightweight.
+//
+// IMPORTANT: a caller only ever registers (increments) the keys it needs, and
+// its cleanup only unregisters (decrements) exactly those keys. It must never
+// decrement keys requested by other mounted components — otherwise a sibling
+// component (e.g. a dialog) could cancel the page's registration and no
+// listener would start.
 export function useBookingData(needs: BookingDataNeeds) {
   const context = useContext(BookingContext);
 
@@ -4271,15 +4996,22 @@ export function useBookingData(needs: BookingDataNeeds) {
   }
 
   const register = context._registerDataNeed;
+  const registeredRef = useRef<Set<BookingDataKey>>(new Set());
 
   useEffect(() => {
+    const registered = new Set<BookingDataKey>();
     for (const key of DATA_KEYS) {
-      register(key, needs[key] === true);
+      if (needs[key] === true) {
+        register(key, true);
+        registered.add(key);
+      }
     }
+    registeredRef.current = registered;
     return () => {
-      for (const key of DATA_KEYS) {
+      for (const key of registered) {
         register(key, false);
       }
+      registeredRef.current = new Set();
     };
   }, [needs.bookings, needs.officeRentals, needs.maintenance, needs.payments, register]);
 

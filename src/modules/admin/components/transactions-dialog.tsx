@@ -12,6 +12,7 @@ import { usePaymentProof } from "@admin/contexts/payment-proof-context"
 import { CancellationDialog } from "@admin/components/cancellation-dialog"
 import { ModifyBookingDialog } from "@admin/components/modify-booking-dialog"
 import { PaymentProofUpload } from "@admin/components/payment-proof-upload"
+import { calculatePaymentSummary, getRecordsForBooking } from "@/src/modules/shared/lib/payment-calculations"
 
 interface TransactionsDialogProps {
   open: boolean
@@ -21,7 +22,7 @@ interface TransactionsDialogProps {
 export function TransactionsDialog({ open, onOpenChange }: TransactionsDialogProps) {
   const { user } = useAuth()
   // PHASE 4.2: Kinuha natin yung 'bookings' (ALL) at 'updateBookingStatus' para makapag-approve si Admin
-  const { bookings, cancelBooking, modifyBooking, updateBookingStatus } = useBookingData({ bookings: true })
+  const { bookings, cancelBooking, modifyBooking, updateBookingStatus, paymentRecords } = useBookingData({ bookings: true, payments: true })
   const { getPaymentProofByBooking } = usePaymentProof()
   const { toast } = useToast()
   
@@ -102,16 +103,28 @@ export function TransactionsDialog({ open, onOpenChange }: TransactionsDialogPro
   }
 
   const getPaymentStatus = (booking: Booking) => {
-    const paymentProof = getPaymentProofByBooking(booking.id)
-    if (!paymentProof) return null
+    // Canonical overall payment status — derived from the booking's complete
+    // payment history (verified records only), same calc as the Admin Payment
+    // Verification page and the Client My Transactions page.
+    const records = getRecordsForBooking(paymentRecords, booking.id);
+    const bookingAny = booking as any;
+    const hasPaymentFields =
+      records.length > 0 ||
+      Number(bookingAny.amountPaid || bookingAny.paymentAmount || 0) > 0 ||
+      Boolean(bookingAny.proofUrl || bookingAny.paymentProof) ||
+      String(booking.paymentStatus || "").toLowerCase() !== "unpaid";
+    if (!hasPaymentFields) return null;
+
+    const summary = calculatePaymentSummary(bookingAny, records);
+    const status = summary.overallStatus;
 
     return {
-      status: paymentProof.status,
-      icon: paymentProof.status === "verified" ? CheckCircle : paymentProof.status === "rejected" ? AlertCircle : Clock,
+      status,
+      icon: status === "completed" ? CheckCircle : status === "rejected" ? AlertCircle : Clock,
       color:
-        paymentProof.status === "verified"
+        status === "completed"
           ? "text-green-500"
-          : paymentProof.status === "rejected"
+          : status === "rejected"
             ? "text-red-500"
             : "text-yellow-500",
     }

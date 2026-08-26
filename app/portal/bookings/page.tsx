@@ -54,6 +54,11 @@ import { Input } from "@/src/modules/shared/components/ui/input"
 import { Label } from "@/src/modules/shared/components/ui/label"
 import { Textarea } from "@/src/modules/shared/components/ui/textarea"
 import { getPaymentMethodLabel } from "@/src/modules/shared/lib/labels"
+import {
+  calculatePaymentSummary,
+  getRecordsForBooking,
+  type PaymentRecordLike,
+} from "@/src/modules/shared/lib/payment-calculations"
 import { NotificationTargetWrapper } from "@/src/modules/shared/components/notification-target"
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
 import type { NotificationType } from "@/src/modules/shared/lib/notifications"
@@ -227,26 +232,32 @@ function safeParseReviews(value: string | null): ReviewRecord[] {
 }
 
 const reviewsRef = collection(db, "reviews")
-const reviewsQuery = query(reviewsRef, orderBy("createdAt", "desc"))
 
-async function loadReviews(): Promise<ReviewRecord[]> {
+async function loadReviews(bookingIds: (string | number)[]): Promise<ReviewRecord[]> {
   try {
-    const snapshot = await getDocs(reviewsQuery)
+    const uniqueIds = [...new Set(bookingIds.map((id) => String(id)).filter(Boolean))]
+    if (uniqueIds.length === 0) return []
     const result: ReviewRecord[] = []
-    snapshot.forEach((docSnap) => {
-      const data = docSnap.data()
-      result.push({
-        id: docSnap.id,
-        bookingId: data.bookingId || "",
-        eventId: data.eventId || "",
-        eventName: data.eventName || "",
-        venue: data.venue || "",
-        customerName: data.customerName || "",
-        rating: data.rating || 5,
-        comment: data.comment || "",
-        createdAt: data.createdAt || new Date().toISOString(),
+    for (let i = 0; i < uniqueIds.length; i += 10) {
+      const chunk = uniqueIds.slice(i, i + 10)
+      const snapshot = await getDocs(
+        query(reviewsRef, where("bookingId", "in", chunk)),
+      )
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data()
+        result.push({
+          id: docSnap.id,
+          bookingId: data.bookingId || "",
+          eventId: data.eventId || "",
+          eventName: data.eventName || "",
+          venue: data.venue || "",
+          customerName: data.customerName || "",
+          rating: data.rating || 5,
+          comment: data.comment || "",
+          createdAt: data.createdAt || new Date().toISOString(),
+        })
       })
-    })
+    }
     return result
   } catch {
     return []
@@ -672,9 +683,15 @@ function Pagination({
 function PaymentSummaryCard({
   booking,
   bankRef,
+  remainingDownpayment,
 }: {
   booking: Booking
   bankRef: string | null
+  // Canonical credited remainder (verified payments + received amounts of
+  // short incomplete payments subtracted from the required downpayment).
+  // Supplied by the parent so mid-downpayment top-ups never display the
+  // original full downpayment target.
+  remainingDownpayment?: number
 }) {
   const rawAmountPaid = (booking as any)?.amountPaid || 0
   const amountPaid = Number(rawAmountPaid) || 0
@@ -684,7 +701,10 @@ function PaymentSummaryCard({
   const remaining = hasTotal ? Math.max(0, totalPrice - amountPaid) : null
   const selectedDP = Number((booking as any).selectedDownpaymentAmount || 0)
   const downpaymentPaid = Number((booking as any).downpaymentPaid || 0)
-  const downpaymentRemaining = Number((booking as any).downpaymentRemaining || 0)
+  const downpaymentRemaining =
+    typeof remainingDownpayment === "number"
+      ? remainingDownpayment
+      : Number((booking as any).downpaymentRemaining || 0)
   const paymentStage = String((booking as any).paymentStage || "")
   const isDownpayment = String(booking.paymentType || "").toLowerCase() === "downpayment"
   const showDP = isDownpayment && selectedDP > 0
@@ -771,6 +791,7 @@ function BookingDetailsModal({
   onCancel,
   onViewReceipt,
   onEdit,
+  paymentRecords,
 }: {
   booking: Booking | null
   open: boolean
@@ -779,15 +800,12 @@ function BookingDetailsModal({
   onCancel?: (b: Booking) => void
   onViewReceipt?: (b: Booking) => void
   onEdit?: (b: Booking) => void
+  paymentRecords?: PaymentRecordLike[] | null
 }) {
   const [showContractPreview, setShowContractPreview] = useState(false)
   const [showContractFile, setShowContractFile] = useState(false)
   const { bookings, requestRefund } = useBookings()
   const { cmsData } = useCMS()
-
-  useEffect(() => {
-    console.log("[BookingDetailsModal] showContractPreview:", showContractPreview)
-  }, [showContractPreview])
 
   const booking = useMemo(() => {
     if (!propBooking) return null
@@ -795,6 +813,14 @@ function BookingDetailsModal({
   }, [bookings, propBooking?.id])
 
   if (!booking) return null
+
+  // Canonical overall payment state — same source the Admin Payment
+  // Verification page and the client My Transactions page use.
+  const paymentSummary = calculatePaymentSummary(
+    booking,
+    getRecordsForBooking(paymentRecords, booking.id),
+  )
+  const canonicalPayStatus = paymentSummary.overallStatus
 
   const isCancelled =
     String(booking.status || "").toLowerCase() === "cancelled" ||
@@ -830,10 +856,11 @@ function BookingDetailsModal({
   const remainingBalance = Number((booking as any).remainingBalance || 0)
   const amountPaid = Number((booking as any)?.amountPaid || 0)
   const hasRemainingPayment =
-    remainingBalance > 0 &&
+    (remainingBalance > 0 || paymentSummary.remainingBalance > 0) &&
     !["cancelled", "declined", "completed", "rental_expired"].includes(String(booking.status || "").toLowerCase()) && (
       payStatus === "partial" ||
       payStatus === "incomplete" ||
+      canonicalPayStatus === "partial" ||
       balanceStatus === "with remaining balance" ||
       paymentStage === "complete downpayment" ||
       paymentStage === "settle remaining balance"
@@ -1055,7 +1082,11 @@ function BookingDetailsModal({
               })()}
 
               <section>
-                <PaymentSummaryCard booking={booking} bankRef={bankRef} />
+                <PaymentSummaryCard
+                  booking={booking}
+                  bankRef={bankRef}
+                  remainingDownpayment={paymentSummary.remainingDownpayment}
+                />
               </section>
 
               {booking.specialRequests && (
@@ -1099,20 +1130,20 @@ function BookingDetailsModal({
                 </div>
               )}
 
-              {hasRemainingPayment && remainingBalance > 0 && (
+              {hasRemainingPayment && paymentSummary.remainingBalance > 0 && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                   <div className="flex items-start gap-3">
                     <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
                     <div>
                       <p className="text-sm font-black text-amber-900">
-                        {payStatus === "incomplete" ? "Incomplete Payment" : "Partial Payment"}
+                        {canonicalPayStatus === "incomplete" ? "Incomplete Payment" : "Partial Payment"}
                       </p>
                       <p className="mt-1 text-lg font-black text-amber-700">
-                        Remaining Balance: ₱{remainingBalance.toLocaleString()}
+                        Remaining Balance: ₱{paymentSummary.remainingBalance.toLocaleString()}
                       </p>
                       {showBalanceReminderNotice && (
                         <p className="mt-2 text-sm font-bold text-amber-600">
-                          Reminder: Please settle your remaining balance of ₱{remainingBalance.toLocaleString()}.
+                          Reminder: Please settle your remaining balance of ₱{paymentSummary.remainingBalance.toLocaleString()}.
                         </p>
                       )}
                     </div>
@@ -1487,7 +1518,7 @@ function BookingDetailsModal({
                       <CreditCard className="mr-1.5 h-3.5 w-3.5" />
                       {isPayUnderReview
                         ? "Payment Submitted"
-                        : paymentStage === "complete downpayment" || payStatus === "incomplete"
+                        : paymentStage === "complete downpayment" || canonicalPayStatus === "incomplete"
                           ? "Submit Remaining Downpayment"
                           : "Settle Remaining Balance"}
                     </Button>
@@ -2762,9 +2793,16 @@ export default function MyBookingsPage() {
     }
   }, [user, getUserBookings, bookings])
 
+  // Reviews load lazily and are scoped to THIS user's bookings only
+  // (where bookingId IN [...my booking ids]) instead of fetching the entire
+  // reviews collection on page load.
   useEffect(() => {
-    loadReviews().then(setReviews)
-  }, [])
+    if (!user || myBookings.length === 0) {
+      setReviews([])
+      return
+    }
+    loadReviews(myBookings.map((b) => b.id)).then(setReviews)
+  }, [user, myBookings])
 
   const searchParams = useSearchParams()
 
@@ -3179,6 +3217,7 @@ export default function MyBookingsPage() {
           onCancel={handleCancel}
           onViewReceipt={handleViewReceipt}
           onEdit={handleEdit}
+          paymentRecords={paymentRecords}
         />
 
         <ReceiptModal

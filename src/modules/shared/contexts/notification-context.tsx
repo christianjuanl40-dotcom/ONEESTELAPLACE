@@ -176,7 +176,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const markAsRead = useCallback((id: string) => {
     try {
-      updateDoc(doc(db, "notifications", id), { isRead: true })
+      // Sync BOTH read flags: the bell badge counts isRead while the admin
+      // sidebar badges count moduleRead. Writing only one leaves the other
+      // badge stuck, so they are always updated together.
+      updateDoc(doc(db, "notifications", id), { isRead: true, moduleRead: true })
     } catch (error) {
       console.error("[Notifications] Failed to mark as read:", error)
     }
@@ -187,7 +190,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       .filter((n) => !n.isRead && n.id)
       .forEach((n) => {
         try {
-          updateDoc(doc(db, "notifications", n.id!), { isRead: true })
+          updateDoc(doc(db, "notifications", n.id!), { isRead: true, moduleRead: true })
         } catch (error) {
           console.error("[Notifications] Failed to mark as read:", error)
         }
@@ -209,7 +212,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       const q = query(collection(db, "notifications"), ...constraints)
       const snapshot = await getDocs(q)
       snapshot.forEach((docSnap) => {
-        updateDoc(doc(db, "notifications", docSnap.id), { moduleRead: true })
+        // Sync BOTH read flags (see markAsRead): viewing the booking must
+        // clear the sidebar badge AND the bell badge for those notifications.
+        updateDoc(doc(db, "notifications", docSnap.id), { moduleRead: true, isRead: true })
       })
     } catch (error) {
       console.error("[Notifications] Failed to markByBookingId:", error)

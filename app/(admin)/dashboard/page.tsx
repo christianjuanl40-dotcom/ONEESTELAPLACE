@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import {
   Activity,
@@ -18,9 +18,151 @@ import {
 } from "lucide-react"
 
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
-import { useBookingData } from "@/src/modules/client/contexts/booking-context"
 import { useRouter } from "next/navigation"
 import { cn } from "@/src/modules/shared/lib/utils"
+import { perfListener, perfMark } from "@/src/modules/shared/lib/perf-trace"
+import { db } from "@/lib/firebase"
+import {
+  collection,
+  query,
+  where,
+  orderBy,
+  limit,
+  onSnapshot,
+  getCountFromServer,
+} from "firebase/firestore"
+
+const BOOKINGS_REF = collection(db, "bookings")
+
+interface DashboardStats {
+  totalRevenue: number
+  pending: number
+  verifying: number
+  confirmed: number
+  cancelled: number
+  cancellationRequests: number
+  total: number
+}
+
+const EMPTY_STATS: DashboardStats = {
+  totalRevenue: 0,
+  pending: 0,
+  verifying: 0,
+  confirmed: 0,
+  cancelled: 0,
+  cancellationRequests: 0,
+  total: 0,
+}
+
+// Dashboard data strategy (no full-collection download):
+//  - status counts use Firestore aggregate count queries (no document transfer)
+//  - revenue streams ONLY confirmed/completed bookings
+//  - recent bookings stream only the latest 50 docs, showing 4
+function useDashboardData() {
+  const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS)
+  const [recentBookings, setRecentBookings] = useState<any[]>([])
+  const [ready, setReady] = useState(false)
+
+  const loadCounts = useCallback(async () => {
+    perfMark("Dashboard counts START")
+    const countOf = async (q: any) => {
+      try {
+        const snap = await getCountFromServer(q)
+        return snap.data().count
+      } catch (err) {
+        console.error("[Dashboard] count query error:", err)
+        return 0
+      }
+    }
+    const [total, pending, verifying, confirmed, cancelled, cancellationRequests] =
+      await Promise.all([
+        countOf(query(BOOKINGS_REF)),
+        countOf(query(BOOKINGS_REF, where("status", "==", "pending"))),
+        countOf(query(BOOKINGS_REF, where("status", "==", "verifying"))),
+        countOf(query(BOOKINGS_REF, where("status", "==", "confirmed"))),
+        countOf(
+          query(BOOKINGS_REF, where("status", "in", ["cancelled", "declined"])),
+        ),
+        countOf(
+          query(BOOKINGS_REF, where("status", "==", "cancellation_requested")),
+        ),
+      ])
+    perfMark("Dashboard counts DONE")
+    setStats((prev) => ({
+      ...prev,
+      total,
+      pending,
+      verifying,
+      confirmed,
+      cancelled,
+      cancellationRequests,
+    }))
+  }, [])
+
+  useEffect(() => {
+    let destroyed = false
+
+    perfListener("DashboardRecent", "START")
+    const recentUnsub = onSnapshot(
+      query(BOOKINGS_REF, orderBy("createdAt", "desc"), limit(50)),
+      (snapshot) => {
+        const items: any[] = []
+        snapshot.forEach((docSnap) => {
+          items.push({ ...(docSnap.data() as object), id: docSnap.id })
+        })
+        setRecentBookings(items)
+        perfListener("DashboardRecent", "FIRST_SNAPSHOT", items.length)
+      },
+      (error) => {
+        perfListener("DashboardRecent", "ERROR")
+        console.error("[Dashboard] recent bookings listener error:", error?.message || error)
+      },
+    )
+
+    perfListener("DashboardRevenue", "START")
+    const revenueUnsub = onSnapshot(
+      query(BOOKINGS_REF, where("status", "in", ["confirmed", "completed"])),
+      (snapshot) => {
+        let totalRevenue = 0
+        snapshot.forEach((docSnap) => {
+          totalRevenue += getSafePrice((docSnap.data() as any).totalPrice)
+        })
+        setStats((prev) => ({ ...prev, totalRevenue }))
+        perfListener("DashboardRevenue", "FIRST_SNAPSHOT", snapshot.size)
+      },
+      (error) => {
+        perfListener("DashboardRevenue", "ERROR")
+        console.error("[Dashboard] revenue listener error:", error?.message || error)
+      },
+    )
+
+    let countsLoaded = false
+    loadCounts().then(() => {
+      if (!destroyed && !countsLoaded) {
+        countsLoaded = true
+        setReady(true)
+      }
+    })
+
+    const refresh = () => {
+      if (!destroyed) loadCounts()
+    }
+    const interval = setInterval(refresh, 60_000)
+    window.addEventListener("focus", refresh)
+
+    return () => {
+      destroyed = true
+      clearInterval(interval)
+      window.removeEventListener("focus", refresh)
+      perfListener("DashboardRecent", "STOP")
+      perfListener("DashboardRevenue", "STOP")
+      recentUnsub()
+      revenueUnsub()
+    }
+  }, [loadCounts])
+
+  return { stats, recentBookings, ready }
+}
 
 const ROUTES = {
   bookings: "/dashboard/bookings",
@@ -35,8 +177,7 @@ const ROUTES = {
 export default function AdminDashboardPage() {
   const { user } = useAuth()
   const router = useRouter()
-  const bookingCtx = useBookingData({ bookings: true })
-  const bookings = bookingCtx?.bookings || []
+  const { stats, recentBookings, ready } = useDashboardData()
 
   useEffect(() => {
     if (user && user.role === "staff" && !user.permissions?.dashboard) {
@@ -44,37 +185,9 @@ export default function AdminDashboardPage() {
     }
   }, [user, router])
 
-  const stats = useMemo(() => {
-    const totalRevenue = bookings
-      .filter((b) => b.status === "completed" || b.status === "confirmed")
-      .reduce((acc, curr) => acc + getSafePrice(curr.totalPrice), 0)
+  const recent = useMemo(() => recentBookings.slice(0, 4), [recentBookings])
 
-    return {
-      totalRevenue,
-      pending: bookings.filter((b) => b.status === "pending").length,
-      verifying: bookings.filter((b) => b.status === "verifying").length,
-      confirmed: bookings.filter((b) => b.status === "confirmed").length,
-      cancelled: bookings.filter(
-        (b) => b.status === "cancelled" || b.status === "declined",
-      ).length,
-      cancellationRequests: bookings.filter(
-        (b) => b.status === "cancellation_requested",
-      ).length,
-      total: bookings.length,
-    }
-  }, [bookings])
-
-  const recentBookings = useMemo(() => {
-    return [...bookings]
-      .sort(
-        (a, b) =>
-          new Date(b.createdAt || 0).getTime() -
-          new Date(a.createdAt || 0).getTime(),
-      )
-      .slice(0, 4)
-  }, [bookings])
-
-  if (bookingCtx?.isLoading) {
+  if (!ready) {
     return (
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
         <div className="flex min-h-[50vh] items-center justify-center">
@@ -171,11 +284,11 @@ export default function AdminDashboardPage() {
             </div>
 
             <div className="p-4 sm:p-5">
-              {recentBookings.length === 0 ? (
+              {recent.length === 0 ? (
                 <EmptyState />
               ) : (
                 <div className="space-y-3">
-                  {recentBookings.map((booking) => (
+                  {recent.map((booking) => (
                     <BookingRow
                       key={booking.id}
                       booking={booking}

@@ -37,9 +37,7 @@ export function hasActivePaymentSubmission(booking: Record<string, unknown>): bo
     normalizedStatus === "for_review" ||
     normalizedStatus === "for review" ||
     normalizedStatus === "pending_verification" ||
-    normalizedStatus === "pending verification" ||
-    normalizedStatus === "incomplete" ||
-    Boolean(booking.paymentSubmittedAt)
+    normalizedStatus === "pending verification"
   )
 }
 

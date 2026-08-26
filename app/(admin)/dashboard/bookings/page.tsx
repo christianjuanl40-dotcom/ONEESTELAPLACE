@@ -53,6 +53,11 @@ import { useBookingData, useBookings, type Booking } from "@/src/modules/client/
 import { createNotification, type NotificationType } from "@/src/modules/shared/lib/notifications"
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
 import { getPaymentMethodLabel } from "@/src/modules/shared/lib/labels"
+import {
+  calculatePaymentSummary,
+  getRecordsForBooking,
+  type PaymentRecordLike,
+} from "@/src/modules/shared/lib/payment-calculations"
 import { Textarea } from "@/src/modules/shared/components/ui/textarea"
 import { Label } from "@/src/modules/shared/components/ui/label"
 import { getAllVenues } from "@/lib/central-data"
@@ -162,6 +167,7 @@ function getPaymentBadgeClass(paymentStatus?: string, status?: string) {
   if (bookingStatus === "rental_expired") return "border-red-100 bg-red-50 text-red-700"
 
   const v = String(paymentStatus || "").toLowerCase()
+  if (v === "completed") return "border-emerald-100 bg-emerald-50 text-emerald-700"
   if (["verified", "paid", "slot_verified"].includes(v)) return "border-emerald-100 bg-emerald-50 text-emerald-700"
   if (v === "partial") return "border-amber-100 bg-amber-50 text-amber-700"
   if (["for_review", "cash_pending", "slot_pending"].includes(v)) return "border-amber-100 bg-amber-50 text-amber-700"
@@ -193,11 +199,11 @@ function getPaymentStatusLabel(paymentStatus?: string, status?: string) {
   if (bookingStatus === "rental_expired") return "Rental Expired"
 
   const v = String(paymentStatus || "").toLowerCase()
+  if (v === "completed" || v === "fully paid") return "Fully Paid"
   if (v === "verified" || v === "paid" || v === "slot_verified") return "Verified"
   if (v === "for_review" || v === "cash_pending" || v === "slot_pending") return "For Review"
   if (v === "partial") return "Partial Payment"
   if (v === "incomplete") return "Incomplete Payment"
-  if (v === "fully paid") return "Fully Paid"
   if (v === "rejected") return "Rejected"
   if (v === "unpaid") return "Unpaid"
   if (!v) return "Not Set"
@@ -221,7 +227,7 @@ export default function AdminBookingsPage() {
   const { user } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
-  const bookingCtx = useBookingData({ bookings: true, maintenance: true })
+  const bookingCtx = useBookingData({ bookings: true, payments: true })
   const bookings = bookingCtx?.bookings || []
   const { markByBookingId } = useNotifications()
   const ADMIN_BOOKING_TYPES: NotificationType[] = ["booking_submitted", "cancellation_requested", "modification_requested"]
@@ -274,7 +280,6 @@ export default function AdminBookingsPage() {
   const [showApproveModificationTarget, setShowApproveModificationTarget] = useState<string | null>(null)
   const [showMarkCompletedTarget, setShowMarkCompletedTarget] = useState<string | null>(null)
   const [showMaintenanceModal, setShowMaintenanceModal] = useState(false)
-  const { maintenanceDates, toggleMaintenanceDate } = bookingCtx || {}
 
   useEffect(() => {
     if (!selectedBooking) return
@@ -554,6 +559,7 @@ export default function AdminBookingsPage() {
               setShowDeclineCancellationModal(true)
             }
           }}
+          paymentRecords={bookingCtx?.paymentRecords || []}
           onApproveModification={(id) => {
             setShowApproveModificationTarget(id)
             setShowApproveModificationConfirm(true)
@@ -875,6 +881,7 @@ function BookingDetailsModal({
   onApproveModification,
   onDeclineModification,
   onMarkAsRefunded,
+  paymentRecords,
 }: {
   booking: Booking | null
   open: boolean
@@ -888,6 +895,7 @@ function BookingDetailsModal({
   onApproveModification?: (id: string) => void
   onDeclineModification?: (id: string) => void
   onMarkAsRefunded?: (id: string) => void
+  paymentRecords?: PaymentRecordLike[] | null
 }) {
   const { bookings } = useBookings()
   const router = useRouter()
@@ -900,6 +908,15 @@ function BookingDetailsModal({
   const { toast } = useToast()
 
   if (!booking) return null
+
+  // Canonical overall payment state — identical to the Payment Verification
+  // page: the booking's overall status derives from its accepted/verified
+  // payment records only, never from the latest record or stored fields.
+  const paymentSummary = calculatePaymentSummary(
+    booking,
+    getRecordsForBooking(paymentRecords, booking.id),
+  )
+  const canonicalPayStatus = paymentSummary.overallStatus
 
   const isPaymentVerified = (() => {
     const ps = String(booking.paymentStatus || "").toLowerCase()
@@ -1035,10 +1052,10 @@ function BookingDetailsModal({
               <span
                 className={cn(
                   "inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em]",
-                  getPaymentBadgeClass(booking.paymentStatus, booking.status),
+                  getPaymentBadgeClass(canonicalPayStatus, booking.status),
                 )}
               >
-                {getPaymentStatusLabel(booking.paymentStatus, booking.status)}
+                {getPaymentStatusLabel(canonicalPayStatus, booking.status)}
               </span>
               {booking.cancellationStatus && booking.cancellationStatus !== "None" && (
                 <>
@@ -1629,8 +1646,7 @@ function BookingDetailsModal({
             paymentStatus === "for_review" ||
             paymentStatus === "cash_pending" ||
             paymentStatus === "slot_pending" ||
-            paymentStatus === "pending_verification" ||
-            Boolean((booking as any).paymentSubmittedAt)
+            paymentStatus === "pending_verification"
           const canDoRecordOnsite =
             remainingBalance > 0 &&
             !isFullyPaid &&
@@ -2683,7 +2699,7 @@ function MaintenanceCalendarModal({
     addMaintenanceRecord,
     removeMaintenanceRecord,
     bookings: allBookings,
-  } = useBookingData({ maintenance: true, bookings: true })
+  } = useBookingData({ maintenance: open, bookings: false })
   const { toast } = useToast()
 
   const venues = useMemo(() => getAllVenues(), [])

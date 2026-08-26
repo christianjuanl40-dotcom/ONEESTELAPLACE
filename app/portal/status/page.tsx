@@ -20,6 +20,11 @@ import {
 
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { useBookingData, type Booking } from "@/src/modules/client/contexts/booking-context"
+import {
+  calculatePaymentSummary,
+  getRecordsForBooking,
+  type PaymentRecordLike,
+} from "@/src/modules/shared/lib/payment-calculations"
 import { useCMS } from "@/src/modules/admin/contexts/cms-context"
 import { ContractFileViewer } from "@/src/modules/client/components/contract-file-viewer"
 import { Card, CardContent } from "@/src/modules/shared/components/ui/card"
@@ -130,7 +135,7 @@ function getPaymentStatusTone(
   status?: string,
 ): "emerald" | "amber" | "rose" | "blue" | "slate" {
   const v = String(paymentStatus || "").toLowerCase()
-  if (["verified", "paid", "slot_verified", "partial"].includes(v)) return "emerald"
+  if (["completed", "verified", "paid", "slot_verified", "partial"].includes(v)) return "emerald"
   if (["for_review", "cash_pending", "slot_pending", "pending_verification", "incomplete"].includes(v))
     return "amber"
   if (v === "rejected") return "rose"
@@ -140,6 +145,7 @@ function getPaymentStatusTone(
 
 function getPaymentStatusLabel(paymentStatus?: string) {
   const v = String(paymentStatus || "").toLowerCase()
+  if (v === "completed") return "Fully Paid"
   if (["verified", "paid", "slot_verified"].includes(v)) return "Verified"
   if (v === "partial") return "Partial"
   if (["for_review", "cash_pending", "slot_pending", "pending_verification"].includes(v))
@@ -206,9 +212,26 @@ function StatusTimelineRow({
   )
 }
 
-function StatusCard({ booking, cmsData }: { booking: StatusBooking; cmsData?: any }) {
+function StatusCard({
+  booking,
+  cmsData,
+  paymentRecords,
+}: {
+  booking: StatusBooking
+  cmsData?: any
+  paymentRecords?: PaymentRecordLike[] | null
+}) {
   const [contractFileViewerOpen, setContractFileViewerOpen] = useState(false)
   const isOfficeRental = isOfficeBooking(booking)
+
+  // Canonical overall payment state — same source as My Transactions and the
+  // Admin Payment Verification page (accepted/verified records only).
+  const paymentSummary = calculatePaymentSummary(
+    booking,
+    getRecordsForBooking(paymentRecords, booking.id),
+  )
+  const canonicalPayStatus = paymentSummary.overallStatus
+
   const isCancelled =
     String(booking.status).toLowerCase() === "cancelled" ||
     String(booking.status).toLowerCase() === "declined"
@@ -262,8 +285,8 @@ function StatusCard({ booking, cmsData }: { booking: StatusBooking; cmsData?: an
             tone={getBookingStatusTone(booking.status)}
           />
           <StatusPill
-            label={`Pay: ${getPaymentStatusLabel(booking.paymentStatus)}`}
-            tone={getPaymentStatusTone(booking.paymentStatus, booking.status)}
+            label={`Pay: ${getPaymentStatusLabel(canonicalPayStatus)}`}
+            tone={getPaymentStatusTone(canonicalPayStatus, booking.status)}
           />
         </div>
       </div>
@@ -359,7 +382,7 @@ function StatusCard({ booking, cmsData }: { booking: StatusBooking; cmsData?: an
                     Payment Status
                   </p>
                   <p className="mt-0.5 text-slate-900">
-                    {getPaymentStatusLabel(booking.paymentStatus)}
+                    {getPaymentStatusLabel(canonicalPayStatus)}
                   </p>
                 </div>
               </div>
@@ -569,7 +592,7 @@ function StatusCard({ booking, cmsData }: { booking: StatusBooking; cmsData?: an
 
 export default function StatusPage() {
   const { user } = useAuth()
-  const { getUserBookings } = useBookingData({ bookings: true })
+  const { getUserBookings, paymentRecords } = useBookingData({ bookings: true, payments: true })
   const { cmsData } = useCMS()
   const bookings = useMemo(
     () => (user ? getUserBookings(user.id) : []),
@@ -665,7 +688,7 @@ export default function StatusPage() {
       ) : (
         <div className="space-y-4">
           {visible.map((b) => (
-            <StatusCard key={b.id} booking={b} cmsData={cmsData} />
+            <StatusCard key={b.id} booking={b} cmsData={cmsData} paymentRecords={paymentRecords} />
           ))}
         </div>
       )}

@@ -1,12 +1,20 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Users } from "lucide-react"
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { UserAvatar } from "@/src/modules/shared/components/user-avatar"
 import { db } from "@/lib/firebase"
-import { collection, getDocs } from "firebase/firestore"
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+  orderBy,
+  limit,
+  startAfter,
+} from "firebase/firestore"
 
 interface UserRecord {
   uid: string
@@ -19,10 +27,15 @@ interface UserRecord {
   profilePicture?: string
 }
 
+const USERS_PAGE_SIZE = 100
+
 export default function UsersPage() {
   const { user } = useAuth()
   const router = useRouter()
   const [users, setUsers] = useState<UserRecord[]>([])
+  const [lastVisible, setLastVisible] = useState<any>(null)
+  const [hasMore, setHasMore] = useState(false)
+  const [indexFallback, setIndexFallback] = useState(false)
 
   useEffect(() => {
     if (user && user.role === "staff" && !user.permissions?.users) {
@@ -30,46 +43,69 @@ export default function UsersPage() {
     }
   }, [user, router])
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const mapUser = (docSnap: any): UserRecord => {
+    const data = docSnap.data()
+    return {
+      uid: docSnap.id,
+      fullName: data.fullName || "",
+      email: data.email || "",
+      phone: data.phone || "",
+      role: data.role || "",
+      status: data.status || "",
+      createdAt: data.createdAt || "",
+      profilePicture: data.profilePicture || "",
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
 
     async function fetchUsers() {
       try {
-        const snapshot = await getDocs(collection(db, "users"))
-        console.log("[UsersPage] snapshot size:", snapshot.size)
-        console.log("[UsersPage] document IDs:", snapshot.docs.map((d) => d.id))
-
-        const loaded: UserRecord[] = []
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data()
-          loaded.push({
-            uid: docSnap.id,
-            fullName: data.fullName || "",
-            email: data.email || "",
-            phone: data.phone || "",
-            role: data.role || "",
-            status: data.status || "",
-            createdAt: data.createdAt || "",
-            profilePicture: data.profilePicture || "",
-          })
-        })
-        console.log("[UsersPage] users loaded:", loaded.length)
-        console.log("[UsersPage] final array:", JSON.stringify(loaded.map((u) => ({ uid: u.uid, email: u.email }))))
-
-        const clientUsers = loaded.filter((u) => u.role === "client")
-
-        if (!cancelled) {
-          setUsers(clientUsers)
-          setLoading(false)
+        const clientsRef = collection(db, "users")
+        const q = query(
+          clientsRef,
+          where("role", "==", "client"),
+          orderBy("createdAt", "desc"),
+          limit(USERS_PAGE_SIZE),
+        )
+        const snapshot = await getDocs(q)
+        if (cancelled) return
+        const loaded = snapshot.docs.map(mapUser)
+        setUsers(loaded)
+        setLastVisible(snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null)
+        setHasMore(snapshot.docs.length === USERS_PAGE_SIZE)
+      } catch (err: any) {
+        if (err?.code === "failed-precondition") {
+          // Composite index (role ASC, createdAt DESC) not created yet:
+          // fall back to a single scoped query (clients only) so the page
+          // still works without loading the entire users collection.
+          if (cancelled) return
+          setIndexFallback(true)
+          try {
+            const fallbackSnap = await getDocs(
+              query(collection(db, "users"), where("role", "==", "client")),
+            )
+            if (cancelled) return
+            setUsers(fallbackSnap.docs.map(mapUser))
+            setHasMore(false)
+            setLastVisible(null)
+          } catch (err2) {
+            if (!cancelled) {
+              setError(err2 instanceof Error ? err2.message : "Failed to load users")
+            }
+          }
+        } else {
+          console.error("[UsersPage] Firestore getDocs error:", err)
+          if (!cancelled) {
+            setError(err instanceof Error ? err.message : "Failed to load users")
+          }
         }
-      } catch (err) {
-        console.error("[UsersPage] Firestore getDocs error:", err)
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load users")
-          setLoading(false)
-        }
+      } finally {
+        if (!cancelled) setLoading(false)
       }
     }
 
@@ -77,6 +113,31 @@ export default function UsersPage() {
 
     return () => { cancelled = true }
   }, [])
+
+  const loadMore = useCallback(async () => {
+    if (!lastVisible || indexFallback || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const snapshot = await getDocs(
+        query(
+          collection(db, "users"),
+          where("role", "==", "client"),
+          orderBy("createdAt", "desc"),
+          limit(USERS_PAGE_SIZE),
+          startAfter(lastVisible),
+        ),
+      )
+      const more = snapshot.docs.map(mapUser)
+      setUsers((prev) => [...prev, ...more])
+      setLastVisible(snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null)
+      setHasMore(snapshot.docs.length === USERS_PAGE_SIZE)
+    } catch (err) {
+      console.error("[UsersPage] load more error:", err)
+      setError(err instanceof Error ? err.message : "Failed to load more users")
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [lastVisible, indexFallback, loadingMore])
 
   return (
     <div className="w-full min-w-0 max-w-full overflow-x-hidden">
@@ -131,6 +192,23 @@ export default function UsersPage() {
                 </div>
               </div>
             ))}
+            {hasMore && !indexFallback && (
+              <div className="flex justify-center pt-2">
+                <button
+                  type="button"
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-6 text-xs font-black text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {loadingMore ? "Loading..." : "Load More"}
+                </button>
+              </div>
+            )}
+            {indexFallback && hasMore === false && (
+              <p className="pt-1 text-center text-[10px] font-semibold text-slate-400">
+                Showing all client accounts.
+              </p>
+            )}
           </div>
         )}
       </div>
