@@ -684,27 +684,24 @@ function PaymentSummaryCard({
   booking,
   bankRef,
   remainingDownpayment,
+  paymentSummary,
 }: {
   booking: Booking
   bankRef: string | null
-  // Canonical credited remainder (verified payments + received amounts of
-  // short incomplete payments subtracted from the required downpayment).
-  // Supplied by the parent so mid-downpayment top-ups never display the
-  // original full downpayment target.
   remainingDownpayment?: number
+  paymentSummary?: ReturnType<typeof calculatePaymentSummary>
 }) {
-  const rawAmountPaid = (booking as any)?.amountPaid || 0
-  const amountPaid = Number(rawAmountPaid) || 0
-  const totalPrice = Number(booking.totalPrice) || 0
+  const amountPaid = paymentSummary?.moneyReceivedTotal ?? 0
+  const totalPrice = paymentSummary?.bookingTotal ?? 0
   const hasPaid = amountPaid > 0
   const hasTotal = totalPrice > 0
-  const remaining = hasTotal ? Math.max(0, totalPrice - amountPaid) : null
+  const remaining = paymentSummary?.remainingBalance ?? (hasTotal ? Math.max(0, totalPrice - amountPaid) : 0)
   const selectedDP = Number((booking as any).selectedDownpaymentAmount || 0)
   const downpaymentPaid = Number((booking as any).downpaymentPaid || 0)
   const downpaymentRemaining =
     typeof remainingDownpayment === "number"
       ? remainingDownpayment
-      : Number((booking as any).downpaymentRemaining || 0)
+      : paymentSummary?.remainingDownpayment ?? Number((booking as any).downpaymentRemaining || 0)
   const paymentStage = String((booking as any).paymentStage || "")
   const isDownpayment = String(booking.paymentType || "").toLowerCase() === "downpayment"
   const showDP = isDownpayment && selectedDP > 0
@@ -760,7 +757,7 @@ function PaymentSummaryCard({
           <span className="text-sm font-black text-slate-900 shrink-0">Amount Paid</span>
           <span className="text-sm font-black text-slate-900 text-right break-words">{hasPaid ? formatMoney(amountPaid) : "—"}</span>
         </div>
-        {!isTerminal && remaining !== null && remaining > 0 && (
+        {!isTerminal && remaining > 0 && (
           <div className="flex justify-between gap-2">
             <span className="text-sm font-black text-slate-900 shrink-0">Remaining Balance</span>
             <span className="text-sm font-black text-amber-700 text-right break-words">{formatMoney(remaining)}</span>
@@ -853,8 +850,8 @@ function BookingDetailsModal({
   const payStatus = String(booking.paymentStatus || "").toLowerCase()
   const balanceStatus = String((booking as any).balanceStatus || "").toLowerCase()
   const paymentStage = String((booking as any).paymentStage || "").toLowerCase()
-  const remainingBalance = Number((booking as any).remainingBalance || 0)
-  const amountPaid = Number((booking as any)?.amountPaid || 0)
+  const remainingBalance = paymentSummary.remainingBalance
+  const amountPaid = paymentSummary.moneyReceivedTotal
   const hasRemainingPayment =
     (remainingBalance > 0 || paymentSummary.remainingBalance > 0) &&
     !["cancelled", "declined", "completed", "rental_expired"].includes(String(booking.status || "").toLowerCase()) && (
@@ -1086,6 +1083,7 @@ function BookingDetailsModal({
                   booking={booking}
                   bankRef={bankRef}
                   remainingDownpayment={paymentSummary.remainingDownpayment}
+                  paymentSummary={paymentSummary}
                 />
               </section>
 

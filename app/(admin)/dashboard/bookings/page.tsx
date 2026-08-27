@@ -619,6 +619,7 @@ export default function AdminBookingsPage() {
           booking={onsitePaymentTarget}
           open={!!onsitePaymentTarget}
           onClose={() => setOnsitePaymentTarget(null)}
+          paymentRecords={bookingCtx?.paymentRecords || []}
           onRecorded={(updated) => {
             setSelectedBooking(updated)
             setOnsitePaymentTarget(null)
@@ -943,17 +944,11 @@ function BookingDetailsModal({
     return Number.isFinite(numberValue) ? numberValue : 0
   }
 
-  const totalAmount = getAmount(
-    (booking as any).totalAmount || booking.totalPrice || (booking as any).amount || (booking as any).price
-  )
+  const totalAmount = paymentSummary.bookingTotal
 
-  const amountPaid = getAmount(
-    (booking as any).amountPaid || (booking as any).paymentAmount || (booking as any).paidAmount
-  )
+  const amountPaid = paymentSummary.moneyReceivedTotal
 
-  const remainingBalance = getAmount(
-    (booking as any).remainingBalance || Math.max(totalAmount - amountPaid, 0)
-  )
+  const remainingBalance = paymentSummary.remainingBalance
 
   const paymentStatus = normalizeStatus((booking as any).paymentStatus)
   const balanceStatus = normalizeStatus((booking as any).balanceStatus)
@@ -996,10 +991,7 @@ function BookingDetailsModal({
     return eventDate.getTime() < Date.now()
   })()
 
-  const isFullyPaid =
-    remainingBalance === 0 &&
-    amountPaid >= totalAmount &&
-    (paymentStage === "fully paid" || paymentStatus === "paid" || balanceStatus === "settled")
+  const isFullyPaid = paymentSummary.fullyPaid
 
   const timeValue =
     booking.time ||
@@ -1283,7 +1275,7 @@ function BookingDetailsModal({
             </section>
 
             <section className="py-5 first:pt-0">
-              <PaymentSummaryCard booking={booking} bankRef={bankRef} />
+              <PaymentSummaryCard booking={booking} bankRef={bankRef} paymentRecords={paymentRecords} />
             </section>
           </div>
 
@@ -1913,11 +1905,13 @@ function RecordOnsitePaymentModal({
   open,
   onClose,
   onRecorded,
+  paymentRecords,
 }: {
   booking: Booking | null
   open: boolean
   onClose: () => void
   onRecorded: (updated: Booking) => void
+  paymentRecords?: PaymentRecordLike[] | null
 }) {
   const { manualRecordOnsitePayment } = useBookings()
   const [step, setStep] = useState<"form" | "confirm">("form")
@@ -1936,24 +1930,22 @@ function RecordOnsitePaymentModal({
 
   if (!booking) return null
 
-  const totalAmount = (() => {
-    const val = (booking as any).totalAmount || booking.totalPrice || (booking as any).amount || (booking as any).price
-    const num = Number(String(val || 0).replace(/[^0-9.-]+/g, ""))
-    return Number.isFinite(num) ? num : 0
-  })()
-
-  const currentAmountPaid = (() => {
-    const val = (booking as any).amountPaid || (booking as any).paymentAmount || (booking as any).paidAmount
-    const num = Number(String(val || 0).replace(/[^0-9.-]+/g, ""))
-    return Number.isFinite(num) ? num : 0
-  })()
-
-  const remainingBalance = Math.max(totalAmount - currentAmountPaid, 0)
+  const summary = calculatePaymentSummary(
+    booking,
+    getRecordsForBooking(paymentRecords, String(booking.id)),
+  )
+  const totalAmount = summary.bookingTotal
+  const currentAmountPaid = summary.moneyReceivedTotal
+  const remainingBalance = summary.remainingBalance
   const enteredAmount = (() => {
     const num = Number(String(amountReceived || "0").replace(/[^0-9.-]+/g, ""))
     return Number.isFinite(num) ? num : 0
   })()
   const isOverPayment = enteredAmount > remainingBalance
+  const isFullPaymentMismatch =
+    paymentType === "full_payment" &&
+    remainingBalance > 0 &&
+    enteredAmount !== remainingBalance
 
   const getNewPaymentSummary = () => {
     if (paymentType === "full_payment") {
@@ -1999,7 +1991,7 @@ function RecordOnsitePaymentModal({
     onRecorded(fullUpdated)
   }
 
-  const summary = getNewPaymentSummary()
+  const newPaymentPreview = getNewPaymentSummary()
   const typeLabel = paymentType === "full_payment" ? "Full Payment" : paymentType === "remaining_balance" ? "Remaining Balance" : "Downpayment"
 
   return (
@@ -2088,6 +2080,11 @@ function RecordOnsitePaymentModal({
                         Amount received cannot exceed the remaining balance of ₱{remainingBalance.toLocaleString()}.
                       </p>
                     )}
+                    {isFullPaymentMismatch && enteredAmount > 0 && (
+                      <p className="mt-1.5 text-[11px] font-semibold text-rose-600">
+                        Full payment requires exactly ₱{remainingBalance.toLocaleString()}.
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -2140,15 +2137,15 @@ function RecordOnsitePaymentModal({
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className="font-semibold text-slate-400">New Amount Paid</span>
-                    <span className="font-bold text-slate-900">₱{summary.newAmountPaid.toLocaleString()}</span>
+                    <span className="font-bold text-slate-900">₱{newPaymentPreview.newAmountPaid.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className="font-semibold text-slate-400">New Remaining Balance</span>
-                    <span className="font-bold text-amber-700">₱{summary.newRemainingBalance.toLocaleString()}</span>
+                    <span className="font-bold text-amber-700">₱{newPaymentPreview.newRemainingBalance.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className="font-semibold text-slate-400">New Status</span>
-                    <span className="font-bold text-slate-900">{summary.newPaymentStatus}</span>
+                    <span className="font-bold text-slate-900">{newPaymentPreview.newPaymentStatus}</span>
                   </div>
                   {adminNote.trim() && (
                     <div className="flex justify-between text-xs">
@@ -2171,7 +2168,7 @@ function RecordOnsitePaymentModal({
                   Cancel
                 </Button>
                 <Button
-                  disabled={enteredAmount <= 0 || isOverPayment}
+                  disabled={enteredAmount <= 0 || isOverPayment || isFullPaymentMismatch}
                   onClick={() => setStep("confirm")}
                   className="h-11 w-full sm:w-auto rounded-xl bg-emerald-600 text-sm font-black text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
@@ -2205,19 +2202,24 @@ function RecordOnsitePaymentModal({
 function PaymentSummaryCard({
   booking,
   bankRef,
+  paymentRecords,
 }: {
   booking: Booking
   bankRef: string | null
+  paymentRecords?: PaymentRecordLike[] | null
 }) {
-  const rawAmountPaid = (booking as any)?.amountPaid || 0
-  const amountPaid = Number(rawAmountPaid) || 0
-  const totalPrice = Number(booking.totalPrice) || 0
+  const summary = calculatePaymentSummary(
+    booking,
+    getRecordsForBooking(paymentRecords, String(booking.id)),
+  )
+  const amountPaid = summary.moneyReceivedTotal
+  const totalPrice = summary.bookingTotal
   const hasPaid = amountPaid > 0
   const hasTotal = totalPrice > 0
-  const remaining = hasTotal ? Math.max(0, totalPrice - amountPaid) : null
+  const remaining = summary.remainingBalance
   const selectedDP = Number((booking as any).selectedDownpaymentAmount || 0)
   const downpaymentPaid = Number((booking as any).downpaymentPaid || 0)
-  const downpaymentRemaining = Number((booking as any).downpaymentRemaining || 0)
+  const downpaymentRemaining = summary.remainingDownpayment
   const paymentStage = String((booking as any).paymentStage || "")
   const isDownpayment = String(booking.paymentType || "").toLowerCase() === "downpayment"
   const showDP = isDownpayment && selectedDP > 0
@@ -2268,7 +2270,7 @@ function PaymentSummaryCard({
           <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Amount Paid</p>
           <p className="mt-0.5 whitespace-nowrap text-xs font-bold text-slate-800">{hasPaid ? formatMoney(amountPaid) : "—"}</p>
         </div>
-        {remaining !== null && remaining > 0 && (
+        {remaining > 0 && (
           <div className="min-w-0">
             <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-amber-600">Remaining Balance</p>
             <p className="mt-0.5 whitespace-nowrap text-xs font-bold text-amber-700">{formatMoney(remaining)}</p>
