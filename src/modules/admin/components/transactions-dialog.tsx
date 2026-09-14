@@ -132,12 +132,12 @@ export function TransactionsDialog({ open, onOpenChange }: TransactionsDialogPro
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] sm:max-w-4xl overflow-y-auto max-h-[90dvh]">
+      <DialogContent className="w-[95vw] sm:max-w-4xl max-h-[90dvh]">
         <DialogHeader>
           <DialogTitle>Admin: All Transactions</DialogTitle>
           <DialogDescription>Manage all client reservations and update their statuses.</DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+        <div className="space-y-4 overflow-y-auto flex-1 min-h-0">
           {displayBookings.map((booking) => {
             const paymentStatus = getPaymentStatus(booking)
 

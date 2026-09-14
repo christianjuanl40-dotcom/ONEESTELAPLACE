@@ -2480,8 +2480,8 @@ function TransactionsContent() {
       >
         <DialogContent aria-describedby={undefined}
           showCloseButton={false}
-          className="w-[95vw] sm:max-w-[720px] max-h-[90vh] overflow-hidden rounded-3xl bg-white shadow-2xl">
-          <div className="flex max-h-[90vh] min-h-0 flex-col overflow-hidden">
+          className="w-[95vw] sm:max-w-[720px] max-h-[90dvh] overflow-hidden rounded-3xl bg-white shadow-2xl">
+          <div className="flex max-h-[90dvh] min-h-0 flex-col overflow-hidden">
             <div className="shrink-0 border-b border-slate-100 px-5 py-5">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">

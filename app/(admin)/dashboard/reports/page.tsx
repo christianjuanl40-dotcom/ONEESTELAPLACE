@@ -22,6 +22,7 @@ import {
 } from "@/src/modules/shared/components/ui/select"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { useBookingData } from "@/src/modules/client/contexts/booking-context"
+import { calculatePaymentSummary, getRecordsForBooking } from "@/src/modules/shared/lib/payment-calculations"
 import {
   Bar,
   BarChart,
@@ -195,7 +196,8 @@ function getReportClientName(booking: BookingRecord) {
   return name.trim() || "N/A"
 }
 
-function getReportRemainingBalance(booking: BookingRecord) {
+function getReportRemainingBalance(booking: BookingRecord, summary?: { remainingBalance: number } | null) {
+  if (summary) return summary.remainingBalance
   const b = booking as any
   const stored = Number(b.remainingBalance ?? 0) || 0
   if (stored > 0) return stored
@@ -214,7 +216,18 @@ function getBookingLifecycleLabel(status?: string) {
   return BOOKING_LIFECYCLE_MAP[normalized] ?? "Pending"
 }
 
-function getReportPaymentStatus(booking: BookingRecord) {
+function getReportPaymentStatus(booking: BookingRecord, summary?: { overallStatus: string; remainingBalance: number } | null) {
+  if (summary) {
+    const canonicalLabelMap: Record<string, string> = {
+      completed: "Fully Paid",
+      partial: "Partially Paid",
+      for_review: "For Verification",
+      rejected: "Rejected",
+      incomplete: "Partially Paid",
+    }
+    return canonicalLabelMap[summary.overallStatus] || "Pending Payment"
+  }
+
   const b = booking as any
   const ps = normalizeStatus(booking.paymentStatus)
   const stage = String(b.paymentStage || "").toLowerCase()
@@ -349,7 +362,7 @@ export default function ReportsPage() {
   const { user } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
-  const { bookings = [], isLoading: bookingsLoading } = useBookingData({ bookings: true })
+  const { bookings = [], paymentRecords = [], isLoading: bookingsLoading } = useBookingData({ bookings: true, payments: true })
   const { ref: statusCardRef, width: statusCardWidth } = useContainerWidth<HTMLDivElement>()
   const isWideLayout = statusCardWidth >= 700
 
@@ -438,6 +451,14 @@ export default function ReportsPage() {
       })
   }, [bookingList, filterYear, filterMonth, filterStatus, searchTerm])
 
+  const enrichedData = useMemo(() => {
+    const records = Array.isArray(paymentRecords) ? paymentRecords : []
+    return filteredData.map((booking) => {
+      const summary = calculatePaymentSummary(booking as any, getRecordsForBooking(records, String(booking.id)))
+      return { ...booking, _summary: summary }
+    })
+  }, [filteredData, paymentRecords])
+
   useEffect(() => {
     setCurrentPage(1)
   }, [searchTerm, filterYear, filterMonth, filterStatus, rowsPerPage])
@@ -445,8 +466,8 @@ export default function ReportsPage() {
   const totalPages = Math.max(1, Math.ceil(filteredData.length / rowsPerPage))
   const safePage = Math.min(currentPage, totalPages)
   const paginatedData = useMemo(
-    () => filteredData.slice((safePage - 1) * rowsPerPage, safePage * rowsPerPage),
-    [filteredData, safePage, rowsPerPage],
+    () => enrichedData.slice((safePage - 1) * rowsPerPage, safePage * rowsPerPage),
+    [enrichedData, safePage, rowsPerPage],
   )
 
   const confirmedBookings = useMemo(() => {
@@ -588,7 +609,7 @@ export default function ReportsPage() {
       const headerRow = 15
       const lastColumn = columnLetter(EXCEL_HEADERS.length)
 
-      const dataRows = filteredData.map((booking) => {
+      const dataRows = enrichedData.map((booking) => {
         const parsedDate = parseBookingDate(booking)
         const dateCell = parsedDate ? new Date(parsedDate.getTime()) : getBookingDate(booking) || "No date"
         if (dateCell instanceof Date) dateCell.setHours(12, 0, 0, 0)
@@ -600,9 +621,9 @@ export default function ReportsPage() {
           dateCell,
           booking.venue || "N/A",
           getBookingLifecycleLabel(booking.status),
-          getReportPaymentStatus(booking),
+          getReportPaymentStatus(booking, (booking as any)._summary),
           getBookingAmount(booking),
-          getReportRemainingBalance(booking),
+          getReportRemainingBalance(booking, (booking as any)._summary),
           (booking as any).refundStatus || "N/A",
           getReportRefundAmount(booking),
         ]
@@ -1235,7 +1256,7 @@ export default function ReportsPage() {
             <tbody className="divide-y divide-slate-100">
               {paginatedData.map((booking, index) => {
                 const status = booking.status || "pending"
-                const clientName = booking.customerName || booking.clientName || booking.name || "Walk-in / Guest"
+                const clientName = getReportClientName(booking)
 
                 return (
                   <tr key={`${booking.id || "booking"}-${index}`} className="transition-colors hover:bg-slate-50">
@@ -1260,7 +1281,7 @@ export default function ReportsPage() {
 
                     <td className="p-5">
                       <span
-                        className={`inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] ${getStatusBadgeClass(
+                        className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] ${getStatusBadgeClass(
                           status
                         )}`}
                       >

@@ -461,7 +461,7 @@ export default function ClientDashboardPage() {
                     <div className="flex flex-col sm:flex-row justify-between gap-4">
                       <div className="flex-1 min-w-0">
                         <Badge variant="outline" className="uppercase text-[10px] font-black tracking-[0.2em] px-2.5 py-1 rounded-full mb-3 border-emerald-100 bg-emerald-50 text-emerald-600 shadow-none">
-                          {activeEventBooking.status}
+                          {String(activeEventBooking.status || "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
                         </Badge>
                         <h3 className="text-xl font-black text-slate-950 tracking-tight leading-snug mb-3 line-clamp-2">
                           {activeEventBooking.eventName || "Event"}
@@ -537,7 +537,7 @@ export default function ClientDashboardPage() {
                             {booking.eventName || "Untitled"}
                           </h4>
                           <div className="flex gap-3 text-xs text-slate-500 mt-1.5">
-                            <span className="flex items-center gap-1">{isOffice ? <Building2 className="w-3.5 h-3.5" /> : <Calendar className="w-3.5 h-3.5" />}{booking.venue || "N/A"}</span>
+                            <span className="flex items-center gap-1 min-w-0 truncate">{isOffice ? <Building2 className="w-3.5 h-3.5 shrink-0" /> : <Calendar className="w-3.5 h-3.5 shrink-0" />}{booking.venue || "N/A"}</span>
                           </div>
                         </div>
                         {officeStatus ? (

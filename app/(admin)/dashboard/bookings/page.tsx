@@ -94,11 +94,13 @@ function getStatusBadgeClass(status?: string) {
 
 function BalanceReminderModal({
   booking,
+  remainingBalance,
   open,
   onCancel,
   onConfirm,
 }: {
   booking: Booking | null
+  remainingBalance?: number
   open: boolean
   onCancel: () => void
   onConfirm: () => void
@@ -129,10 +131,7 @@ function BalanceReminderModal({
                 </div>
                 <div className="flex justify-between text-xs">
                   <span className="font-semibold text-slate-400">Remaining Balance</span>
-                  <span className="font-bold text-blue-700">₱{Number(
-                    (booking as any).remainingBalance ||
-                    Math.max(Number(booking.totalPrice || 0) - Number((booking as any).amountPaid || 0), 0)
-                  ).toLocaleString()}</span>
+                  <span className="font-bold text-blue-700">₱{(remainingBalance ?? Math.max(Number(booking.totalPrice || 0) - Number((booking as any).amountPaid || 0), 0)).toLocaleString()}</span>
                 </div>
               </div>
             )}
@@ -636,6 +635,7 @@ export default function AdminBookingsPage() {
         />
         <BalanceReminderModal
           booking={sendReminderTarget}
+          remainingBalance={sendReminderTarget ? calculatePaymentSummary(sendReminderTarget, getRecordsForBooking(bookingCtx?.paymentRecords || [], sendReminderTarget.id)).remainingBalance : undefined}
           open={!!sendReminderTarget}
           onCancel={() => setSendReminderTarget(null)}
           onConfirm={() => {
@@ -920,12 +920,9 @@ function BookingDetailsModal({
   const canonicalPayStatus = paymentSummary.overallStatus
 
   const isPaymentVerified = (() => {
-    const ps = String(booking.paymentStatus || "").toLowerCase()
     return (
-      ps === "verified" ||
-      ps === "paid" ||
-      ps === "partial" ||
-      ps === "slot_verified" ||
+      canonicalPayStatus === "completed" ||
+      canonicalPayStatus === "partial" ||
       booking.isSlotSecured === true
     )
   })()
@@ -1035,7 +1032,7 @@ function BookingDetailsModal({
             <div className="mb-5 flex flex-wrap items-center gap-2">
               <span
                 className={cn(
-                  "inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em]",
+                  "inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap",
                   getStatusBadgeClass(booking.status),
                 )}
               >
@@ -1043,7 +1040,7 @@ function BookingDetailsModal({
               </span>
               <span
                 className={cn(
-                  "inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em]",
+                  "inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap",
                   getPaymentBadgeClass(canonicalPayStatus, booking.status),
                 )}
               >
@@ -1102,9 +1099,9 @@ function BookingDetailsModal({
                       <span className="text-sm font-black text-slate-900">{booking.cancellationStatus || (booking as any).cancelRequestStatus || "Approved"}</span>
                     </div>
                     {(booking.cancellationReason || (booking as any).cancelReason) && (
-                      <div className="flex justify-between">
-                        <span className="text-sm font-bold text-slate-900">Cancellation Reason</span>
-                        <span className="text-sm font-black text-slate-900 max-w-[60%] text-right">{booking.cancellationReason || (booking as any).cancelReason}</span>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-sm font-bold text-slate-900 shrink-0">Cancellation Reason</span>
+                        <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{booking.cancellationReason || (booking as any).cancelReason}</span>
                       </div>
                     )}
                     {(booking.cancellationReviewedAt || booking.cancellationRequestedAt || (booking as any).cancelRequestedAt || (booking as any).cancelledAt) && (
@@ -1978,17 +1975,14 @@ function RecordOnsitePaymentModal({
   const handleConfirm = () => {
     if (enteredAmount <= 0) return
 
-    manualRecordOnsitePayment(booking.id, {
+    const updatedBooking = manualRecordOnsitePayment(booking.id, {
       paymentType: paymentType as "downpayment" | "remaining_balance" | "full_payment",
       amountReceived: enteredAmount,
       adminNote: adminNote.trim(),
       adminName: "Administrator",
     })
 
-    // Booking data is updated in context by manualRecordOnsitePayment
-    let fullUpdated: Booking = booking
-
-    onRecorded(fullUpdated)
+    onRecorded(updatedBooking ?? booking)
   }
 
   const newPaymentPreview = getNewPaymentSummary()

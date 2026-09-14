@@ -442,7 +442,7 @@ interface BookingContextType {
     amountReceived: number;
     adminNote?: string;
     adminName?: string;
-  }) => void;
+  }) => Booking | null;
   verifyPayment: (id: string, reviewData?: { verifiedAmount?: number; adminNote?: string; adminName?: string; paymentRecordId?: string }) => void;
   rejectPayment: (id: string, reason?: string, adminName?: string, paymentRecordId?: string) => void;
   markIncompletePayment: (id: string, data: { verifiedAmount: number; adminNote: string; adminName?: string; paymentRecordId?: string }) => void;
@@ -2242,8 +2242,12 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           };
 
           verifiedBooking = recalculatePaymentStage(verifiedBooking);
+          const dpComplete = newDownpaymentPaid >= selectedDP;
           verifiedBooking = {
             ...verifiedBooking,
+            status: (dpComplete ? "confirmed" : "verifying") as BookingStatus,
+            bookingStatus: dpComplete ? "Confirmed" : "Pending Verification",
+            isSlotSecured: dpComplete,
             adminLogs: makeAdminLog(
               booking,
               "VERIFY_PAYMENT",
@@ -3105,11 +3109,12 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           updatedAt: new Date().toISOString(),
         });
 
+        const dpComplete = newDownpaymentPaid >= selectedDP;
         return attachAutoReceipt({
           ...updated,
-          status: "confirmed" as BookingStatus,
-          bookingStatus: "Confirmed",
-          isSlotSecured: true,
+          status: (dpComplete ? "confirmed" : "verifying") as BookingStatus,
+          bookingStatus: dpComplete ? "Confirmed" : "Pending Verification",
+          isSlotSecured: dpComplete,
           paymentMethod: "cash" as const,
           verifiedByAdmin: true,
           verifiedAt: new Date().toISOString(),
@@ -3184,7 +3189,8 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       adminNote?: string;
       adminName?: string;
     },
-  ) => {
+  ): Booking | null => {
+    let resultBooking: Booking | null = null;
     const updatedBookings = bookings.map((booking) => {
       if (booking.id !== id) return booking;
 
@@ -3298,130 +3304,97 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       };
 
       // Build a proper transaction receipt for this onsite payment.
-      const paymentId = `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      const submittedAt = new Date().toISOString();
-      const termLabel = paymentData.paymentType === "downpayment"
+      // Use onsiteUpdated (the booking with correct amountPaid/remainingBalance)
+      // — NOT the stale closure booking — so the payment record, receipt, and
+      // notification all reflect the true post-payment state.
+      const onsitePaymentId = `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const onsiteSubmittedAt = new Date().toISOString();
+      const onsiteTermLabel = paymentData.paymentType === "downpayment"
         ? "Down Payment"
         : paymentData.paymentType === "full_payment"
           ? "Full Payment"
           : "Balance Payment";
-      const methodLabel = "Cash / Onsite";
-      const history = getReceiptHistory(onsiteUpdated);
-      const transactionReceipt = buildTransactionReceipt(
+      const onsiteMethodLabel = "Cash / Onsite";
+      const onsiteHistory = getReceiptHistory(onsiteUpdated);
+      const onsiteReceipt = buildTransactionReceipt(
         onsiteUpdated,
         {
-          id: paymentId,
+          id: onsitePaymentId,
           amount: amountReceived,
-          methodLabel,
-          term: termLabel,
+          methodLabel: onsiteMethodLabel,
+          term: onsiteTermLabel,
           status: "Verified",
-          submittedAt,
+          submittedAt: onsiteSubmittedAt,
         },
-        history,
+        onsiteHistory,
         newRemainingBalance,
       );
-      // Attach receipt to the booking so it appears in receipt history.
-      const bookingWithReceipt = attachTransactionReceipt(onsiteUpdated, transactionReceipt);
+      const bookingWithReceipt = attachTransactionReceipt(onsiteUpdated, onsiteReceipt);
+
+      // Create a VERIFIED payment record in the payments collection so that
+      // calculatePaymentSummary() includes this money in moneyReceivedTotal.
+      // Use the UPDATED booking values (from onsiteUpdated) — NOT the stale
+      // closure bookings.find() — to ensure the payment record, receipt, and
+      // notification all reflect the correct post-payment state.
+      try {
+        const onsitePaymentRecord = {
+          id: onsitePaymentId,
+          bookingId: id,
+          bookingCode: (onsiteUpdated as any).bookingCode ?? id,
+          customerId: onsiteUpdated.userId ?? "",
+          customerName: onsiteUpdated.userInfo?.name ?? onsiteUpdated.eventName ?? "",
+          eventName: onsiteUpdated.eventName ?? "",
+          venueName: onsiteUpdated.venue ?? "",
+          method: onsiteMethodLabel,
+          paymentMethod: "cash",
+          term: onsiteTermLabel,
+          amount: paymentData.amountReceived,
+          amountPaid: paymentData.amountReceived,
+          referenceNo: "",
+          proofUrl: "",
+          status: "Verified",
+          verificationStatus: "Verified",
+          receiptNumber: onsiteReceipt.receiptNumber,
+          isRemainingDownPayment: false,
+          submittedAt: onsiteSubmittedAt,
+          updatedAt: onsiteSubmittedAt,
+          reviewedAt: onsiteSubmittedAt,
+          reviewedBy: paymentData.adminName || "Administrator",
+          adminNote: paymentData.adminNote || "",
+        };
+
+        setDoc(doc(paymentsRef, onsitePaymentId), onsitePaymentRecord).catch(console.error);
+        saveStoredReceipt(onsiteReceipt).catch(console.error);
+        window.dispatchEvent(new Event("oneestela_payments_updated"));
+
+        console.log("[PAYMENT] ONSITE PAYMENT RECORDED", {
+          paymentId: onsitePaymentId,
+          bookingId: id,
+          amount: paymentData.amountReceived,
+          status: "Verified",
+          receiptNumber: onsiteReceipt.receiptNumber,
+          newRemainingBalance: newRemainingBalance,
+        });
+
+        createNotification({
+          type: "payment_approved",
+          title: "Payment Recorded",
+          message: `An onsite payment of ₱${paymentData.amountReceived.toLocaleString()} has been recorded for Booking ${id}.`,
+          bookingId: id,
+          userId: onsiteUpdated.userId,
+          link: `/portal/payments?highlight=${id}`,
+        });
+      } catch (error) {
+        console.error("[Booking:manualRecordOnsitePayment] Failed to create payment record:", error);
+      }
+
       return bookingWithReceipt;
     });
 
+    const matched = updatedBookings.find((b) => b.id === id) ?? null;
+    resultBooking = matched;
     saveBookings(updatedBookings);
-
-    // Create a VERIFIED payment record in the payments collection so that
-    // calculatePaymentSummary() includes this money in moneyReceivedTotal.
-    // This is the canonical source of truth for remaining balance.
-    try {
-      const onsiteBooking = bookings.find((b) => b.id === id);
-      if (!onsiteBooking) return;
-
-      const paymentId = `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      const submittedAt = new Date().toISOString();
-      const termLabel = paymentData.paymentType === "downpayment"
-        ? "Down Payment"
-        : paymentData.paymentType === "full_payment"
-          ? "Full Payment"
-          : "Balance Payment";
-      const methodLabel = "Cash / Onsite";
-      const total = getSafePrice(onsiteBooking.totalPrice);
-      const currentPaid = typeof onsiteBooking.amountPaid === "number" ? onsiteBooking.amountPaid : 0;
-      const newPaid = currentPaid + paymentData.amountReceived;
-      const newRemaining = Math.max(total - newPaid, 0);
-
-      const paymentRecord = {
-        id: paymentId,
-        bookingId: id,
-        bookingCode: (onsiteBooking as any).bookingCode ?? id,
-        customerId: onsiteBooking.userId ?? "",
-        customerName: onsiteBooking.userInfo?.name ?? onsiteBooking.eventName ?? "",
-        eventName: onsiteBooking.eventName ?? "",
-        venueName: onsiteBooking.venue ?? "",
-        method: methodLabel,
-        paymentMethod: "cash",
-        term: termLabel,
-        amount: paymentData.amountReceived,
-        amountPaid: paymentData.amountReceived,
-        referenceNo: "",
-        proofUrl: "",
-        status: "Verified",
-        verificationStatus: "Verified",
-        receiptNumber: undefined as string | undefined,
-        isRemainingDownPayment: false,
-        submittedAt,
-        updatedAt: submittedAt,
-        reviewedAt: submittedAt,
-        reviewedBy: paymentData.adminName || "Administrator",
-        adminNote: paymentData.adminNote || "",
-      };
-
-      // Build receipt for the payment record
-      const methodTermLabel = termLabel;
-      const history = paymentRecords
-        .filter((r) => r.bookingId === id)
-        .map((r) => ({
-          receiptNumber: r.receiptNumber || "",
-          paymentId: r.id,
-        })) as unknown as BookingReceipt[];
-      const receiptPaymentId = paymentId;
-      const receipt = buildTransactionReceipt(
-        onsiteBooking as Booking,
-        {
-          id: receiptPaymentId,
-          amount: paymentData.amountReceived,
-          methodLabel,
-          term: methodTermLabel,
-          status: "Verified",
-          submittedAt,
-        },
-        history,
-        newRemaining,
-      );
-      paymentRecord.receiptNumber = receipt.receiptNumber;
-
-      // Persist payment record and receipt to Firestore
-      setDoc(doc(paymentsRef, paymentId), paymentRecord).catch(console.error);
-      saveStoredReceipt(receipt).catch(console.error);
-      window.dispatchEvent(new Event("oneestela_payments_updated"));
-
-      console.log("[PAYMENT] ONSITE PAYMENT RECORDED", {
-        paymentId,
-        bookingId: id,
-        amount: paymentData.amountReceived,
-        status: "Verified",
-        receiptNumber: receipt.receiptNumber,
-        newRemainingBalance: newRemaining,
-      });
-
-      createNotification({
-        type: "payment_approved",
-        title: "Payment Recorded",
-        message: `An onsite payment of ₱${paymentData.amountReceived.toLocaleString()} has been recorded for Booking ${onsiteBooking.id}.`,
-        bookingId: onsiteBooking.id,
-        userId: onsiteBooking.userId,
-        link: `/portal/payments?highlight=${onsiteBooking.id}`,
-      });
-    } catch (error) {
-      console.error("[Booking:manualRecordOnsitePayment] Failed to create payment record:", error);
-    }
+    return resultBooking;
   };
 
   const settleRemainingBalance = (
@@ -3701,11 +3674,12 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         updatedAt: new Date().toISOString(),
       });
 
+      const dpComplete = newDownpaymentPaid >= selectedDP;
       const dpVerified: Booking = {
         ...updated,
-        status: "confirmed" as BookingStatus,
-        bookingStatus: "Confirmed",
-        isSlotSecured: true,
+        status: (dpComplete ? "confirmed" : "verifying") as BookingStatus,
+        bookingStatus: dpComplete ? "Confirmed" : "Pending Verification",
+        isSlotSecured: dpComplete,
         verifiedByAdmin: true,
         verifiedAt: new Date().toISOString(),
         contractSigningRequired: true,
@@ -4481,7 +4455,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       try {
         const methodLabel = paymentData.method === "cash" ? "Pay at the Office" : "Bank Transfer"
         const isRemainingDP = paymentData.type === "downpayment" && (typeof updatedBooking.downpaymentPaid === "number" ? updatedBooking.downpaymentPaid : 0) > 0
-        const paymentId = `PAY-${Date.now()}`
+        const paymentId = `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
         // submittedAt is pinned to the booking's paymentSubmittedAt so the
         // transaction receipt carries the exact same timestamp and links to
         // THIS payment submission only.

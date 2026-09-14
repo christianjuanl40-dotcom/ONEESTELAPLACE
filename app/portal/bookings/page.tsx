@@ -960,55 +960,55 @@ function BookingDetailsModal({
                   </p>
                 </div>
                 <div className="space-y-3 text-sm font-black text-slate-900">
-                  <div className="flex justify-between">
-                    <span className="text-sm font-black text-slate-900">Booking Date</span>
-                    <span className="text-sm font-black text-slate-900">{formatDate(booking.createdAt) || "—"}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm font-black text-slate-900 shrink-0">Booking Date</span>
+                    <span className="text-sm font-black text-slate-900 text-right break-words min-w-0 max-w-[60%]">{formatDate(booking.createdAt) || "—"}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm font-black text-slate-900">{isOfficeRental ? "Start Date" : "Event Date"}</span>
-                    <span className="text-sm font-black text-slate-900">{startDate || "—"}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm font-black text-slate-900 shrink-0">{isOfficeRental ? "Start Date" : "Event Date"}</span>
+                    <span className="text-sm font-black text-slate-900 text-right break-words min-w-0 max-w-[60%]">{startDate || "—"}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm font-black text-slate-900">End Date</span>
-                    <span className="text-sm font-black text-slate-900">{endDate || "—"}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm font-black text-slate-900 shrink-0">End Date</span>
+                    <span className="text-sm font-black text-slate-900 text-right break-words min-w-0 max-w-[60%]">{endDate || "—"}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm font-black text-slate-900">Venue / Office</span>
-                    <span className="text-sm font-black text-slate-900">{booking.venue || "—"}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm font-black text-slate-900 shrink-0">Venue / Office</span>
+                    <span className="text-sm font-black text-slate-900 text-right break-words min-w-0 max-w-[60%]">{booking.venue || "—"}</span>
                   </div>
                   {isOfficeRental && (
                     <>
-                      <div className="flex justify-between">
-                        <span className="text-sm font-black text-slate-900">Company Name</span>
-                        <span className="text-sm font-black text-slate-900">{(booking as any).companyName || booking.eventName || "N/A"}</span>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-sm font-black text-slate-900 shrink-0">Company Name</span>
+                        <span className="text-sm font-black text-slate-900 text-right break-words min-w-0 max-w-[60%]">{(booking as any).companyName || booking.eventName || "N/A"}</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm font-black text-slate-900">Nature of Business</span>
-                        <span className="text-sm font-black text-slate-900">{(booking as any).natureOfBusiness || booking.eventType || "N/A"}</span>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-sm font-black text-slate-900 shrink-0">Nature of Business</span>
+                        <span className="text-sm font-black text-slate-900 text-right break-words min-w-0 max-w-[60%]">{(booking as any).natureOfBusiness || booking.eventType || "N/A"}</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm font-black text-slate-900">Rental Term</span>
-                        <span className="text-sm font-black text-slate-900">{(booking as any).rentalTerm || (booking as any).contractTerm || (booking as any).officeRentalTerm || "—"}</span>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-sm font-black text-slate-900 shrink-0">Rental Term</span>
+                        <span className="text-sm font-black text-slate-900 text-right break-words min-w-0 max-w-[60%]">{(booking as any).rentalTerm || (booking as any).contractTerm || (booking as any).officeRentalTerm || "—"}</span>
                       </div>
                     </>
                   )}
                   {!isOfficeRental && (
-                    <div className="flex justify-between">
-                      <span className="text-sm font-black text-slate-900">Guests</span>
-                      <span className="text-sm font-black text-slate-900">{booking.guestCount ? `${booking.guestCount} pax` : "—"}</span>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-sm font-black text-slate-900 shrink-0">Guests</span>
+                      <span className="text-sm font-black text-slate-900 text-right break-words min-w-0 max-w-[60%]">{booking.guestCount ? `${booking.guestCount} pax` : "—"}</span>
                     </div>
                   )}
-                  <div className="flex justify-between">
-                    <span className="text-sm font-black text-slate-900">Time</span>
-                    <span className="text-sm font-black text-slate-900">{timeValue}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm font-black text-slate-900 shrink-0">Time</span>
+                    <span className="text-sm font-black text-slate-900 text-right break-words min-w-0 max-w-[60%]">{timeValue}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm font-black text-slate-900">Booking ID</span>
-                    <span className="text-sm font-black text-slate-900">#{booking.id}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm font-black text-slate-900 shrink-0">Booking ID</span>
+                    <span className="text-sm font-black text-slate-900 text-right break-words min-w-0 max-w-[60%]">#{booking.id}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm font-black text-slate-900">Event Type</span>
-                    <span className="text-sm font-black text-slate-900">{typeLabel}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm font-black text-slate-900 shrink-0">Event Type</span>
+                    <span className="text-sm font-black text-slate-900 text-right break-words min-w-0 max-w-[60%]">{typeLabel}</span>
                   </div>
                 </div>
               </section>
@@ -1570,17 +1570,20 @@ function ReceiptModal({
   open,
   onClose,
   booking,
+  paymentSummary,
 }: {
   receipt: BookingReceipt | null
   open: boolean
   onClose: () => void
   booking?: Booking | null
+  paymentSummary?: ReturnType<typeof import("@/src/modules/shared/lib/payment-calculations").calculatePaymentSummary> | null
 }) {
   if (!receipt) return null
 
   const isOfficeRental = booking ? isOfficeBooking(booking) : false
 
   const totalAmount =
+    paymentSummary?.bookingTotal ??
     (booking as any)?.totalPrice ??
     (booking as any)?.totalAmount ??
     (booking as any)?.amount ??
@@ -1590,12 +1593,15 @@ function ReceiptModal({
   const amountPaid =
     receipt.amountPaid ??
     receipt.paymentAmount ??
+    paymentSummary?.moneyReceivedTotal ??
     (booking as any)?.amountPaid ??
     (booking as any)?.paymentAmount ??
     (booking as any)?.downPayment ??
     null
 
   const remainingBalance =
+    receipt.remainingBalance ??
+    paymentSummary?.remainingBalance ??
     (booking as any)?.remainingBalance ??
     (totalAmount != null && amountPaid != null
       ? Math.max(0, Number(totalAmount) - Number(amountPaid))
@@ -3228,6 +3234,7 @@ export default function MyBookingsPage() {
             if (prevBooking) setViewingBooking(prevBooking)
           }}
           booking={receiptBooking}
+          paymentSummary={receiptBooking ? calculatePaymentSummary(receiptBooking, getRecordsForBooking(paymentRecords, receiptBooking.id)) : null}
         />
 
         <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-end">

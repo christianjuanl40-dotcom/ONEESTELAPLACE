@@ -825,8 +825,8 @@ function PaymentActionConfirmModal({
 function ConfirmLine({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-4 border-b border-slate-200/70 pb-2 last:border-b-0 last:pb-0">
-      <p className="text-xs font-bold text-slate-500">{label}</p>
-      <p className="text-right text-xs font-black text-slate-900">{value}</p>
+      <p className="text-xs font-bold text-slate-500 shrink-0">{label}</p>
+      <p className="text-right text-xs font-black text-slate-900 break-words min-w-0">{value}</p>
     </div>
   )
 }
@@ -1076,8 +1076,8 @@ function PaymentReviewModal({
   const selectedAmount = getPaymentRecordAmount(selected) || getSafePrice(payment.pendingPaymentAmount || payment.paymentAmount || amountPaid)
   const transactionAmount = getSafePrice(payment.pendingPaymentAmount || payment.paymentAmount || amountPaid)
   const remainingBalance = paymentSummary.remainingBalance
-  const dpTarget = getSafePrice(payment.selectedDownpaymentAmount) || (payment.paymentType === "downpayment" ? totalAmount * (Number(payment.downPaymentPercentage || 50) / 100) : 0)
-  const acceptedDPPaid = getSafePrice(payment.downpaymentPaid)
+  const dpTarget = paymentSummary.requiredDownpayment
+  const acceptedDPPaid = paymentSummary.downpaymentCreditedTotal
   const thisSubmission = selectedAmount
   const submissionStatusLabel = selected ? getPaymentRecordStatusLabel(selected, receiptPool) : getPaymentStatusText(payment)
   const submittedAt = selected?.submittedAt || payment.paymentSubmittedAt || ""
@@ -1524,21 +1524,21 @@ function PaymentReviewModal({
                     Downpayment Summary
                   </p>
                   <div className="space-y-1.5 text-xs">
-                    <div className="flex justify-between">
-                      <span className="font-semibold text-slate-400">DP Target</span>
+                    <div className="flex justify-between gap-2">
+                      <span className="font-semibold text-slate-400 shrink-0">DP Target</span>
                       <span className="font-bold text-white">₱{dpTarget.toLocaleString()}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="font-semibold text-slate-400">Accepted DP Paid</span>
+                    <div className="flex justify-between gap-2">
+                      <span className="font-semibold text-slate-400 shrink-0">Accepted DP Paid</span>
                       <span className="font-bold text-white">₱{acceptedDPPaid.toLocaleString()}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="font-semibold text-slate-400">{isIncompletePayment ? "This Payment Received" : "This Submission"}</span>
+                    <div className="flex justify-between gap-2">
+                      <span className="font-semibold text-slate-400 shrink-0">{isIncompletePayment ? "This Payment Received" : "This Submission"}</span>
                       <span className="font-bold text-amber-300">₱{(isIncompletePayment ? displayAmount : thisSubmission).toLocaleString()}</span>
                     </div>
-                    <div className="flex justify-between border-t border-white/10 pt-1.5">
-                      <span className="font-semibold text-slate-400">{isIncompletePayment ? "Remaining DP" : "Remaining DP After Verification"}</span>
-                      <span className="font-bold text-emerald-400">₱{(isIncompletePayment ? getSafePrice(payment.downpaymentRemaining || Math.max(dpTarget - acceptedDPPaid, 0)) : Math.max(dpTarget - (acceptedDPPaid + thisSubmission), 0)).toLocaleString()}</span>
+                    <div className="flex justify-between gap-2 border-t border-white/10 pt-1.5">
+                      <span className="font-semibold text-slate-400 shrink-0">{isIncompletePayment ? "Remaining DP" : "Remaining DP After Verification"}</span>
+                      <span className="font-bold text-emerald-400">₱{(isIncompletePayment ? paymentSummary.remainingDownpayment : Math.max(dpTarget - (acceptedDPPaid + thisSubmission), 0)).toLocaleString()}</span>
                     </div>
                   </div>
                 </div>
@@ -1550,7 +1550,7 @@ function PaymentReviewModal({
                     </div>
                     <div className="flex-1">
                       <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-                        {payment.downpaymentRemaining && Number(payment.downpaymentRemaining) > 0
+                        {paymentSummary.remainingDownpayment > 0
                           ? "Downpayment Remaining"
                           : acceptedDPPaid === 0 ? "Downpayment Target" : "Remaining Balance"}
                       </p>
@@ -1559,9 +1559,9 @@ function PaymentReviewModal({
                       </p>
                     </div>
                   </div>
-                  {payment.downpaymentRemaining !== undefined && Number(payment.downpaymentRemaining) > 0 && (
+                  {paymentSummary.remainingDownpayment > 0 && (
                     <p className="mt-2 text-[10px] font-semibold text-amber-300">
-                      Downpayment remaining: {formatCurrency(getSafePrice(payment.downpaymentRemaining))}
+                      Downpayment remaining: {formatCurrency(paymentSummary.remainingDownpayment)}
                     </p>
                   )}
                 </div>
@@ -1720,7 +1720,7 @@ function PaymentBadge({ payment }: { payment: BookingRecord }) {
   const remainingBalance = getSafePrice(
     (payment as any).remainingBalance || Math.max(totalAmount - amountPaid, 0)
   )
-  const baseClass = "inline-flex min-w-[140px] items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em]"
+  const baseClass = "inline-flex items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap"
 
   // Canonical: the badge renders EXACTLY the same overall status that the
   // status filter matches (payment.paymentStatus, set by getOverallPaymentStatus
@@ -1769,7 +1769,7 @@ function PaymentBadge({ payment }: { payment: BookingRecord }) {
  *  record (Verified / Rejected / Incomplete / For Review), consistent with
  *  the status shown in the payment history list. */
 function PaymentRecordBadge({ record }: { record: PaymentRecord }) {
-  const baseClass = "inline-flex min-w-[140px] items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em]"
+  const baseClass = "inline-flex items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap"
   const label = getPaymentRecordStatusLabel(record)
 
   if (isRejectedPaymentRecord(record)) {
@@ -1788,8 +1788,8 @@ function PaymentRecordBadge({ record }: { record: PaymentRecord }) {
 function InfoLine({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-4 border-b border-slate-200/70 pb-3 last:border-b-0 last:pb-0">
-      <p className="text-xs font-bold text-slate-500">{label}</p>
-      <p className="text-right text-xs font-black text-slate-900">{value}</p>
+      <p className="text-xs font-bold text-slate-500 shrink-0">{label}</p>
+      <p className="text-right text-xs font-black text-slate-900 break-words min-w-0">{value}</p>
     </div>
   )
 }
@@ -2257,28 +2257,29 @@ function buildVerifiedPaymentBooking(booking: BookingRecord) {
 
   if (isDownpayment) {
     const newDownpaymentPaid = currentDownpaymentPaid + paymentAmount
+    const dpComplete = newDownpaymentPaid >= selectedDP
     let paymentStatus = "partial"
     let balanceStatus = "With Remaining Balance"
     let remainingBalance = Math.max(totalAmount - newAmountPaid, 0)
     let downpaymentRemaining = Math.max(selectedDP - newDownpaymentPaid, 0)
-    let status = "confirmed"
+    let status = dpComplete ? "confirmed" : "verifying"
 
     if (newAmountPaid >= totalAmount) {
       paymentStatus = "paid"
       balanceStatus = "Settled"
       remainingBalance = 0
       downpaymentRemaining = 0
-    } else if (newDownpaymentPaid >= selectedDP) {
+    } else if (dpComplete) {
       downpaymentRemaining = 0
     }
 
     return {
       ...booking,
       status,
-      bookingStatus: "Confirmed",
+      bookingStatus: dpComplete ? "Confirmed" : "Pending Verification",
       paymentStatus,
       balanceStatus,
-      isSlotSecured: true,
+      isSlotSecured: dpComplete,
       amountPaid: newAmountPaid,
       downpaymentPaid: newDownpaymentPaid,
       downpaymentRemaining,
@@ -2390,19 +2391,26 @@ function buildIncompletePaymentBooking(booking: BookingRecord, note: string, _ve
   const currentDpPaid = getAmountValue(booking.downpaymentPaid)
   const selectedDP = getAmountValue(booking.selectedDownpaymentAmount) || (isDownpayment ? total * (Number(booking.downPaymentPercentage || 50) / 100) : 0)
   const dpRemaining = isDownpayment ? Math.max(selectedDP - currentDpPaid, 0) : 0
+  const office = isOfficeRental(booking)
+  const isFullyPaidAfter = total > 0 && currentPaid >= total
+  const hasPriorVerifiedPayment = currentPaid > 0
 
   return {
     ...booking,
-    status: "verifying",
-    bookingStatus: "Pending Verification",
-    paymentStatus: "incomplete",
-    isSlotSecured: false,
+    status: office
+      ? (isFullyPaidAfter ? "reservation_secured" : (hasPriorVerifiedPayment ? booking.status : "verifying"))
+      : (isFullyPaidAfter ? "confirmed" : (hasPriorVerifiedPayment ? booking.status : "verifying")),
+    bookingStatus: office
+      ? (isFullyPaidAfter ? "Slot Secured" : (hasPriorVerifiedPayment ? booking.bookingStatus : "Pending Verification"))
+      : (isFullyPaidAfter ? "Confirmed" : (hasPriorVerifiedPayment ? booking.bookingStatus : "Pending Verification")),
+    paymentStatus: isFullyPaidAfter ? "paid" : "incomplete",
+    isSlotSecured: isFullyPaidAfter || (hasPriorVerifiedPayment ? booking.isSlotSecured === true : false),
     amountPaid: currentPaid,
     downpaymentPaid: currentDpPaid,
     downpaymentRemaining: dpRemaining,
     lastPaymentAmount: _verifiedAmount || booking.lastPaymentAmount,
     remainingBalance: isDownpayment ? dpRemaining : remaining,
-    balanceStatus: "With Remaining Balance",
+    balanceStatus: isFullyPaidAfter ? "Settled" : "With Remaining Balance",
     incompletePaymentNote: note,
     incompletePaymentReason: note,
     incompletePaymentAt: new Date().toISOString(),
@@ -2499,14 +2507,23 @@ function IncompletePaymentModal({
   const handleConfirm = () => {
     if (enteredAmount <= 0) return
 
-    const latestStatus = isDownpayment ? "verifying" : (office ? "reservation_secured" : "confirmed")
-    const latestBookingStatus = isDownpayment ? "Pending Verification" : (office ? "Slot Secured" : "Confirmed")
+    const hasPriorVerifiedPayment = currentAmountPaid > 0
+    const latestStatus = isDownpayment
+      ? "verifying"
+      : (office
+        ? (hasPriorVerifiedPayment ? booking.status : "verifying")
+        : (hasPriorVerifiedPayment ? "confirmed" : "verifying"))
+    const latestBookingStatus = isDownpayment
+      ? "Pending Verification"
+      : (office
+        ? (hasPriorVerifiedPayment ? booking.bookingStatus : "Pending Verification")
+        : (hasPriorVerifiedPayment ? "Confirmed" : "Pending Verification"))
 
     const updatedBooking: BookingRecord = {
       ...booking,
       status: latestStatus,
       bookingStatus: latestBookingStatus,
-      isSlotSecured: !isDownpayment,
+      isSlotSecured: hasPriorVerifiedPayment ? (booking.isSlotSecured === true) : false,
       amountPaid: currentAmountPaid,
       paidAmount: office ? enteredAmount : undefined,
       downpaymentPaid: currentDownpaymentPaid,
@@ -2793,10 +2810,10 @@ function OnsiteVerifyModal({
     const office = isOfficeRental(booking)
     const nextStatus = office
       ? (isFullyPaidAfter ? "reservation_secured" : "verifying")
-      : "confirmed"
+      : (isDownpayment ? (dpCompleteAfter ? "confirmed" : "verifying") : "confirmed")
     const nextBookingStatus = office
       ? (isFullyPaidAfter ? "Slot Secured" : "Pending Verification")
-      : "Confirmed"
+      : (isDownpayment ? (dpCompleteAfter ? "Confirmed" : "Pending Verification") : "Confirmed")
     // Credited-ledger mirror: the money held for this booking after this
     // verification, attributed to the downpayment while that stage is open.
     const newDownpaymentPaid = isDownpayment ? Math.min(newAmountPaid, selectedDP) : 0

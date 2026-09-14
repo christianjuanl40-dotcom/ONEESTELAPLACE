@@ -351,7 +351,7 @@ export function ReserveDialog({ open, onOpenChange, selectedVenueId, onBackToVen
                 <div className="flex flex-col md:flex-row gap-10 lg:gap-14 flex-1 items-start mt-4">
                   
                   {/* CALENDAR COLUMN */}
-                  <div className="flex-1 min-w-[260px] flex flex-col">
+                  <div className="flex-1 min-w-0 md:min-w-[260px] flex flex-col">
                     <div className="flex items-center justify-between mb-6 px-2">
                       <button onClick={handlePrevMonth} className="text-slate-400 hover:text-slate-900 transition-colors">
                         <ChevronLeft className="w-5 h-5" />
