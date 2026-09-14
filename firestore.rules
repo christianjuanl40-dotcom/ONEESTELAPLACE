@@ -1,0 +1,487 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function profilePath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function hasProfile() {
+      return signedIn() && exists(profilePath(request.auth.uid));
+    }
+
+    function currentProfile() {
+      return get(profilePath(request.auth.uid));
+    }
+
+    function hasRole(role) {
+      return hasProfile()
+        && currentProfile().data.get("role", "") == role
+        && currentProfile().data.get("status", "active") != "inactive";
+    }
+
+    function isAdmin() {
+      return hasRole("admin");
+    }
+
+    function isStaff() {
+      return hasRole("staff");
+    }
+
+    function isClient() {
+      return hasRole("client");
+    }
+
+    function hasPermission(permission) {
+      return isAdmin()
+        || (isStaff()
+          && currentProfile().data.get("permissions", {}).get(permission, false) == true);
+    }
+
+    function canReadBookings() {
+      return isAdmin() || (isStaff() && (
+        hasPermission("dashboard") || hasPermission("bookings")
+      ));
+    }
+
+    function canWriteBookings() {
+      return isAdmin() || (isStaff() && hasPermission("bookings"));
+    }
+
+    function canReadPayments() {
+      return isAdmin() || (isStaff() && hasPermission("payments"));
+    }
+
+    function canReadReports() {
+      return isAdmin() || (isStaff() && hasPermission("reports"));
+    }
+
+    function canWritePayments() {
+      return isAdmin() || (isStaff() && hasPermission("payments"));
+    }
+
+    function canReadChat() {
+      return isAdmin() || (isStaff() && hasPermission("chat"));
+    }
+
+    function ownsUser(userId) {
+      return signedIn() && userId == request.auth.uid;
+    }
+
+    function bookingPath(bookingId) {
+      return /databases/$(database)/documents/bookings/$(bookingId);
+    }
+
+    function bookingOwner(bookingId) {
+      return signedIn()
+        && bookingId is string
+        && bookingId != ""
+        && exists(bookingPath(bookingId))
+        && get(bookingPath(bookingId)).data.get("userId", "") == request.auth.uid;
+    }
+
+    function bookingBelongsTo(bookingId, userId) {
+      return bookingId is string
+        && userId is string
+        && bookingId != ""
+        && userId != ""
+        && exists(bookingPath(bookingId))
+        && get(bookingPath(bookingId)).data.get("userId", "") == userId;
+    }
+
+    function validNotification(data) {
+      return data.keys().hasOnly([
+          "type",
+          "title",
+          "message",
+          "bookingId",
+          "userId",
+          "relatedUserId",
+          "relatedUserName",
+          "isRead",
+          "moduleRead",
+          "createdAt",
+          "link"
+        ])
+        && data.get("type", "") is string
+        && data.get("type", "").size() <= 64
+        && data.get("title", "") is string
+        && data.get("title", "").size() <= 160
+        && data.get("message", "") is string
+        && data.get("message", "").size() <= 1000
+        && data.get("bookingId", "") is string
+        && data.get("bookingId", "").size() <= 128
+        && data.get("userId", "") is string
+        && data.get("userId", "").size() <= 128
+        && data.get("link", "") is string
+        && data.get("link", "").size() <= 300
+        && data.get("isRead", false) == false
+        && data.get("moduleRead", false) == false;
+    }
+
+    function isBookingNotification(data) {
+      return data.get("type", "") in [
+        "booking_submitted",
+        "cancellation_requested",
+        "modification_requested"
+      ];
+    }
+
+    function isPaymentNotification(data) {
+      return data.get("type", "") in [
+        "payment_submitted",
+        "remaining_balance_submitted"
+      ];
+    }
+
+    function canReadAdminNotification(data) {
+      return isAdmin() || (
+        isStaff() && (
+          ((hasPermission("dashboard") || hasPermission("bookings"))
+            && isBookingNotification(data))
+          || (hasPermission("payments") && isPaymentNotification(data))
+        )
+      );
+    }
+
+    function isClientBookingUpdate() {
+      return isClient()
+        && resource.data.get("userId", "") == request.auth.uid
+        && request.resource.data.get("userId", "") == resource.data.get("userId", "")
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "status",
+          "bookingStatus",
+          "paymentStatus",
+          "lastActivityAt",
+          "updatedAt",
+          "adminLogs",
+          "paymentReceipts",
+          "receiptIssued",
+          "receiptNumber",
+          "receiptIssuedAt",
+          "receipt",
+          "previousStatus",
+          "previousBookingStatus",
+          "previousPaymentStatus",
+          "cancellationRequested",
+          "cancellationRequestedAt",
+          "cancellationStatus",
+          "cancellationStatusLabel",
+          "cancellationReason",
+          "cancellationUnderReview",
+          "cancelRequestStatus",
+          "cancelReason",
+          "cancelRequestedAt",
+          "adminCancelDecision",
+          "adminCancelReason",
+          "refundEligible",
+          "refundMethod",
+          "refundMode",
+          "refundStatus",
+          "refundAmount",
+          "refundRequestedAt",
+          "refundEligibilityNote",
+          "refundClaimNote",
+          "daysBeforeEventAtCancellation",
+          "modificationPreviousStatus",
+          "modificationPreviousBookingStatus",
+          "modificationRequested",
+          "modificationUnderReview",
+          "modifyRequestStatus",
+          "modificationStatus",
+          "modificationReason",
+          "modificationRequestedAt",
+          "requestedChanges",
+          "originalBookingSnapshot"
+        ])
+        && (
+          request.resource.data.get("status", "") == resource.data.get("status", "")
+          || request.resource.data.get("status", "") in [
+            "pending",
+            "verifying",
+            "cancellation_requested",
+            "modification_under_review",
+            "cancelled"
+          ]
+        )
+        && (
+          request.resource.data.get("bookingStatus", "") == resource.data.get("bookingStatus", "")
+          || request.resource.data.get("bookingStatus", "") in [
+            "Pending Verification",
+            "Cancellation Under Review",
+            "Modification Under Review",
+            "Cancelled"
+          ]
+        )
+        && (
+          request.resource.data.get("paymentStatus", "") == resource.data.get("paymentStatus", "")
+          || request.resource.data.get("paymentStatus", "") in [
+            "for_review",
+            "cash_pending",
+            "slot_pending"
+          ]
+          || (
+            request.resource.data.get("paymentStatus", "") == "cancelled"
+            && resource.data.get("status", "") == "pending"
+            && resource.data.get("paymentStatus", "") == "unpaid"
+          )
+        )
+        && (
+          request.resource.data.get("refundStatus", "") == resource.data.get("refundStatus", "")
+          || request.resource.data.get("refundStatus", "") == "requested"
+        )
+        && (
+          request.resource.data.get("status", "") != "cancelled"
+          || (
+            resource.data.get("status", "") == "pending"
+            && resource.data.get("paymentStatus", "") == "unpaid"
+          )
+        );
+    }
+
+    match /users/{userId} {
+      allow read: if ownsUser(userId)
+        || isAdmin()
+        || (isStaff() && (
+          hasPermission("users")
+          || (hasPermission("chat") && resource.data.get("role", "") == "client")
+        ));
+
+      allow create: if ownsUser(userId)
+        && request.resource.data.get("uid", userId) == userId
+        && request.resource.data.get("role", "") == "client"
+        && request.resource.data.get("status", "active") == "active"
+        && !request.resource.data.keys().hasAny(["permissions"]);
+
+      allow update: if isAdmin()
+        || (isStaff() && hasPermission("users"))
+        || (
+          ownsUser(userId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            "email",
+            "phone",
+            "profilePicture",
+            "lastActiveAt"
+          ])
+          && request.resource.data.get("uid", userId) == resource.data.get("uid", userId)
+          && request.resource.data.get("role", "") == resource.data.get("role", "")
+          && request.resource.data.get("status", "active") == resource.data.get("status", "active")
+          && request.resource.data.get("permissions", {}) == resource.data.get("permissions", {})
+        );
+
+      allow delete: if false;
+    }
+
+    match /bookings/{bookingId} {
+      allow read: if canReadBookings()
+        || canReadReports()
+        || (isClient() && resource.data.get("userId", "") == request.auth.uid);
+      allow create: if canWriteBookings();
+      allow update: if canWriteBookings() || isClientBookingUpdate();
+      allow delete: if false;
+    }
+
+    match /officeRentals/{rentalId} {
+      allow read: if canReadBookings()
+        || (isClient() && resource.data.get("userId", "") == request.auth.uid);
+      allow create: if canWriteBookings();
+      allow update: if canWriteBookings();
+      allow delete: if false;
+    }
+
+    match /maintenanceRecords/{recordId} {
+      allow read: if signedIn();
+      allow create, update, delete: if canWriteBookings();
+    }
+
+    match /payments/{paymentId} {
+      allow read: if canReadPayments()
+        || canReadReports()
+        || (
+          isClient()
+          && resource.data.get("customerId", "") == request.auth.uid
+        );
+      allow create: if canWritePayments();
+      allow update: if canWritePayments();
+      allow delete: if false;
+    }
+
+    match /receipts/{receiptId} {
+      allow read: if canReadPayments()
+        || canReadBookings()
+        || (isClient() && bookingOwner(resource.data.get("bookingId", "")));
+      allow create: if isAdmin()
+        || (isStaff() && (hasPermission("bookings") || hasPermission("payments")))
+        || (
+          isClient()
+          && bookingOwner(request.resource.data.get("bookingId", ""))
+        );
+      allow update: if isAdmin()
+        || (isStaff() && (hasPermission("bookings") || hasPermission("payments")))
+        || (
+          isClient()
+          && bookingOwner(resource.data.get("bookingId", ""))
+          && request.resource.data.get("bookingId", "") == resource.data.get("bookingId", "")
+        );
+      allow delete: if false;
+    }
+
+    match /paymentProofs/{proofId} {
+      allow read: if canReadPayments()
+        || (isClient() && bookingOwner(resource.data.get("bookingId", "")));
+      allow create: if canWritePayments();
+      allow update: if canWritePayments();
+      allow delete: if false;
+    }
+
+    match /chatMessages/{messageId} {
+      allow read: if canReadChat()
+        || (isClient() && resource.data.get("clientId", "") == request.auth.uid);
+
+      allow create: if (
+        isClient()
+        && request.resource.data.keys().hasOnly([
+          "text",
+          "content",
+          "sender",
+          "senderId",
+          "senderName",
+          "senderAvatar",
+          "clientId",
+          "clientName",
+          "clientProfilePicture",
+          "targetId",
+          "recipientId",
+          "timestamp",
+          "time",
+          "imageUrl",
+          "isRead",
+          "isReadByClient",
+          "read",
+          "isBot"
+        ])
+        && request.resource.data.get("clientId", "") == request.auth.uid
+        && request.resource.data.get("text", "") is string
+        && request.resource.data.get("text", "").size() <= 5000
+        && (
+          (
+            request.resource.data.get("sender", "") in ["client", "user"]
+            && request.resource.data.get("senderId", "") == request.auth.uid
+          )
+          || (
+            request.resource.data.get("isBot", false) == true
+            && request.resource.data.get("sender", "") in ["admin", "bot"]
+          )
+        )
+      ) || (
+        canReadChat()
+        && request.resource.data.get("sender", "") == "admin"
+        && request.resource.data.get("senderId", "") == "admin"
+        && request.resource.data.get("clientId", "") != ""
+        && exists(profilePath(request.resource.data.get("clientId", "")))
+        && get(profilePath(request.resource.data.get("clientId", ""))).data.get("role", "") == "client"
+        && request.resource.data.get("text", "") is string
+        && request.resource.data.get("text", "").size() <= 5000
+      );
+
+      allow update: if (
+        isClient()
+        && resource.data.get("clientId", "") == request.auth.uid
+        && resource.data.get("sender", "") == "admin"
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["isReadByClient", "read"])
+        && request.resource.data.get("isReadByClient", false) == true
+      ) || (
+        canReadChat()
+        && resource.data.get("sender", "") in ["client", "user"]
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["isRead", "read"])
+        && request.resource.data.get("isRead", false) == true
+      );
+
+      allow delete: if false;
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if signedIn();
+      allow create: if isClient()
+        && bookingOwner(request.resource.data.get("bookingId", ""))
+        && get(bookingPath(request.resource.data.get("bookingId", ""))).data.get("status", "") in ["completed", "complete"]
+        && request.resource.data.get("rating", 0) is int
+        && request.resource.data.get("rating", 0) >= 1
+        && request.resource.data.get("rating", 0) <= 5
+        && request.resource.data.get("comment", "") is string
+        && request.resource.data.get("comment", "").size() <= 4000;
+      allow update, delete: if false;
+    }
+
+    match /cms/{document} {
+      allow read: if document == "data";
+      allow create, delete: if isAdmin() || (isStaff() && hasPermission("cms"));
+      allow update: if isAdmin()
+        || (isStaff() && hasPermission("cms"))
+        || (
+          isClient()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["bookingCounter"])
+          && request.resource.data.get("bookingCounter", 0) == resource.data.get("bookingCounter", 0) + 1
+        );
+    }
+
+    match /contracts/{contractId} {
+      allow read: if canReadBookings()
+        || canReadPayments()
+        || (isClient() && bookingOwner(resource.data.get("bookingId", "")));
+      allow create, update, delete: if isAdmin() || (isStaff() && hasPermission("cms"));
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if (
+        isClient() && resource.data.get("userId", "") == request.auth.uid
+      ) || (
+        canReadAdminNotification(resource.data)
+        && resource.data.get("userId", "") == "admin"
+      );
+
+      allow create: if (
+        isClient()
+        && validNotification(request.resource.data)
+        && request.resource.data.get("type", "") in ["cancellation_requested", "modification_requested"]
+        && request.resource.data.get("userId", "") == "admin"
+        && request.resource.data.get("relatedUserId", "") == request.auth.uid
+        && bookingOwner(request.resource.data.get("bookingId", ""))
+      ) || (
+        (isAdmin() || (isStaff() && (hasPermission("bookings") || hasPermission("payments"))))
+        && validNotification(request.resource.data)
+        && (
+          request.resource.data.get("userId", "") == "admin"
+          || bookingBelongsTo(
+            request.resource.data.get("bookingId", ""),
+            request.resource.data.get("userId", "")
+          )
+        )
+      );
+
+      allow update: if (
+        isClient()
+        && resource.data.get("userId", "") == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["isRead", "moduleRead"])
+        && request.resource.data.get("isRead", false) == true
+        && request.resource.data.get("moduleRead", false) == true
+      ) || (
+        canReadAdminNotification(resource.data)
+        && resource.data.get("userId", "") == "admin"
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["isRead", "moduleRead"])
+        && request.resource.data.get("isRead", false) == true
+        && request.resource.data.get("moduleRead", false) == true
+      );
+
+      allow delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
