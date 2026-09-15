@@ -26,12 +26,12 @@ export function CMSHomepageTab({ onNavigate }: { onNavigate: (tab: string) => vo
 
   return (
     <div>
-      <CMSSectionHeader title="" description="" currentSection="homepage" onNavigate={onNavigate}
+      <CMSSectionHeader title="" currentSection="homepage" onNavigate={onNavigate}
         action={<Button type="button" onClick={handleSave}
-          className="w-full sm:w-auto h-11 rounded-lg bg-orange-600 px-4 text-xs font-bold text-white hover:bg-orange-700">
+          className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg bg-orange-600 px-3.5 text-sm font-bold text-white hover:bg-orange-700 sm:w-auto">
           <Save className="mr-1.5 h-3.5 w-3.5" /> Save Changes</Button>} />
 
-      <div className="max-w-4xl space-y-6">
+      <div className="w-full max-w-6xl space-y-6">
 
         {/* ── Homepage ── */}
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -48,12 +48,12 @@ export function CMSHomepageTab({ onNavigate }: { onNavigate: (tab: string) => vo
             <div>
               <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Homepage Title</label>
               <Textarea value={form.heroTitle || ""} onChange={(e) => setForm({ ...form, heroTitle: e.target.value })}
-                className="mt-1.5 w-full min-h-[80px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
+                className="mt-1.5 w-full min-h-[96px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
             </div>
             <div>
               <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Homepage Subtitle</label>
               <Textarea value={form.heroSubtitle || ""} onChange={(e) => setForm({ ...form, heroSubtitle: e.target.value })}
-                className="mt-1.5 w-full min-h-[80px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
+                className="mt-1.5 w-full min-h-[128px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
             </div>
             <CMSImageUpload label="Homepage Background Image" value={form.heroImage} storagePath="hero"
               onValueChange={(v) => setForm({ ...form, heroImage: v })} note="Main background image displayed on the homepage." />
@@ -81,7 +81,7 @@ export function CMSHomepageTab({ onNavigate }: { onNavigate: (tab: string) => vo
               <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Description</label>
               <p className="mb-1.5 text-[10px] text-slate-400">Use double line breaks to separate paragraphs.</p>
               <Textarea value={form.aboutDescription || ""} onChange={(e) => setForm({ ...form, aboutDescription: e.target.value })}
-                className="w-full min-h-[80px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
+                className="w-full min-h-[180px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
             </div>
             <CMSImageUpload label="About Image" value={form.aboutImage} storagePath="about"
               onValueChange={(v) => setForm({ ...form, aboutImage: v })} note="Image displayed next to the about text." />
@@ -112,7 +112,7 @@ export function CMSHomepageTab({ onNavigate }: { onNavigate: (tab: string) => vo
               <div>
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Subtitle</label>
                 <Textarea value={form.gallerySubtitle || ""} onChange={(e) => setForm({ ...form, gallerySubtitle: e.target.value })}
-                  className="mt-1.5 w-full min-h-[80px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
+                  className="mt-1.5 w-full min-h-[128px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
               </div>
             </div>
 
@@ -133,7 +133,7 @@ export function CMSHomepageTab({ onNavigate }: { onNavigate: (tab: string) => vo
               <div>
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Subtitle</label>
                 <Textarea value={form.faqSubtitle || ""} onChange={(e) => setForm({ ...form, faqSubtitle: e.target.value })}
-                  className="mt-1.5 w-full min-h-[80px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
+                  className="mt-1.5 w-full min-h-[128px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
               </div>
             </div>
           </div>
@@ -154,7 +154,7 @@ export function CMSHomepageTab({ onNavigate }: { onNavigate: (tab: string) => vo
             <div>
               <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Description</label>
               <Textarea value={form.ctaDescription || ""} onChange={(e) => setForm({ ...form, ctaDescription: e.target.value })}
-                className="mt-1.5 w-full min-h-[80px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
+                className="mt-1.5 w-full min-h-[128px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
             </div>
           </div>
         </section>
@@ -183,7 +183,7 @@ export function CMSHomepageTab({ onNavigate }: { onNavigate: (tab: string) => vo
               <div>
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Footer Description</label>
                 <Textarea value={footer.footerDescription || ""} onChange={(e) => setFooter({ ...footer, footerDescription: e.target.value })}
-                  className="mt-1.5 w-full min-h-[80px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
+                  className="mt-1.5 w-full min-h-[140px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
               </div>
             </div>
 

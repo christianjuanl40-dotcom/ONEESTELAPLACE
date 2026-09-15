@@ -153,9 +153,9 @@ export default function AdminLayout({
   const profilePicture = user.profilePicture
 
   return (
-      <div className="relative flex h-screen w-full flex-col overflow-hidden bg-slate-50">
+      <div className="relative flex h-screen w-full flex-col overflow-hidden bg-slate-50 print:h-auto print:min-h-0 print:overflow-visible print:bg-white">
         {/* ORANGE HEADER matching client portal */}
-        <header className="z-50 flex h-16 shrink-0 items-center justify-between bg-gradient-to-r from-orange-600 via-orange-600 to-orange-700 text-white shadow-lg">
+        <header className="z-50 flex h-16 shrink-0 items-center justify-between bg-gradient-to-r from-orange-600 via-orange-600 to-orange-700 text-white shadow-lg print:hidden">
           <div className="flex h-full shrink-0 items-center gap-3 px-3 sm:px-4 lg:px-0 lg:w-64">
             <Button
               variant="ghost"
@@ -228,16 +228,16 @@ export default function AdminLayout({
           </div>
         </header>
 
-        <div className="relative flex min-w-0 flex-1 overflow-hidden">
-          {isMobileMenuOpen && (
+        <div className="relative flex min-w-0 flex-1 overflow-hidden print:overflow-visible">
+           {isMobileMenuOpen && (
             <div
-              className="absolute inset-0 z-40 bg-slate-900/50 backdrop-blur-sm lg:hidden"
+              className="absolute inset-0 z-40 bg-slate-900/50 backdrop-blur-sm lg:hidden print:hidden"
               onClick={() => setIsMobileMenuOpen(false)}
             />
           )}
 
           <aside
-            className={`absolute inset-y-0 left-0 z-50 flex h-full w-64 flex-col border-r border-slate-200 bg-white shadow-2xl transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 lg:shadow-none ${
+            className={`absolute inset-y-0 left-0 z-50 flex h-full w-64 flex-col border-r border-slate-200 bg-white shadow-2xl transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 lg:shadow-none print:hidden ${
               isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
             }`}
           >
@@ -309,7 +309,7 @@ export default function AdminLayout({
             </div>
           </aside>
 
-          <main className="min-w-0 flex-1 overflow-y-auto bg-slate-50">
+          <main className="min-w-0 flex-1 overflow-y-auto bg-slate-50 print:overflow-visible print:bg-white">
             <StaffProvider>
               {children}
             </StaffProvider>
@@ -325,4 +325,3 @@ export default function AdminLayout({
       </div>
   )
 }
-

@@ -874,6 +874,14 @@ function isUnresolvedPaymentRecord(record: PaymentRecord) {
   return !isResolved;
 }
 
+function isPaymentRecordForBooking(record: PaymentRecord, bookingId: string) {
+  const target = String(bookingId || "").trim().toLowerCase()
+  return Boolean(target) && (
+    String(record.bookingId || "").trim().toLowerCase() === target ||
+    String(record.bookingCode || "").trim().toLowerCase() === target
+  )
+}
+
 function getOfficeReservationFee(booking: Partial<Booking>) {
   return getSafePrice(
     booking.officeReservationFee || booking.totalPrice || DEFAULT_TOTAL_PRICE,
@@ -1292,13 +1300,13 @@ function computeReceiptRemaining(
 function receiptCreditedAmount(record: PaymentRecord): number {
   const status = String(record?.status || record?.verificationStatus || "").toLowerCase()
   if (status === "verified") {
-    return Number(record?.amount || record?.amountPaid || 0)
+    return Number(record?.amount ?? record?.amountPaid ?? 0)
   }
   if (status === "incomplete") {
     const received = Number(record?.amountReceived || 0)
     // Incomplete always credits the ACTUAL money received.
     // Fall back to submitted amount when amountReceived was never set.
-    return received > 0 ? received : Number(record?.amount || record?.amountPaid || 0)
+    return received > 0 ? received : Number(record?.amount ?? record?.amountPaid ?? 0)
   }
   if (status === "rejected") {
     return 0
@@ -1957,12 +1965,35 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           method: d.method || "",
           paymentMethod: d.paymentMethod || "",
           term: d.term || "",
-          amount: typeof d.amount === "number" ? d.amount : Number(d.amount || 0),
-          amountPaid: typeof d.amountPaid === "number" ? d.amountPaid : Number(d.amountPaid || 0),
+          amount:
+            d.amount == null
+              ? undefined
+              : typeof d.amount === "number"
+                ? d.amount
+                : Number(d.amount || 0),
+          amountPaid:
+            d.amountPaid == null
+              ? undefined
+              : typeof d.amountPaid === "number"
+                ? d.amountPaid
+                : Number(d.amountPaid || 0),
+          requestedAmount:
+            d.requestedAmount == null
+              ? undefined
+              : typeof d.requestedAmount === "number"
+                ? d.requestedAmount
+                : Number(d.requestedAmount || 0),
+          amountReceived:
+            d.amountReceived == null
+              ? undefined
+              : typeof d.amountReceived === "number"
+                ? d.amountReceived
+                : Number(d.amountReceived || 0),
           referenceNo: d.referenceNo || "",
           proofUrl: d.proofUrl || "",
           status: d.status || "",
           verificationStatus: d.verificationStatus || "",
+          receiptNumber: d.receiptNumber || "",
           isRemainingDownPayment: Boolean(d.isRemainingDownPayment),
           submittedAt,
           updatedAt,
@@ -3363,7 +3394,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       // closure bookings.find() — to ensure the payment record, receipt, and
       // notification all reflect the correct post-payment state.
       try {
-        const onsitePaymentRecord = {
+        const onsitePaymentRecord: PaymentRecord = {
           id: onsitePaymentId,
           bookingId: id,
           bookingCode: (onsiteUpdated as any).bookingCode ?? id,
@@ -3389,6 +3420,13 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           adminNote: paymentData.adminNote || "",
         };
 
+        setPaymentRecords((current) => (
+          current.some((payment) => payment.id === onsitePaymentRecord.id)
+            ? current.map((payment) => payment.id === onsitePaymentRecord.id
+              ? { ...payment, ...onsitePaymentRecord }
+              : payment)
+            : [...current, onsitePaymentRecord]
+        ));
         setDoc(doc(paymentsRef, onsitePaymentId), onsitePaymentRecord).catch(console.error);
         saveStoredReceipt(onsiteReceipt).catch(console.error);
         window.dispatchEvent(new Event("oneestela_payments_updated"));
@@ -3513,7 +3551,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         : undefined
       if (!target) {
         target = paymentRecords
-          .filter((record) => record.bookingId === bookingId)
+          .filter((record) => isPaymentRecordForBooking(record, bookingId))
           .sort((a, b) => {
             const aT = a.submittedAt ? new Date(a.submittedAt).getTime() : 0
             const bT = b.submittedAt ? new Date(b.submittedAt).getTime() : 0
@@ -3545,6 +3583,9 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       // that would trigger another snapshot and re-process this unchanged
       // payment (and would otherwise loop: write → snapshot → normalize).
       if (previousStatus === nextStatus && !amountReceivedChanged) return
+      setPaymentRecords((current) => current.map((record) => (
+        record.id === target.id ? { ...record, ...patch } : record
+      )))
       void updateDoc(doc(paymentsRef, target.id), data).catch((error) => {
         console.error("[Booking:markPaymentRecordReviewed] update failed:", error?.code || error?.message || error)
       })
@@ -3566,7 +3607,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
   ): string | undefined => {
     if (recordId) return recordId
     return paymentRecords
-      .filter((record) => record.bookingId === bookingId)
+      .filter((record) => isPaymentRecordForBooking(record, bookingId))
       .sort((a, b) => {
         const aT = a.submittedAt ? new Date(a.submittedAt).getTime() : 0
         const bT = b.submittedAt ? new Date(b.submittedAt).getTime() : 0
@@ -3974,7 +4015,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         return paymentRecords.find((record) => record.id === data.paymentRecordId)
       }
       return [...paymentRecords]
-        .filter((record) => record.bookingId === id)
+        .filter((record) => isPaymentRecordForBooking(record, id))
         .sort((a, b) => {
           const aT = a.submittedAt ? new Date(a.submittedAt).getTime() : 0
           const bT = b.submittedAt ? new Date(b.submittedAt).getTime() : 0

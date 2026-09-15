@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   calculatePaymentSummary,
   getPaymentRecordCreditedAmount,
+  getRecordsForBooking,
   isAcceptedPaymentRecord,
   isIncompletePaymentRecord,
   isRejectedPaymentRecord,
@@ -122,6 +123,98 @@ describe("TEST 2 — Incomplete downpayment: ₱7,500 submitted, ₱5,500 receiv
   it("incomplete record is NOT pending", () => {
     const record = makeRecord({ status: "incomplete", amount: 7500 })
     expect(isPendingPaymentRecord(record)).toBe(false)
+  })
+})
+
+describe("Authoritative record edge cases", () => {
+  it("matches records by booking id or booking code", () => {
+    const records = [
+      makeRecord({ id: "BY_ID", bookingId: "BK001" }),
+      makeRecord({ id: "BY_CODE", bookingId: "other", bookingCode: "bk001" }),
+      makeRecord({ id: "OTHER", bookingId: "BK999" }),
+    ]
+
+    expect(getRecordsForBooking(records, " BK001 ").map((record) => record.id)).toEqual([
+      "BY_ID",
+      "BY_CODE",
+    ])
+  })
+
+  it("does not let stale booking fields override a partial payment history", () => {
+    const booking = makeBooking({
+      amountPaid: 15000,
+      remainingBalance: 0,
+      paymentStatus: "paid",
+    })
+    const summary = calculatePaymentSummary(booking, [
+      makeRecord({ status: "verified", amount: 7500 }),
+    ])
+
+    expect(summary.moneyReceivedTotal).toBe(7500)
+    expect(summary.remainingBalance).toBe(7500)
+    expect(summary.overallStatus).toBe("partial")
+  })
+
+  it("clamps overpayment to the booking total for displayed money and balance", () => {
+    const summary = calculatePaymentSummary(makeBooking(), [
+      makeRecord({ status: "verified", amount: 17000 }),
+    ])
+
+    expect(summary.moneyReceivedTotal).toBe(15000)
+    expect(summary.remainingBalance).toBe(0)
+    expect(summary.fullyPaid).toBe(true)
+    expect(summary.overallStatus).toBe("completed")
+  })
+
+  it("does not treat a pending paymentAmount as money paid on a legacy booking", () => {
+    const summary = calculatePaymentSummary(
+      makeBooking({ amountPaid: 0, paymentAmount: 7500, paymentStatus: "for_review" }),
+      [],
+    )
+
+    expect(summary.moneyReceivedTotal).toBe(0)
+    expect(summary.remainingBalance).toBe(15000)
+    expect(summary.overallStatus).toBe("for_review")
+  })
+
+  it("does not treat paymentAmount as cumulative legacy money without acceptance", () => {
+    const summary = calculatePaymentSummary(
+      makeBooking({ amountPaid: undefined, paidAmount: undefined, paymentAmount: 7500, paymentStatus: "pending" }),
+      [],
+    )
+
+    expect(summary.moneyReceivedTotal).toBe(0)
+    expect(summary.remainingBalance).toBe(15000)
+  })
+
+  it("uses an accepted legacy paymentAmount when amountPaid is still zero", () => {
+    const summary = calculatePaymentSummary(
+      makeBooking({ amountPaid: 0, paymentAmount: 7500, paymentStatus: "paid" }),
+      [],
+    )
+
+    expect(summary.moneyReceivedTotal).toBe(7500)
+    expect(summary.overallStatus).toBe("partial")
+  })
+
+  it("supports older verified records that only stored amountPaid", () => {
+    const summary = calculatePaymentSummary(makeBooking(), [
+      makeRecord({ status: "verified", amount: undefined, amountPaid: 7500 }),
+    ])
+
+    expect(summary.acceptedVerifiedTotal).toBe(7500)
+    expect(summary.remainingBalance).toBe(7500)
+  })
+
+  it("keeps legacy downpayment fields internally consistent", () => {
+    const summary = calculatePaymentSummary(
+      makeBooking({ amountPaid: 0, downpaymentPaid: 7500 }),
+      [],
+    )
+
+    expect(summary.moneyReceivedTotal).toBe(7500)
+    expect(summary.remainingBalance).toBe(7500)
+    expect(summary.overallStatus).toBe("partial")
   })
 })
 

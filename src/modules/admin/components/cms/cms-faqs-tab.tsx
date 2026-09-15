@@ -46,9 +46,9 @@ export function CMSFaqsTab({ onNavigate }: { onNavigate: (tab: string) => void }
 
   return (
     <div>
-      <CMSSectionHeader title="FAQs" description="Manage frequently asked questions shown on the landing page."
+      <CMSSectionHeader title="FAQs"
         currentSection="faqs" onNavigate={onNavigate}
-        action={<Button type="button" onClick={openNew} className="h-9 rounded-lg bg-cyan-600 px-3.5 text-xs font-bold text-white hover:bg-cyan-700"><Plus className="mr-1 h-3.5 w-3.5" /> Add FAQ</Button>} />
+        action={<Button type="button" onClick={openNew} className="h-9 shrink-0 whitespace-nowrap rounded-lg bg-cyan-600 px-3.5 text-sm font-bold text-white hover:bg-cyan-700"><Plus className="mr-1 h-3.5 w-3.5" /> Add FAQ</Button>} />
 
       <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 px-4 py-2.5">
@@ -105,7 +105,7 @@ export function CMSFaqsTab({ onNavigate }: { onNavigate: (tab: string) => void }
               <div>
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Answer</label>
                 <Textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="The standard venue rental is 6 hours..."
-                  className="mt-1 w-full min-h-[80px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
+                  className="mt-1 w-full min-h-[160px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
               </div>
               <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <Switch checked={isHidden} onCheckedChange={setIsHidden} />

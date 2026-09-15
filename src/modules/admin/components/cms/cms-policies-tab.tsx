@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { BookOpen, ChevronDown, Eye, EyeOff, Pencil, RotateCcw, Save, X, FileText, Building2 } from "lucide-react"
 import { Button } from "@shared/components/ui/button"
 import { Textarea } from "@shared/components/ui/textarea"
@@ -19,6 +19,21 @@ export function CMSPoliciesTab({ onNavigate }: { onNavigate: (tab: string) => vo
   const [editContent, setEditContent] = useState("")
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [contractTab, setContractTab] = useState("event-venue")
+  const persistedEventContractContent = cmsData.policies.find((p: Policy) => p.type === "contractSigningEV")?.content
+    ?? DEFAULT_POLICY_CONTENT.contractSigningEV
+  const persistedOfficeContractContent = cmsData.policies.find((p: Policy) => p.type === "contractSigningOR")?.content
+    ?? DEFAULT_POLICY_CONTENT.contractSigningOR
+  const [contractDrafts, setContractDrafts] = useState(() => ({
+    eventVenue: persistedEventContractContent,
+    officeRental: persistedOfficeContractContent,
+  }))
+
+  useEffect(() => {
+    setContractDrafts({
+      eventVenue: persistedEventContractContent,
+      officeRental: persistedOfficeContractContent,
+    })
+  }, [persistedEventContractContent, persistedOfficeContractContent])
 
   const policies = ALL_POLICY_KEYS.filter(k => k !== "contractSigningEV" && k !== "contractSigningOR").map((key) => {
     const existing = cmsData.policies.find((p: Policy) => p.type === key)
@@ -77,39 +92,69 @@ export function CMSPoliciesTab({ onNavigate }: { onNavigate: (tab: string) => vo
     toast({ title: "Policy reset", description: `${p.title} restored to default booking policy.`, className: "bg-emerald-500 text-white border-none" })
   }
 
-  const getOrCreateContractPolicy = (type: PolicyType): Policy => {
-    const existing = cmsData.policies.find((p: Policy) => p.type === type)
-    return existing || {
-      id: type,
-      title: POLICY_LABELS[type],
-      content: DEFAULT_POLICY_CONTENT[type],
-      type,
-      isPublished: true,
-      createdAt: new Date().toISOString(),
-    } as Policy
+  const handleContractReset = (type: "contractSigningEV" | "contractSigningOR") => {
+    const isEventVenue = type === "contractSigningEV"
+    setContractDrafts((drafts) => ({
+      ...drafts,
+      [isEventVenue ? "eventVenue" : "officeRental"]: DEFAULT_POLICY_CONTENT[type],
+    }))
+    toast({
+      title: "Contract reset",
+      description: `${POLICY_LABELS[type]} restored to default. Click Save Changes to apply it.`,
+      className: "bg-emerald-500 text-white border-none",
+    })
   }
 
-  const handleContractSave = (type: PolicyType, content: string) => {
-    if (!content.trim()) return
-    const existing = cmsData.policies.find((p: Policy) => p.type === type)
-    if (existing) {
-      updatePolicy(existing.id, { content: content.trim(), updatedAt: new Date().toISOString() })
-    } else {
-      saveCMSData({
-        ...cmsData,
-        policies: [...cmsData.policies, { id: type, title: POLICY_LABELS[type], content: content.trim(), type, isPublished: true, createdAt: new Date().toISOString() } as Policy],
+  const handleContractSave = () => {
+    const drafts = [
+      { type: "contractSigningEV" as PolicyType, content: contractDrafts.eventVenue },
+      { type: "contractSigningOR" as PolicyType, content: contractDrafts.officeRental },
+    ]
+    const emptyDraft = drafts.find((draft) => !draft.content.trim())
+    if (emptyDraft) {
+      toast({
+        title: "Content required",
+        description: `${POLICY_LABELS[emptyDraft.type]} content cannot be empty.`,
+        variant: "destructive",
       })
+      return
     }
-    toast({ title: "Contract saved", description: `${POLICY_LABELS[type]} has been updated.`, className: "bg-emerald-500 text-white border-none" })
-  }
 
-  const evContract = getOrCreateContractPolicy("contractSigningEV")
-  const orContract = getOrCreateContractPolicy("contractSigningOR")
+    const updatedAt = new Date().toISOString()
+    const policies = [...cmsData.policies]
+    drafts.forEach(({ type, content }) => {
+      const index = policies.findIndex((policy) => policy.type === type)
+      const existing = index >= 0 ? policies[index] : undefined
+      const updatedPolicy: Policy = {
+        id: existing?.id || type,
+        title: existing?.title || POLICY_LABELS[type],
+        content: content.trim(),
+        type,
+        isPublished: existing?.isPublished ?? true,
+        createdAt: existing?.createdAt || updatedAt,
+        updatedAt,
+      }
+      if (index >= 0) policies[index] = updatedPolicy
+      else policies.push(updatedPolicy)
+    })
+
+    saveCMSData({ ...cmsData, policies })
+  }
 
   return (
     <div>
-      <CMSSectionHeader title="Terms &amp; Policies" description="Manage event venue terms, office space terms, cancellation, refund, payment policies, and contract information."
-        currentSection="policies" onNavigate={onNavigate} />
+      <CMSSectionHeader title="Terms &amp; Policies"
+        currentSection="policies" onNavigate={onNavigate}
+        action={
+          <Button
+            type="button"
+            onClick={handleContractSave}
+            className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg bg-orange-600 px-3.5 text-sm font-bold text-white hover:bg-orange-700 sm:w-auto"
+          >
+            <Save className="mr-1.5 h-3.5 w-3.5" /> Save Changes
+          </Button>
+        }
+      />
 
       <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 px-6 py-3">
@@ -131,24 +176,13 @@ export function CMSPoliciesTab({ onNavigate }: { onNavigate: (tab: string) => vo
             </TabsList>
             <TabsContent value="event-venue" className="space-y-3">
               <Textarea
-                value={evContract.content}
-                onChange={(e) => {
-                  const updated = { ...evContract, content: e.target.value }
-                  const idx = cmsData.policies.findIndex((p: Policy) => p.type === "contractSigningEV")
-                  if (idx >= 0) {
-                    updatePolicy(cmsData.policies[idx].id, { content: e.target.value, updatedAt: new Date().toISOString() })
-                  } else {
-                    saveCMSData({
-                      ...cmsData,
-                      policies: [...cmsData.policies, { id: "contractSigningEV", title: POLICY_LABELS.contractSigningEV, content: e.target.value, type: "contractSigningEV", isPublished: true, createdAt: new Date().toISOString() }],
-                    })
-                  }
-                }}
-                className="w-full min-h-[80px] resize-none rounded-lg border-slate-200 text-sm font-semibold leading-relaxed"
+                value={contractDrafts.eventVenue}
+                onChange={(e) => setContractDrafts((drafts) => ({ ...drafts, eventVenue: e.target.value }))}
+                className="w-full min-h-[240px] resize-none rounded-lg border-slate-200 text-sm font-semibold leading-relaxed"
                 placeholder="Event venue contract details, requirements, reminders, and download instructions..."
               />
               <div className="flex items-center gap-2 justify-end">
-                <Button type="button" variant="outline" onClick={() => handleReset(evContract)}
+                 <Button type="button" variant="outline" onClick={() => handleContractReset("contractSigningEV")}
                   className="h-9 rounded-lg border-slate-200 px-4 text-xs font-bold">
                   <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Reset to Default
                 </Button>
@@ -156,23 +190,13 @@ export function CMSPoliciesTab({ onNavigate }: { onNavigate: (tab: string) => vo
             </TabsContent>
             <TabsContent value="office-rental" className="space-y-3">
               <Textarea
-                value={orContract.content}
-                onChange={(e) => {
-                  const idx = cmsData.policies.findIndex((p: Policy) => p.type === "contractSigningOR")
-                  if (idx >= 0) {
-                    updatePolicy(cmsData.policies[idx].id, { content: e.target.value, updatedAt: new Date().toISOString() })
-                  } else {
-                    saveCMSData({
-                      ...cmsData,
-                      policies: [...cmsData.policies, { id: "contractSigningOR", title: POLICY_LABELS.contractSigningOR, content: e.target.value, type: "contractSigningOR", isPublished: true, createdAt: new Date().toISOString() }],
-                    })
-                  }
-                }}
-                className="w-full min-h-[80px] resize-none rounded-lg border-slate-200 text-sm font-semibold leading-relaxed"
+                value={contractDrafts.officeRental}
+                onChange={(e) => setContractDrafts((drafts) => ({ ...drafts, officeRental: e.target.value }))}
+                className="w-full min-h-[240px] resize-none rounded-lg border-slate-200 text-sm font-semibold leading-relaxed"
                 placeholder="Office rental contract details, requirements, rental terms, reminders, and download instructions..."
               />
               <div className="flex items-center gap-2 justify-end">
-                <Button type="button" variant="outline" onClick={() => handleReset(orContract)}
+                 <Button type="button" variant="outline" onClick={() => handleContractReset("contractSigningOR")}
                   className="h-9 rounded-lg border-slate-200 px-4 text-xs font-bold">
                   <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Reset to Default
                 </Button>
@@ -197,34 +221,47 @@ export function CMSPoliciesTab({ onNavigate }: { onNavigate: (tab: string) => vo
 
               return (
                 <div key={policy.id}>
-                  <button
-                    type="button"
-                    onClick={() => setExpandedId(isExpanded ? null : policy.id)}
-                    className="flex w-full items-center justify-between gap-3 px-6 py-3.5 text-left transition hover:bg-slate-50/50"
-                  >
+                  <div className="flex w-full items-center justify-between gap-3 px-6 py-3.5">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedId(isExpanded ? null : policy.id)}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left transition hover:text-amber-700"
+                      aria-expanded={isExpanded}
+                    >
                     <div className="flex items-center gap-3 min-w-0">
                       <BookOpen className="h-4 w-4 shrink-0 text-amber-500" />
                       <span className="text-sm font-bold text-slate-900">{POLICY_LABELS[policy.type] || policy.title}</span>
                       <CMSStatusBadge status={policy.isPublished ? "published" : "hidden"} />
                     </div>
+                    </button>
                     <div className="flex shrink-0 items-center gap-1.5">
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); openEdit(policy) }}
+                        onClick={() => openEdit(policy)}
+                        aria-label={`Edit ${POLICY_LABELS[policy.type] || policy.title}`}
                         className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); updatePolicy(policy.id, { isPublished: !policy.isPublished }) }}
+                        onClick={() => updatePolicy(policy.id, { isPublished: !policy.isPublished })}
+                        aria-label={policy.isPublished ? `Hide ${POLICY_LABELS[policy.type] || policy.title}` : `Publish ${POLICY_LABELS[policy.type] || policy.title}`}
                         className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                       >
                         {policy.isPublished ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                       </button>
-                      <ChevronDown className={`h-4 w-4 text-slate-400 transition ${isExpanded ? "rotate-180" : ""}`} />
+                      <button
+                        type="button"
+                        onClick={() => setExpandedId(isExpanded ? null : policy.id)}
+                        aria-label={isExpanded ? `Collapse ${POLICY_LABELS[policy.type] || policy.title}` : `Expand ${POLICY_LABELS[policy.type] || policy.title}`}
+                        aria-expanded={isExpanded}
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                      >
+                        <ChevronDown className={`h-4 w-4 transition ${isExpanded ? "rotate-180" : ""}`} />
+                      </button>
                     </div>
-                  </button>
+                  </div>
                   {isExpanded && (
                     <div className="px-6 pb-4">
                       <div className="rounded-lg border border-slate-100 bg-slate-50 p-4">
@@ -233,7 +270,7 @@ export function CMSPoliciesTab({ onNavigate }: { onNavigate: (tab: string) => vo
                             <Textarea
                               value={editContent}
                               onChange={(e) => setEditContent(e.target.value)}
-                              className="w-full min-h-[80px] resize-none rounded-lg border-slate-200 text-sm font-semibold leading-relaxed"
+                              className="w-full min-h-[240px] resize-none rounded-lg border-slate-200 text-sm font-semibold leading-relaxed"
                             />
                             <div className="flex items-center gap-2">
                               <Button type="button" onClick={() => handleSave(policy)}

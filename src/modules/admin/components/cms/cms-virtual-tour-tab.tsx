@@ -30,7 +30,7 @@ export function CMSVirtualTourTab({ onNavigate }: { onNavigate: (tab: string) =>
 
   return (
     <div>
-      <CMSSectionHeader title="Virtual Tour" description="Manage 360 panorama images for venues and office spaces."
+      <CMSSectionHeader title="Virtual Tour"
         currentSection="virtualTour" onNavigate={onNavigate} />
 
       <section className="rounded-xl border border-slate-200 bg-white shadow-sm">

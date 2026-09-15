@@ -240,12 +240,6 @@ export default function ProfilePage() {
                   </FieldWrapper>
                 </div>
 
-                <div className="rounded-xl border border-orange-100 bg-orange-50 p-4">
-                  <p className="text-xs font-medium leading-6 text-orange-800">
-                    Note: Name fields are locked. Contact support for corrections.
-                  </p>
-                </div>
-
                 <Button
                   onClick={handleSaveProfile}
                   className="h-11 w-full rounded-xl bg-orange-600 px-8 font-bold text-white hover:bg-orange-700 sm:w-auto"

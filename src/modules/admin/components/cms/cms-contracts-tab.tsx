@@ -1,10 +1,10 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
-import { Check, Download, FileText, ImageIcon, Loader2, Trash2, X } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import { Check, Download, FileText, ImageIcon, Loader2, Save, Trash2, X } from "lucide-react"
 import { Button } from "@shared/components/ui/button"
 import { useToast } from "@shared/hooks/use-toast"
-import { useCMS } from "@admin/contexts/cms-context"
+import { useCMS, type ContractFile } from "@admin/contexts/cms-context"
 import { CMSSectionHeader } from "./cms-section-header"
 import { ContractFileViewer } from "@/src/modules/client/components/contract-file-viewer"
 import { isImage, isPDF } from "@/src/modules/shared/lib/file-utils"
@@ -38,12 +38,12 @@ function FileUploader({
   label,
   category,
   contract,
-  onUpdate,
+  onChange,
 }: {
   label: string
   category: "venue" | "office"
   contract: { fileName: string; fileType: string; fileUrl: string }
-  onUpdate: (data: { fileName: string; fileType: string; fileUrl: string }) => void
+  onChange: (data: ContractFile) => void
 }) {
   const { toast } = useToast()
   const [available, setAvailable] = useState<AvailableContract[]>([])
@@ -72,7 +72,7 @@ function FileUploader({
   }, [fetchAvailable])
 
   const handleSelect = (file: AvailableContract) => {
-    onUpdate({
+    onChange({
       fileName: file.fileName,
       fileType: file.fileType,
       fileUrl: file.fileUrl,
@@ -80,7 +80,7 @@ function FileUploader({
   }
 
   const handleRemove = () => {
-    onUpdate({ fileName: "", fileType: "", fileUrl: "" })
+    onChange({ fileName: "", fileType: "", fileUrl: "" })
   }
 
   const isSelectedFileMissing =
@@ -252,29 +252,52 @@ function FileUploader({
 }
 
 export function CMSContractsTab({ onNavigate }: { onNavigate: (tab: string) => void }) {
-  const { cmsData, updateEventVenueContract, updateOfficeRentalContract } = useCMS()
+  const { cmsData, saveCMSData } = useCMS()
+  const [eventVenueContract, setEventVenueContract] = useState(cmsData.eventVenueContract)
+  const [officeRentalContract, setOfficeRentalContract] = useState(cmsData.officeRentalContract)
+
+  useEffect(() => {
+    setEventVenueContract(cmsData.eventVenueContract)
+    setOfficeRentalContract(cmsData.officeRentalContract)
+  }, [cmsData.eventVenueContract, cmsData.officeRentalContract])
+
+  const handleSave = () => {
+    saveCMSData({
+      ...cmsData,
+      eventVenueContract,
+      officeRentalContract,
+    })
+  }
 
   return (
     <div>
       <CMSSectionHeader
         title="Contract Documents"
-        description="Upload contract files for Event Venue and Office Rental bookings. These files will be available for users to view and download when their booking requires contract signing."
         currentSection="contracts"
         onNavigate={onNavigate}
+        action={
+          <Button
+            type="button"
+            onClick={handleSave}
+            className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg bg-orange-600 px-3.5 text-sm font-bold text-white hover:bg-orange-700 sm:w-auto"
+          >
+            <Save className="mr-1.5 h-3.5 w-3.5" /> Save Changes
+          </Button>
+        }
       />
 
       <div className="grid gap-6 grid-cols-1 sm:grid-cols-2">
         <FileUploader
           label="Event Venue Contract"
           category="venue"
-          contract={cmsData.eventVenueContract}
-          onUpdate={updateEventVenueContract}
+          contract={eventVenueContract}
+          onChange={setEventVenueContract}
         />
         <FileUploader
           label="Office Rental Contract"
           category="office"
-          contract={cmsData.officeRentalContract}
-          onUpdate={updateOfficeRentalContract}
+          contract={officeRentalContract}
+          onChange={setOfficeRentalContract}
         />
       </div>
     </div>

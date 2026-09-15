@@ -21,7 +21,7 @@ const SECTIONS = [
 export function CMSSectionHeader({
   title, description, currentSection, onNavigate, action,
 }: {
-  title: string; description: string; currentSection: string
+  title: string; description?: string; currentSection: string
   onNavigate: (key: string) => void; action?: ReactNode
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -41,19 +41,19 @@ export function CMSSectionHeader({
 
   return (
     <div className="mb-5">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           {title && <h2 className="text-xl font-black tracking-tight text-slate-950">{title}</h2>}
           {description && (
-            <p className="mt-0.5 text-sm font-semibold leading-5 text-slate-500 max-w-xl">{description}</p>
+            <p className="mt-0.5 max-w-xl text-sm font-semibold leading-5 text-slate-500">{description}</p>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 sm:w-auto">
           <div className="relative" ref={menuRef}>
             <button
               type="button"
               onClick={() => setMenuOpen(!menuOpen)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-800"
+              className="inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-800"
             >
               {currentLabel}
               <ChevronDown className={`h-3.5 w-3.5 transition ${menuOpen ? "rotate-180" : ""}`} />
@@ -86,5 +86,3 @@ export function CMSSectionHeader({
     </div>
   )
 }
-
-

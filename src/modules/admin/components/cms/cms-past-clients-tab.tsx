@@ -175,11 +175,10 @@ export function CMSPastClientsTab({ onNavigate }: { onNavigate: (tab: string) =>
     <div>
       <CMSSectionHeader
         title="Past Client Bookings"
-        description="Manage past client booking testimonials shown on the landing page."
         currentSection="pastClients"
         onNavigate={onNavigate}
         action={
-          <Button type="button" onClick={openNew} className="h-9 rounded-lg bg-pink-600 px-3.5 text-xs font-bold text-white hover:bg-pink-700">
+          <Button type="button" onClick={openNew} className="h-9 shrink-0 whitespace-nowrap rounded-lg bg-pink-600 px-3.5 text-sm font-bold text-white hover:bg-pink-700">
             <Plus className="mr-1 h-3.5 w-3.5" /> Add Client Booking
           </Button>
         }
@@ -295,7 +294,7 @@ className="h-full w-full object-cover"
               <div>
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Testimonial</label>
                 <Textarea value={form.testimonial} onChange={(e) => setForm({ ...form, testimonial: e.target.value })} placeholder="Client testimonial..."
-                  className="mt-1 w-full min-h-[80px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
+                  className="mt-1 w-full min-h-[140px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
               </div>
 
               <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3.5">

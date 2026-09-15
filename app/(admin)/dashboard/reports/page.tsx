@@ -8,6 +8,7 @@ import {
   Download,
   Filter,
   PieChart as PieChartIcon,
+  Printer,
   Search,
   TrendingUp,
 } from "lucide-react"
@@ -22,7 +23,11 @@ import {
 } from "@/src/modules/shared/components/ui/select"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { useBookingData } from "@/src/modules/client/contexts/booking-context"
-import { calculatePaymentSummary, getRecordsForBooking } from "@/src/modules/shared/lib/payment-calculations"
+import {
+  calculatePaymentSummary,
+  getBookingStoredAmountPaid,
+  getRecordsForBooking,
+} from "@/src/modules/shared/lib/payment-calculations"
 import {
   Bar,
   BarChart,
@@ -196,13 +201,30 @@ function getReportClientName(booking: BookingRecord) {
   return name.trim() || "N/A"
 }
 
+function hasPaymentActivity(booking: BookingRecord, records: unknown[]) {
+  const b = booking as any
+  const paymentStatus = normalizeStatus(booking.paymentStatus)
+  return (
+    records.length > 0 ||
+    Number(b.amountPaid || b.paidAmount || b.downpaymentPaid || b.paymentAmount || 0) > 0 ||
+    Boolean(
+      b.proofUrl ||
+        b.paymentProof ||
+        b.proofOfPayment ||
+        b.paymentSubmittedAt ||
+        b.hasActivePaymentSubmission,
+    ) ||
+    !["pending", "unpaid"].includes(paymentStatus)
+  )
+}
+
 function getReportRemainingBalance(booking: BookingRecord, summary?: { remainingBalance: number } | null) {
   if (summary) return summary.remainingBalance
   const b = booking as any
   const stored = Number(b.remainingBalance ?? 0) || 0
   if (stored > 0) return stored
   const totalAmount = getBookingAmount(booking)
-  const amountPaid = Number(b.amountPaid ?? b.paymentAmount ?? b.paidAmount ?? 0) || 0
+  const amountPaid = getBookingStoredAmountPaid(booking as any)
   return Math.max(totalAmount - amountPaid, 0)
 }
 
@@ -232,7 +254,7 @@ function getReportPaymentStatus(booking: BookingRecord, summary?: { overallStatu
   const ps = normalizeStatus(booking.paymentStatus)
   const stage = String(b.paymentStage || "").toLowerCase()
   const totalAmount = getBookingAmount(booking)
-  const amountPaid = Number(b.amountPaid ?? b.paymentAmount ?? b.paidAmount ?? 0) || 0
+  const amountPaid = getBookingStoredAmountPaid(booking as any)
   const remainingBalance = getReportRemainingBalance(booking)
   const refundStatus = normalizeStatus(b.refundStatus)
 
@@ -454,7 +476,10 @@ export default function ReportsPage() {
   const enrichedData = useMemo(() => {
     const records = Array.isArray(paymentRecords) ? paymentRecords : []
     return filteredData.map((booking) => {
-      const summary = calculatePaymentSummary(booking as any, getRecordsForBooking(records, String(booking.id)))
+      const bookingRecords = getRecordsForBooking(records, String(booking.id))
+      const summary = hasPaymentActivity(booking, bookingRecords)
+        ? calculatePaymentSummary(booking as any, bookingRecords)
+        : null
       return { ...booking, _summary: summary }
     })
   }, [filteredData, paymentRecords])
@@ -559,6 +584,15 @@ export default function ReportsPage() {
       .slice(0, 8)
   }, [filteredData])
 
+  const reportPeriod =
+    filterYear !== "all" && filterMonth !== "all"
+      ? `${MONTHS[Number(filterMonth)]} ${filterYear}`
+      : filterYear !== "all"
+        ? `Year ${filterYear}`
+        : filterMonth !== "all"
+          ? MONTHS[Number(filterMonth)]
+          : "All Years"
+
   const exportExcel = async () => {
     if (filteredData.length === 0) {
       toast({
@@ -586,15 +620,6 @@ export default function ReportsPage() {
         second: "2-digit",
       }).format(now)
       const generatedOn = `${generatedDate}, ${generatedTime}`
-
-      const reportPeriod =
-        filterYear !== "all" && filterMonth !== "all"
-          ? `${MONTHS[Number(filterMonth)]} ${filterYear}`
-          : filterYear !== "all"
-            ? `Year ${filterYear}`
-            : filterMonth !== "all"
-              ? MONTHS[Number(filterMonth)]
-              : "All Years"
 
       workbook.creator = generatedBy
       workbook.created = new Date()
@@ -870,8 +895,38 @@ export default function ReportsPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
-      <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+    <div data-report-print-root className="mx-auto w-full max-w-7xl overflow-x-hidden bg-slate-50 px-4 py-4 sm:px-6 sm:py-6 lg:px-8 print:max-w-none print:bg-white print:p-0">
+      <style media="print">{`
+        @page { size: landscape; margin: 0.5in; }
+        html, body { background: #fff !important; }
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        [data-report-print-root] { max-width: none !important; background: #fff !important; }
+        [data-report-print-card] { box-shadow: none !important; }
+        [data-report-print-table] { overflow: visible !important; box-shadow: none !important; }
+        [data-report-print-table] table { min-width: 0 !important; width: 100% !important; }
+        [data-report-print-table] tr { break-inside: avoid; page-break-inside: avoid; }
+      `}</style>
+
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-600">Admin Reports</p>
+          <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950">Reports</h1>
+          <p className="mt-1 text-sm font-semibold text-slate-500">Booking performance and revenue overview.</p>
+          <p className="mt-1 text-xs font-bold text-slate-500">Report Period: {reportPeriod}</p>
+        </div>
+        <div className="flex w-full justify-end sm:w-auto print:hidden">
+          <Button
+            type="button"
+            onClick={() => window.print()}
+            className="h-10 w-full rounded-xl bg-slate-900 px-4 text-xs font-black text-white shadow-sm hover:bg-slate-800 sm:w-auto"
+          >
+            <Printer className="mr-1.5 h-3.5 w-3.5" />
+            Print Report
+          </Button>
+        </div>
+      </div>
+
+      <div data-report-print-card className="mb-6 flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-bold text-slate-500">
           <span>
             Records: <b className="text-slate-950">{filteredData.length}</b>
@@ -890,7 +945,7 @@ export default function ReportsPage() {
           </span>
         </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center print:hidden">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <input
@@ -926,7 +981,7 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      <div className="mb-6 rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
+      <div data-report-print-card className="mb-6 rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-orange-50 p-3 text-orange-700">
@@ -940,7 +995,7 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 print:hidden">
             <Select value={filterYear} onValueChange={setFilterYear}>
               <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[130px]">
                 <div className="flex items-center gap-2">
@@ -1047,7 +1102,7 @@ export default function ReportsPage() {
       </div>
 
       <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
+        <div data-report-print-card className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
           <div className="mb-6 flex items-center gap-3">
             <div className="rounded-2xl bg-orange-50 p-3 text-orange-700">
               <TrendingUp className="h-5 w-5" />
@@ -1106,6 +1161,7 @@ export default function ReportsPage() {
 
         <div
           ref={statusCardRef}
+          data-report-print-card
           className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm"
         >
           <div className="mb-4 flex items-center gap-3">
@@ -1183,7 +1239,7 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      <div className="mb-6 rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
+      <div data-report-print-card className="mb-6 rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
         <div className="mb-6 flex items-center gap-3">
           <div className="rounded-2xl bg-orange-50 p-3 text-orange-700">
             <BarChart3 className="h-5 w-5" />
@@ -1234,14 +1290,14 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
+      <div data-report-print-table className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center border-b border-slate-100 bg-slate-50 px-6 py-5">
           <h3 className="text-lg font-black text-slate-950">Booking Records</h3>
           <p className="ml-2 text-xs font-semibold text-slate-500">({filteredData.length} record{filteredData.length === 1 ? "" : "s"})</p>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[950px] text-left text-sm">
+        <div className="overflow-x-auto print:overflow-visible">
+          <table className="w-full min-w-[950px] text-left text-sm print:min-w-0">
             <thead className="border-b border-slate-100 bg-white text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
               <tr>
                 <th className="p-5 pl-8">Booking ID</th>
@@ -1313,7 +1369,7 @@ export default function ReportsPage() {
         </div>
 
         {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-4 border-t border-slate-100 px-6 py-4">
+          <div className="flex items-center justify-center gap-4 border-t border-slate-100 px-6 py-4 print:hidden">
             <button
               disabled={safePage <= 1}
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}

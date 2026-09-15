@@ -26,10 +26,7 @@
 //    (cumulative across records; a single record never needs to equal the
 //    whole downpayment)
 //  - Overall status priority (record-based):
-//      1. "completed"  — moneyReceivedTotal >= bookingTotal (FULLY PAID),
-//                        or the booking's own ledger confirms full settlement
-//                        (stored amountPaid >= total, remainingBalance <= 0,
-//                        paymentStatus paid/completed/fully paid)
+//      1. "completed"  — moneyReceivedTotal >= bookingTotal (FULLY PAID)
 //      2. "partial"    — downpaymentComplete AND remainingBalance > 0
 //      3. "for_review" — a payment is waiting for Admin review and no
 //                        received amount has completed the downpayment yet
@@ -59,6 +56,10 @@ export interface PaymentRecordLike {
   bookingCode?: unknown
   status?: unknown
   verificationStatus?: unknown
+  method?: unknown
+  paymentMethod?: unknown
+  referenceNo?: unknown
+  proofUrl?: unknown
   amount?: unknown
   amountPaid?: unknown
   // Money the admin confirmed was ACTUALLY RECEIVED on an INCOMPLETE payment
@@ -88,18 +89,13 @@ export interface BookingLike {
   paymentAmount?: unknown
   paidAmount?: unknown
   remainingBalance?: unknown
-  // Pending-submission markers written by the CLIENT at submission time.
-  // Used ONLY to detect a verified payment whose ledger increment was lost
-  // (see the LEDGER RECONCILIATION note in calculatePaymentSummary).
-  paymentSubmittedAt?: unknown
-  hasActivePaymentSubmission?: unknown
 }
 
 export interface PaymentSummary {
   bookingTotal: number
   requiredDownpayment: number
-  // Officially ACCEPTED money (admin-VERIFIED records only, incl. banked-ledger
-  // guards). Incomplete/rejected/pending payments never count here.
+  // Officially ACCEPTED money (admin-VERIFIED records only). Incomplete,
+  // rejected, and pending payments never count here.
   acceptedVerifiedTotal: number
   // ALL valid money actually held: verified + received amounts of INCOMPLETE
   // payments. This drives balances, downpayment completion and stage flow.
@@ -133,7 +129,32 @@ export function getBookingTotal(booking: BookingLike): number {
 }
 
 export function getBookingStoredAmountPaid(booking: BookingLike): number {
-  return toPaymentAmount(booking.amountPaid || booking.paymentAmount || booking.paidAmount)
+  const amountPaid = toPaymentAmount(booking.amountPaid)
+  if (amountPaid > 0) return amountPaid
+  const paidAmount = toPaymentAmount(booking.paidAmount)
+  if (paidAmount > 0) return paidAmount
+
+  // paymentAmount is normally the latest client submission, not a cumulative
+  // ledger. Only use it for legacy documents whose status explicitly proves
+  // that the submitted amount was accepted.
+  const status = normalizePaymentStatusValue(booking.paymentStatus)
+  if (
+    [
+      "verified",
+      "paid",
+      "completed",
+      "fully paid",
+      "fully_paid",
+      "partial",
+      "slot_verified",
+      "reservation secured",
+      "reservation_secured",
+    ].includes(status)
+  ) {
+    return toPaymentAmount(booking.paymentAmount)
+  }
+
+  return 0
 }
 
 export function getBookingRequiredDownpayment(booking: BookingLike): number {
@@ -210,7 +231,7 @@ export function isUnresolvedPaymentRecord(
 }
 
 export function getPaymentRecordAmount(record: PaymentRecordLike | null | undefined): number {
-  return toPaymentAmount(record?.amount || record?.amountPaid || 0)
+  return toPaymentAmount(record?.amount ?? record?.amountPaid ?? 0)
 }
 
 // Money CREDITED toward completing the downpayment by this single record:
@@ -308,7 +329,6 @@ export function calculatePaymentSummary(
   // completed / rejected.
   if (records.length === 0) {
     const amountPaid = getBookingStoredAmountPaid(base)
-    const remainingBalance = Math.max(bookingTotal - amountPaid, 0)
     const downpaymentPaid = toPaymentAmount(base.downpaymentPaid)
     // A stored amountPaid that already covers the required downpayment proves
     // the downpayment was completed even when the downpaymentPaid field was
@@ -317,6 +337,12 @@ export function calculatePaymentSummary(
       requiredDownpayment > 0
         ? Math.max(downpaymentPaid, amountPaid) >= requiredDownpayment
         : amountPaid >= bookingTotal
+    // Legacy bookings have no per-payment records, so the credited total can
+    // only come from the booking's own stored ledger fields.
+    const downpaymentCreditedTotal = Math.max(downpaymentPaid, amountPaid)
+    const moneyReceivedTotal =
+      bookingTotal > 0 ? Math.min(downpaymentCreditedTotal, bookingTotal) : downpaymentCreditedTotal
+    const remainingBalance = Math.max(bookingTotal - moneyReceivedTotal, 0)
 
     let legacyStatus: PaymentOverallStatus
     if (ps === "rejected") legacyStatus = "rejected"
@@ -328,25 +354,22 @@ export function calculatePaymentSummary(
       ps === "pending verification"
     ) {
       legacyStatus = "for_review"
-    } else if (bookingTotal > 0 && amountPaid >= bookingTotal) legacyStatus = "completed"
+    } else if (bookingTotal > 0 && moneyReceivedTotal >= bookingTotal) legacyStatus = "completed"
     else if (downpaymentComplete && remainingBalance > 0) legacyStatus = "partial"
-    else if (amountPaid > 0) legacyStatus = "incomplete"
+    else if (moneyReceivedTotal > 0) legacyStatus = "incomplete"
     else if (ps === "paid" || ps === "completed" || ps === "fully paid") legacyStatus = "completed"
     else legacyStatus = "for_review"
 
-    // Legacy bookings have no per-payment records, so the credited total can
-    // only come from the booking's own (admin-banked) ledger fields.
-    const downpaymentCreditedTotal = Math.max(downpaymentPaid, amountPaid)
     const creditTarget = requiredDownpayment > 0 ? requiredDownpayment : bookingTotal
 
     return {
       bookingTotal,
       requiredDownpayment,
       acceptedVerifiedTotal: amountPaid,
-      moneyReceivedTotal: downpaymentCreditedTotal,
+      moneyReceivedTotal,
       remainingBalance,
       downpaymentComplete,
-      fullyPaid: bookingTotal > 0 && amountPaid >= bookingTotal,
+      fullyPaid: bookingTotal > 0 && moneyReceivedTotal >= bookingTotal,
       hasPendingSubmission: false,
       overallStatus: legacyStatus,
       downpaymentCreditedTotal,
@@ -356,59 +379,13 @@ export function calculatePaymentSummary(
 
   // Record-based bookings — canonical state derived ONLY from the booking's
   // complete payment history. Booking doc fields (paymentStatus / amountPaid /
-  // downpaymentPaid / paymentStage) are written by the CLIENT at submission
-  // time, BEFORE admin verification, so they are never trusted here.
+  // downpaymentPaid / paymentStage) can be stale while a payment is being
+  // reviewed, so they are never trusted when records are available.
   const recordAcceptedTotal = records.reduce(
     (sum, record) => sum + (isAcceptedPaymentRecord(record) ? getPaymentRecordAmount(record) : 0),
     0,
   )
-  // LEDGER EVIDENCE GATE — stored booking-ledger fields may only ELEVATE the
-  // accepted total or settlement state when at least one loaded payment record
-  // was explicitly VERIFIED by admin. A history consisting solely of
-  // incomplete / rejected / for-review records is explicit proof that no money
-  // was ever accepted for this booking, so a stale amountPaid (e.g. banked by
-  // an older regression) must never surface as accepted balance: incomplete,
-  // rejected and pending records always contribute ₱0.
-  const hasAnyAcceptedRecord = records.some((record) => isAcceptedPaymentRecord(record))
-  // LEDGER FLOOR — same rationale as rule 1b below: the booking's stored
-  // amountPaid only ever grows by money actually ACCEPTED through the admin
-  // verify/settle flows — never by client submissions (which only write the
-  // PENDING paymentAmount / amountPaid=0) and never by rejected/incomplete
-  // attempts. When the loaded records undercount that ledger (e.g. an early
-  // payment record predating the current pipeline is not retrievable), the
-  // accepted total must never drop below what was verifiably received —
-  // otherwise a downpayment that IS complete gets demoted to "incomplete"
-  // and the remaining balance inflates.
-  const ledgerFloor = hasAnyAcceptedRecord ? toPaymentAmount(base.amountPaid) : 0
-  // LEDGER RECONCILIATION — the mirror-image of the ledger floor: a VERIFIED
-  // payment whose ledger increment was LOST. The admin verify flow banks the
-  // verified amount into booking.amountPaid AND clears the pending-submission
-  // markers in one write; if a concurrent client submission was the last write
-  // to the booking document instead, the ledger freezes at its pre-verify value
-  // while the record itself is already "Verified". Such a record is real,
-  // admin-confirmed money that MUST count toward the accepted total — an old
-  // incomplete/rejected attempt or the stale stored fields may never demote it.
-  // Detection uses only signals written at submission/verify time:
-  //   hasActivePaymentSubmission === true  → the booking doc still carries the
-  //     client's PENDING state for this exact submission (a successful verify
-  //     always clears it), and
-  //   paymentSubmittedAt === record.submittedAt → that pending submission IS
-  //     this record.
-  // A later successful verify always clears the flag and a later client
-  // submission always re-points paymentSubmittedAt at itself, so a banked
-  // verified payment can never satisfy both conditions — no double counting.
-  const unbankedAcceptedTotal = records.reduce((sum, record) => {
-    if (!isAcceptedPaymentRecord(record)) return sum
-    const submittedAt = String(record.submittedAt ?? "")
-    if (!submittedAt) return sum
-    if (String(base.paymentSubmittedAt ?? "") !== submittedAt) return sum
-    if (base.hasActivePaymentSubmission !== true) return sum
-    return sum + getPaymentRecordAmount(record)
-  }, 0)
-  const acceptedVerifiedTotal = Math.max(
-    Math.max(recordAcceptedTotal, ledgerFloor),
-    unbankedAcceptedTotal > 0 ? ledgerFloor + unbankedAcceptedTotal : 0,
-  )
+  const acceptedVerifiedTotal = recordAcceptedTotal
   // DOWNPAYMENT CREDIT — money actually RECEIVED toward the downpayment:
   // every verified payment plus the received amount of short (incomplete)
   // payments. Rejected/pending records credit nothing. An INCOMPLETE record
@@ -420,9 +397,12 @@ export function calculatePaymentSummary(
     0,
   )
   // MONEY LEDGER — all valid money actually held for this booking
-  // (verified payments + received amounts of incomplete payments), never
-  // below what the admin-banked booking ledger proves was accepted.
-  const moneyReceivedTotal = Math.max(downpaymentCreditedTotal, acceptedVerifiedTotal)
+  // (verified payments + received amounts of incomplete payments). Displayed
+  // received money cannot exceed the booking total, even if malformed or
+  // duplicated records contain an overpayment.
+  const rawMoneyReceivedTotal = Math.max(downpaymentCreditedTotal, acceptedVerifiedTotal)
+  const moneyReceivedTotal =
+    bookingTotal > 0 ? Math.min(rawMoneyReceivedTotal, bookingTotal) : rawMoneyReceivedTotal
   // Remaining BOOKING balance is net of ALL money actually received.
   const remainingBalance = Math.max(bookingTotal - moneyReceivedTotal, 0)
   // Downpayment is complete once the CUMULATIVE received/credited total
@@ -454,24 +434,9 @@ export function calculatePaymentSummary(
     }
   }
 
-  // 1. FULLY PAID — total accepted/verified payments cover the total booking
+  // 1. FULLY PAID — money credited by the payment history covers the booking
   //    amount. Highest priority: once a booking is fully settled, a later
   //    rejected/incomplete extra payment does not undo it.
-  // 1b. BOOKING LEDGER CONFIRMS FULL SETTLEMENT — stored amountPaid only ever
-  //    grows by money actually accepted by the admin verify/settle flows, and
-  //    "paid" with remainingBalance 0 means the full fee is recorded as
-  //    received. A settled booking must not be demoted by older
-  //    incomplete/rejected attempt records (e.g. settle-remaining-balance with
-  //    no pending submission to mark verified). Same evidence gate as the
-  //    ledger floor: without at least one VERIFIED record in the loaded
-  //    history, the stored ledger alone proves nothing.
-  const ledgerConfirmsSettlement =
-    hasAnyAcceptedRecord &&
-    bookingTotal > 0 &&
-    getBookingStoredAmountPaid(base) >= bookingTotal &&
-    toPaymentAmount(base.remainingBalance) <= 0 &&
-    ["paid", "completed", "fully paid", "fully_paid", "fully-paid"].includes(ps)
-
   // 2. PARTIAL — required downpayment is complete AND a remaining booking
   //    balance still exists. Cumulative RECEIVED payments (verified +
   //    incomplete-received) drive this, so a pending (for_review) record or
@@ -484,7 +449,7 @@ export function calculatePaymentSummary(
   // 5. Received amounts exist but the required downpayment is not complete —
   //    the booking still requires payment.
   let overallStatus: PaymentOverallStatus
-  if (fullyPaid || ledgerConfirmsSettlement) {
+  if (fullyPaid) {
     overallStatus = "completed"
   } else if (downpaymentComplete && remainingBalance > 0) {
     overallStatus = "partial"

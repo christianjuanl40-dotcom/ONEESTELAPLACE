@@ -52,7 +52,6 @@ import { getRemainingDurationFromDates, getContractDurationLabel } from "@/src/m
 import { useBookingData, useBookings, type Booking } from "@/src/modules/client/contexts/booking-context"
 import { createNotification, type NotificationType } from "@/src/modules/shared/lib/notifications"
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
-import { getPaymentMethodLabel } from "@/src/modules/shared/lib/labels"
 import {
   calculatePaymentSummary,
   getRecordsForBooking,
@@ -71,11 +70,6 @@ function formatDate(date?: string) {
   } catch {
     return date
   }
-}
-
-function formatMoney(value?: number | string) {
-  const amount = Number(value || 0)
-  return `₱${Number.isFinite(amount) ? amount.toLocaleString("en-PH") : "0"}`
 }
 
 function getStatusBadgeClass(status?: string) {
@@ -159,19 +153,71 @@ function BalanceReminderModal({
   )
 }
 
-function getPaymentBadgeClass(paymentStatus?: string, status?: string) {
-  const bookingStatus = String(status || "").toLowerCase()
-  if (["cancelled", "declined"].includes(bookingStatus)) return "border-rose-100 bg-rose-50 text-rose-700"
-  if (bookingStatus === "completed") return "border-blue-100 bg-blue-50 text-blue-700"
-  if (bookingStatus === "rental_expired") return "border-red-100 bg-red-50 text-red-700"
+function MarkCompletedAction({
+  enabled,
+  eventFinished,
+  onClick,
+  className,
+}: {
+  enabled: boolean
+  eventFinished: boolean
+  onClick: () => void
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border p-3",
+        enabled
+          ? "border-emerald-100 bg-emerald-50/40"
+          : "border-slate-200 bg-slate-50",
+        className,
+      )}
+    >
+      <Button
+        onClick={onClick}
+        disabled={!enabled}
+        variant={enabled ? "default" : "outline"}
+        className={cn(
+          "h-10 w-full rounded-lg px-4 text-sm font-black transition-colors disabled:cursor-not-allowed disabled:opacity-100",
+          enabled
+            ? "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700"
+            : "border-slate-200 bg-white text-slate-400 hover:bg-white hover:text-slate-400",
+        )}
+      >
+        <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+        Mark as Completed
+      </Button>
+      {!eventFinished && (
+        <p className="mt-2 text-center text-xs font-semibold leading-5 text-slate-500">
+          Available after the event has ended.
+        </p>
+      )}
+    </div>
+  )
+}
 
-  const v = String(paymentStatus || "").toLowerCase()
-  if (v === "completed") return "border-emerald-100 bg-emerald-50 text-emerald-700"
-  if (["verified", "paid", "slot_verified"].includes(v)) return "border-emerald-100 bg-emerald-50 text-emerald-700"
-  if (v === "partial") return "border-amber-100 bg-amber-50 text-amber-700"
-  if (["for_review", "cash_pending", "slot_pending"].includes(v)) return "border-amber-100 bg-amber-50 text-amber-700"
-  if (v === "rejected") return "border-rose-100 bg-rose-50 text-rose-700"
-  return "border-slate-200 bg-slate-50 text-slate-600"
+function ContractSigningAction({ onClick }: { onClick: () => void }) {
+  return (
+    <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3">
+      <TooltipProvider delayDuration={400}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              onClick={onClick}
+              className="h-10 w-full rounded-lg bg-blue-600 px-4 text-sm font-black text-white shadow-sm transition-transform hover:bg-blue-700 active:scale-[0.97]"
+            >
+              <ShieldCheck className="mr-1.5 h-3.5 w-3.5" />
+              Mark Contract as Signed
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left" className="text-xs font-bold">
+            Confirm contract signing
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>
+  )
 }
 
 function getStatusLabel(status?: string) {
@@ -191,28 +237,19 @@ function getStatusLabel(status?: string) {
   return String(status || "Unknown").replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-function getPaymentStatusLabel(paymentStatus?: string, status?: string) {
-  const bookingStatus = String(status || "").toLowerCase()
-  if (["cancelled", "declined"].includes(bookingStatus)) return "Cancelled"
-  if (bookingStatus === "completed") return "Completed"
-  if (bookingStatus === "rental_expired") return "Rental Expired"
-
-  const v = String(paymentStatus || "").toLowerCase()
-  if (v === "completed" || v === "fully paid") return "Fully Paid"
-  if (v === "verified" || v === "paid" || v === "slot_verified") return "Verified"
-  if (v === "for_review" || v === "cash_pending" || v === "slot_pending") return "For Review"
-  if (v === "partial") return "Partial Payment"
-  if (v === "incomplete") return "Incomplete Payment"
-  if (v === "rejected") return "Rejected"
-  if (v === "unpaid") return "Unpaid"
-  if (!v) return "Not Set"
-  return String(paymentStatus || "").replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-function formatTextLabel(value?: string) {
-  return String(value || "")
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase())
+function getRefundStatusLabel(status?: string) {
+  switch (status) {
+    case "eligible":
+      return "Eligible for Refund"
+    case "requested":
+      return "Refund Requested"
+    case "refunded":
+      return "Refunded"
+    case "not_eligible":
+      return "Not Eligible"
+    default:
+      return status || "Not Applicable"
+  }
 }
 
 function isOfficeBooking(booking: Booking) {
@@ -913,13 +950,18 @@ function BookingDetailsModal({
   // Canonical overall payment state — identical to the Payment Verification
   // page: the booking's overall status derives from its accepted/verified
   // payment records only, never from the latest record or stored fields.
+  const bookingPaymentRecords = getRecordsForBooking(paymentRecords, booking.id)
+  const hasPaymentRecords = bookingPaymentRecords.length > 0
   const paymentSummary = calculatePaymentSummary(
     booking,
-    getRecordsForBooking(paymentRecords, booking.id),
+    bookingPaymentRecords,
   )
   const canonicalPayStatus = paymentSummary.overallStatus
 
   const isPaymentVerified = (() => {
+    if (hasPaymentRecords) {
+      return canonicalPayStatus === "completed" || canonicalPayStatus === "partial"
+    }
     return (
       canonicalPayStatus === "completed" ||
       canonicalPayStatus === "partial" ||
@@ -932,24 +974,17 @@ function BookingDetailsModal({
   const startDate = formatDate(booking.date)
   const endDate = (booking as any)?.endDate ? formatDate((booking as any).endDate) : startDate
   const isCompleted = String(booking.status || "").toLowerCase() === "completed"
-  const isCancelled = String(booking.status || "").toLowerCase() === "cancelled"
+  const isCancelled = ["cancelled", "declined"].includes(String(booking.status || "").toLowerCase())
 
   const normalizeStatus = (value: any) => String(value || "").trim().toLowerCase()
-
-  const getAmount = (value: any) => {
-    const numberValue = Number(String(value || 0).replace(/[^0-9.-]+/g, ""))
-    return Number.isFinite(numberValue) ? numberValue : 0
-  }
-
-  const totalAmount = paymentSummary.bookingTotal
 
   const amountPaid = paymentSummary.moneyReceivedTotal
 
   const remainingBalance = paymentSummary.remainingBalance
 
-  const paymentStatus = normalizeStatus((booking as any).paymentStatus)
-  const balanceStatus = normalizeStatus((booking as any).balanceStatus)
-  const paymentStage = normalizeStatus((booking as any).paymentStage)
+  const paymentStatus = normalizeStatus(
+    hasPaymentRecords ? canonicalPayStatus : (booking as any).paymentStatus,
+  )
 
   const bookingStatus = normalizeStatus((booking as any).bookingStatus || booking.status)
   const isCancellationRequested = normalizeStatus(booking.status) === "cancellation_requested" || normalizeStatus((booking as any).cancelRequestStatus) === "pending"
@@ -990,21 +1025,42 @@ function BookingDetailsModal({
 
   const isFullyPaid = paymentSummary.fullyPaid
 
+  const normalizedStatus = normalizeStatus(booking.status)
+  const isPaymentUnderReview =
+    normalizedStatus === "verifying" ||
+    ["for_review", "cash_pending", "slot_pending", "pending_verification", "pending verification", "for verification"].includes(paymentStatus)
+  const isContractSigningActionVisible = (() => {
+    const isContractSigningRequired = normalizedStatus === "contract_signing_required"
+    const showContractSigning = isOfficeRental
+      ? isContractSigningRequired
+      : isPaymentVerified
+    const contractAlreadySigned = booking.contractStatus === "Signed" || booking.contractSigned
+    return !contractAlreadySigned && showContractSigning && !isCancelled && !isCompleted
+  })()
+  const showContractSigningActionInFooter =
+    isContractSigningActionVisible &&
+    (normalizedStatus === "confirmed" ||
+      normalizedStatus === "reservation_secured" ||
+      normalizedStatus === "rental_expired" ||
+      (isFullyPaid &&
+        !isPaymentUnderReview &&
+        !isCancellationRequested &&
+        !isModificationUnderReview &&
+        !["contract_signing_required", "active_rental", "pending"].includes(normalizedStatus)))
+
   const timeValue =
     booking.time ||
     `${booking.startTime || ""}${booking.startTime && booking.endTime ? " – " : ""}${booking.endTime || ""}` ||
     "—"
 
-  const bankRef = (booking as any)?.bankReferenceNumber || (booking as any)?.referenceNumber || null
-
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent aria-describedby={undefined}
         showCloseButton={false}
-        className="w-[95vw] sm:max-w-[560px] max-h-[90dvh] overflow-hidden rounded-3xl bg-white shadow-2xl"
+         className="w-[calc(100%-1rem)] max-w-[900px] max-h-[90dvh] overflow-hidden rounded-3xl bg-white shadow-2xl"
       >
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <header className="shrink-0 flex items-start justify-between gap-4 border-b border-slate-100 bg-white px-5 py-5">
+        <header className="shrink-0 flex items-start justify-between gap-4 border-b border-slate-100 bg-white px-5 py-4 sm:px-7 sm:py-5">
           <div className="min-w-0">
             <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-600">
               Booking Details
@@ -1015,6 +1071,45 @@ function BookingDetailsModal({
             <p className="mt-1 text-sm font-bold text-slate-500">
               {typeLabel} <span className="mx-1.5 text-slate-300">·</span> #{booking.id}
             </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span
+                className={cn(
+                  "inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em]",
+                  getStatusBadgeClass(booking.status),
+                )}
+              >
+                {getStatusLabel(booking.status)}
+              </span>
+              {booking.cancellationStatus && booking.cancellationStatus !== "None" && (
+                <span className="inline-flex items-center rounded-md border border-amber-100 bg-amber-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">
+                  Cancel: {booking.cancellationStatus}
+                </span>
+              )}
+              {booking.refundStatus && (
+                <span className={cn(
+                  "inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em]",
+                  booking.refundStatus === "eligible"
+                    ? "border-yellow-200 bg-yellow-50 text-yellow-700"
+                    : booking.refundStatus === "requested"
+                      ? "border-blue-200 bg-blue-50 text-blue-700"
+                      : booking.refundStatus === "refunded"
+                        ? "border-slate-200 bg-slate-50 text-slate-600"
+                        : booking.refundStatus === "not_eligible"
+                          ? "border-rose-200 bg-rose-50 text-rose-700"
+                          : "border-blue-100 bg-blue-50 text-blue-700",
+                )}>
+                  Refund: {booking.refundStatus === "eligible"
+                    ? "Eligible"
+                    : booking.refundStatus === "requested"
+                      ? "Requested"
+                      : booking.refundStatus === "refunded"
+                        ? "Refunded"
+                        : booking.refundStatus === "not_eligible"
+                          ? "Not Eligible"
+                          : booking.refundStatus}
+                </span>
+              )}
+            </div>
           </div>
           <DialogClose asChild>
             <button
@@ -1027,63 +1122,7 @@ function BookingDetailsModal({
           </DialogClose>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
-          {!isCancelled && (
-            <div className="mb-5 flex flex-wrap items-center gap-2">
-              <span
-                className={cn(
-                  "inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap",
-                  getStatusBadgeClass(booking.status),
-                )}
-              >
-                {getStatusLabel(booking.status)}
-              </span>
-              <span
-                className={cn(
-                  "inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap",
-                  getPaymentBadgeClass(canonicalPayStatus, booking.status),
-                )}
-              >
-                {getPaymentStatusLabel(canonicalPayStatus, booking.status)}
-              </span>
-              {booking.cancellationStatus && booking.cancellationStatus !== "None" && (
-                <>
-                  <span className="inline-flex items-center rounded-md border border-amber-100 bg-amber-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-amber-700">
-                    Cancel: {booking.cancellationStatus}
-                  </span>
-                  {amountPaid > 0 && booking.refundStatus && (
-                    <span className={cn(
-                      "inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em]",
-                      booking.refundStatus === "eligible"
-                        ? "border-yellow-200 bg-yellow-50 text-yellow-700"
-                        : booking.refundStatus === "requested"
-                          ? "border-blue-200 bg-blue-50 text-blue-700"
-                          : booking.refundStatus === "refunded"
-                            ? "border-slate-200 bg-slate-50 text-slate-600"
-                            : booking.refundStatus === "not_eligible"
-                              ? "border-red-200 bg-red-50 text-red-700"
-                              : "border-blue-100 bg-blue-50 text-blue-700"
-                    )}>
-                      Refund: {booking.refundStatus === "eligible"
-                        ? "Eligible for Refund"
-                        : booking.refundStatus === "requested"
-                          ? "Refund Requested"
-                          : booking.refundStatus === "refunded"
-                            ? "Refunded"
-                            : booking.refundStatus === "not_eligible"
-                              ? "Not Eligible"
-                              : booking.refundStatus}
-                    </span>
-                  )}
-                  {amountPaid <= 0 && (
-                    <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
-                      No Payment Made
-                    </span>
-                  )}
-                </>
-              )}
-            </div>
-          )}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-7 sm:py-6">
 
           {isCancelled && (
             <div className="space-y-5">
@@ -1123,17 +1162,7 @@ function BookingDetailsModal({
                   <div className="flex justify-between">
                     <span className="text-sm font-bold text-slate-900">Refund Eligibility</span>
                     <span className="text-sm font-black text-slate-900">
-                      {amountPaid > 0
-                        ? booking.refundStatus === "eligible"
-                          ? "Eligible for Refund"
-                          : booking.refundStatus === "requested"
-                            ? "Refund Requested"
-                            : booking.refundStatus === "refunded"
-                              ? "Refunded"
-                              : booking.refundStatus === "not_eligible"
-                                ? "Not Eligible"
-                                : booking.refundStatus || "Not Applicable"
-                        : "Not Applicable"}
+                      {getRefundStatusLabel(booking.refundStatus)}
                     </span>
                   </div>
                   {booking.refundEligibilityNote && (
@@ -1151,25 +1180,9 @@ function BookingDetailsModal({
                   <div className="flex justify-between">
                     <span className="text-sm font-bold text-slate-900">Refund Status</span>
                     <span className="text-sm font-black text-slate-900">
-                      {amountPaid > 0
-                        ? booking.refundStatus === "eligible"
-                          ? "Eligible for Refund"
-                          : booking.refundStatus === "requested"
-                            ? "Refund Requested"
-                            : booking.refundStatus === "refunded"
-                              ? "Refunded"
-                              : booking.refundStatus === "not_eligible"
-                                ? "Not Eligible"
-                                : booking.refundStatus || "Not Applicable"
-                        : "No Payment Made"}
+                      {getRefundStatusLabel(booking.refundStatus)}
                     </span>
                   </div>
-                  {booking.refundStatus === "eligible" && booking.refundAmount && booking.refundAmount > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-sm font-bold text-slate-900">Refund Amount</span>
-                      <span className="text-sm font-black text-emerald-600">₱{booking.refundAmount.toLocaleString()}</span>
-                    </div>
-                  )}
                   {booking.refundClaimNote && (
                     <div className="mt-2 rounded-lg bg-amber-100/50 px-3 py-2 text-sm font-bold text-amber-800">
                       {booking.refundClaimNote}
@@ -1203,13 +1216,13 @@ function BookingDetailsModal({
           )}
           {!isCancelled && (
           <>
-            <div className="divide-y divide-slate-100">
-            <section className="py-5 first:pt-0">
+            <div className="space-y-4">
+            <section className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4 sm:p-5">
               <div className="mb-4 flex items-center gap-2">
                 <div className="h-1.5 w-1.5 rounded-full bg-slate-400" />
                 <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Booking Information</p>
               </div>
-              <div className="space-y-3.5">
+              <div className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
                 <div className="min-w-0">
                   <p className="text-sm font-bold uppercase tracking-[0.1em] text-slate-900">Customer</p>
                   <p className="mt-0.5 break-words text-sm font-black text-slate-800">{booking.userInfo?.name || "—"}</p>
@@ -1271,9 +1284,6 @@ function BookingDetailsModal({
               </div>
             </section>
 
-            <section className="py-5 first:pt-0">
-              <PaymentSummaryCard booking={booking} bankRef={bankRef} paymentRecords={paymentRecords} />
-            </section>
           </div>
 
           {booking.specialRequests && (
@@ -1311,26 +1321,8 @@ function BookingDetailsModal({
                 )}
                 <div className="flex justify-between">
                   <span className="text-sm font-bold text-slate-900">Refund</span>
-                  <span className="text-sm font-black text-slate-900">
-                    {amountPaid > 0
-                      ? booking.refundStatus === "eligible"
-                        ? "Eligible for Refund"
-                        : booking.refundStatus === "requested"
-                          ? "Refund Requested"
-                          : booking.refundStatus === "refunded"
-                            ? "Refunded"
-                            : booking.refundStatus === "not_eligible"
-                              ? "Not Eligible"
-                              : booking.refundStatus || "Not Applicable"
-                      : "Not Applicable"}
-                  </span>
+                  <span className="text-sm font-black text-slate-900">{getRefundStatusLabel(booking.refundStatus)}</span>
                 </div>
-                {booking.refundStatus === "eligible" && booking.refundAmount && booking.refundAmount > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-sm font-bold text-slate-900">Refund Amount</span>
-                    <span className="text-sm font-black text-emerald-600">₱{booking.refundAmount.toLocaleString()}</span>
-                  </div>
-                )}
                 {booking.refundEligibilityNote && (
                   <div className="flex justify-between">
                     <span className="text-sm font-bold text-slate-900">Eligibility</span>
@@ -1441,59 +1433,35 @@ function BookingDetailsModal({
             </section>
           )}
 
-          {(() => {
-            const normStatus = normalizeStatus(booking.status)
-            const isContractSigningRequired = normStatus === "contract_signing_required"
-            const showContractSigning =
-              isOfficeRental
-                ? isContractSigningRequired
-                : isPaymentVerified
-            const contractAlreadySigned = booking.contractStatus === "Signed" || booking.contractSigned
-            if (contractAlreadySigned) return null
-            if (!showContractSigning || isCancelled || isCompleted) return null
-            return (
-              <section className="py-5 first:pt-0">
-                <div className="mb-4 flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-slate-500" />
-                  <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Contract</p>
+          {isContractSigningActionVisible && (
+            <section className="py-5 first:pt-0">
+              <div className="mb-4 flex items-center gap-2">
+                <FileText className="h-4 w-4 text-slate-500" />
+                <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Contract</p>
+              </div>
+              <div className="min-w-0 space-y-3">
+                <span
+                  className={cn(
+                    "inline-block rounded-md border px-2.5 py-1 text-xs font-black uppercase tracking-[0.2em]",
+                    "border-orange-100 bg-orange-50 text-orange-700",
+                  )}
+                >
+                  Contract Status: Pending Signature
+                </span>
+                <div className="space-y-2">
+                  <p className="text-sm font-bold text-orange-700">
+                    Contract signing must be completed onsite at the One Estela Place office.
+                  </p>
+                  <p className="text-sm font-bold text-slate-500">
+                    The customer must personally sign the official contract at the One Estela Place office.
+                  </p>
                 </div>
-                <div className="min-w-0 space-y-3">
-                  <span
-                    className={cn(
-                      "inline-block rounded-md border px-2.5 py-1 text-xs font-black uppercase tracking-[0.2em]",
-                      "border-orange-100 bg-orange-50 text-orange-700",
-                    )}
-                  >
-                    Contract Status: Pending Signature
-                  </span>
-                  <div className="space-y-2">
-                    <p className="text-sm font-bold text-orange-700">
-                      Contract signing must be completed onsite at the One Estela Place office.
-                    </p>
-                    <p className="text-sm font-bold text-slate-500">
-                      The customer must personally sign the official contract at the One Estela Place office.
-                    </p>
-                  </div>
-                  <TooltipProvider delayDuration={400}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          onClick={onMarkContractSigned}
-                          className="h-11 w-full rounded-xl bg-blue-600 px-4 text-sm font-black text-white shadow-sm hover:bg-blue-700 active:scale-[0.97] transition-transform"
-                        >
-                          <ShieldCheck className="mr-1.5 h-3.5 w-3.5" />
-                          Mark Contract as Signed
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="left" className="text-xs font-bold">
-                        Confirm contract signing
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-              </section>
-            )
-          })()}
+                {!showContractSigningActionInFooter && (
+                  <ContractSigningAction onClick={onMarkContractSigned} />
+                )}
+              </div>
+            </section>
+          )}
 
           {(() => {
             if (booking.contractStatus === "Signed" || booking.contractSigned) return null
@@ -1591,7 +1559,10 @@ function BookingDetailsModal({
       </div>
 
       {/* ── Footer (fixed, outside scrollable area) ── */}
-      {isCancelled && (
+      {isCancelled &&
+        ((amountPaid > 0 && booking.refundStatus === "requested" && onMarkAsRefunded) ||
+          (amountPaid > 0 && booking.refundStatus === "eligible") ||
+          booking.refundStatus === "refunded") && (
         <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-4">
           {amountPaid > 0 && booking.refundStatus === "requested" && onMarkAsRefunded ? (
             <Button
@@ -1611,10 +1582,6 @@ function BookingDetailsModal({
                 Refund Completed
               </span>
             </div>
-          ) : amountPaid <= 0 ? (
-            <p className="text-center text-sm font-bold text-slate-400">
-              No payment made
-            </p>
           ) : null}
         </footer>
       )}
@@ -1684,7 +1651,7 @@ function BookingDetailsModal({
                   {onApproveCancellation && (
                     <Button
                       onClick={() => onApproveCancellation(booking.id)}
-                      className="h-11 w-full rounded-xl border-rose-200 bg-rose-50 px-4 text-sm font-black text-rose-700 hover:bg-rose-100"
+                      className="h-11 w-full rounded-xl bg-rose-600 px-4 text-sm font-black text-white shadow-sm hover:bg-rose-700"
                     >
                       <AlertCircle className="mr-1.5 h-3.5 w-3.5" />
                       Approve Cancellation
@@ -1723,7 +1690,7 @@ function BookingDetailsModal({
                   {onApproveModification && (
                     <Button
                       onClick={() => onApproveModification(booking.id)}
-                      className="h-11 w-full rounded-xl border-emerald-200 bg-emerald-50 px-4 text-sm font-black text-emerald-700 hover:bg-emerald-100"
+                      className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700"
                     >
                       <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
                       Approve Modification
@@ -1743,12 +1710,6 @@ function BookingDetailsModal({
             if (!canRecord && !canRemind) return null
             return (
               <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
-                {remainingBalance > 0 && (
-                  <div className="rounded-xl bg-amber-50 p-3 text-center mb-4">
-                    <p className="text-sm font-black uppercase tracking-[0.2em] text-amber-600">Remaining Balance</p>
-                    <p className="mt-1 text-xl font-black text-amber-700">₱{remainingBalance.toLocaleString()}</p>
-                  </div>
-                )}
                 <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
                   {canRemind && (
                     <Button
@@ -1763,7 +1724,7 @@ function BookingDetailsModal({
                   {canRecord && (
                     <Button
                       onClick={() => onRecordOnsitePayment(booking.id)}
-                      className="h-11 rounded-xl border-emerald-200 bg-emerald-50 px-4 text-sm font-black text-emerald-700 hover:bg-emerald-100"
+                      className="h-11 rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700"
                     >
                       <DollarSign className="mr-1.5 h-3.5 w-3.5" />
                       Record Onsite Payment
@@ -1776,16 +1737,24 @@ function BookingDetailsModal({
 
           if (normStatus === "rental_expired") {
             const canMarkCompleted = isFullyPaid && !isCompleted && onMarkCompleted
-            if (!canMarkCompleted) return null
+            if (!canMarkCompleted && !showContractSigningActionInFooter) return null
             return (
               <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
-                <Button
-                  onClick={() => onMarkCompleted(booking.id)}
-                  className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700"
-                >
-                  <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                  Mark as Completed
-                </Button>
+                <div className={cn(
+                  "grid grid-cols-1 gap-3",
+                  showContractSigningActionInFooter && Boolean(canMarkCompleted) && "sm:grid-cols-2",
+                )}>
+                  {showContractSigningActionInFooter && (
+                    <ContractSigningAction onClick={onMarkContractSigned} />
+                  )}
+                  {canMarkCompleted && (
+                    <MarkCompletedAction
+                      enabled={Boolean(canMarkCompleted)}
+                      eventFinished={isEventFinished}
+                      onClick={() => onMarkCompleted(booking.id)}
+                    />
+                  )}
+                </div>
               </footer>
             )
           }
@@ -1797,7 +1766,7 @@ function BookingDetailsModal({
                 <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
                   <Button
                     onClick={() => onRecordOnsitePayment(booking.id)}
-                    className="h-11 rounded-xl border-emerald-200 bg-emerald-50 px-4 text-sm font-black text-emerald-700 hover:bg-emerald-100"
+                    className="h-11 rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700"
                   >
                     <DollarSign className="mr-1.5 h-3.5 w-3.5" />
                     Record Onsite Payment
@@ -1808,15 +1777,9 @@ function BookingDetailsModal({
           }
 
           if (isApprovedOrConfirmed) {
-            if (!remainingBalance && !canDoBalanceReminder && !canDoRecordOnsite && !isMarkCompletedVisible) return null
+            if (!remainingBalance && !canDoBalanceReminder && !canDoRecordOnsite && !isMarkCompletedVisible && !showContractSigningActionInFooter) return null
             return (
               <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
-                {remainingBalance > 0 && (
-                  <div className="rounded-xl bg-amber-50 p-3 text-center mb-4">
-                    <p className="text-sm font-black uppercase tracking-[0.2em] text-amber-600">Remaining Balance</p>
-                    <p className="mt-1 text-xl font-black text-amber-700">₱{remainingBalance.toLocaleString()}</p>
-                  </div>
-                )}
                 {(canDoBalanceReminder || canDoRecordOnsite) && (
                   <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
                     {canDoBalanceReminder && onSendReminder && (
@@ -1832,7 +1795,7 @@ function BookingDetailsModal({
                     {canDoRecordOnsite && onRecordOnsitePayment && (
                       <Button
                         onClick={() => onRecordOnsitePayment(booking.id)}
-                        className="h-11 rounded-xl border-emerald-200 bg-emerald-50 px-4 text-sm font-black text-emerald-700 hover:bg-emerald-100"
+                        className="h-11 rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700"
                       >
                         <DollarSign className="mr-1.5 h-3.5 w-3.5" />
                         Record Onsite Payment
@@ -1840,23 +1803,21 @@ function BookingDetailsModal({
                     )}
                   </div>
                 )}
-                {isMarkCompletedVisible && (
-                  <div className={remainingBalance > 0 || canDoBalanceReminder || canDoRecordOnsite ? "mt-3" : ""}>
-                    <Button
-                      onClick={() => isMarkCompletedEnabled && onMarkCompleted(booking.id)}
-                      disabled={!isMarkCompletedEnabled}
-                      className="h-11 w-full rounded-xl px-4 text-sm font-black text-white shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                      style={{
-                        backgroundColor: isMarkCompletedEnabled ? '#059669' : '#9ca3af',
-                      }}
-                    >
-                      <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                      Mark as Completed
-                    </Button>
-                    {!isEventFinished && (
-                      <p className="mt-2 text-sm font-bold text-slate-500 text-center">
-                        This action will be available after the event has ended.
-                      </p>
+                {(showContractSigningActionInFooter || isMarkCompletedVisible) && (
+                  <div className={cn(
+                    "grid grid-cols-1 gap-3",
+                    (remainingBalance > 0 || canDoBalanceReminder || canDoRecordOnsite) && "mt-3",
+                    showContractSigningActionInFooter && isMarkCompletedVisible && "sm:grid-cols-2",
+                  )}>
+                    {showContractSigningActionInFooter && (
+                      <ContractSigningAction onClick={onMarkContractSigned} />
+                    )}
+                    {isMarkCompletedVisible && (
+                      <MarkCompletedAction
+                        enabled={isMarkCompletedEnabled}
+                        eventFinished={isEventFinished}
+                        onClick={() => onMarkCompleted(booking.id)}
+                      />
                     )}
                   </div>
                 )}
@@ -1865,25 +1826,24 @@ function BookingDetailsModal({
           }
 
           if (isFullyPaid && !isCompleted && !isCancelled) {
-            if (!isMarkCompletedVisible) return null
+            if (!isMarkCompletedVisible && !showContractSigningActionInFooter) return null
             return (
               <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
-                <Button
-                  onClick={() => isMarkCompletedEnabled && onMarkCompleted(booking.id)}
-                  disabled={!isMarkCompletedEnabled}
-                  className="h-11 w-full rounded-xl px-4 text-sm font-black text-white shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{
-                    backgroundColor: isMarkCompletedEnabled ? '#059669' : '#9ca3af',
-                  }}
-                >
-                  <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                  Mark as Completed
-                </Button>
-                {!isEventFinished && (
-                  <p className="mt-2 text-sm font-bold text-slate-500 text-center">
-                    This action will be available after the event has ended.
-                  </p>
-                )}
+                <div className={cn(
+                  "grid grid-cols-1 gap-3",
+                  showContractSigningActionInFooter && isMarkCompletedVisible && "sm:grid-cols-2",
+                )}>
+                  {showContractSigningActionInFooter && (
+                    <ContractSigningAction onClick={onMarkContractSigned} />
+                  )}
+                  {isMarkCompletedVisible && (
+                    <MarkCompletedAction
+                      enabled={isMarkCompletedEnabled}
+                      eventFinished={isEventFinished}
+                      onClick={() => onMarkCompleted(booking.id)}
+                    />
+                  )}
+                </div>
               </footer>
             )
           }
@@ -2190,100 +2150,6 @@ function RecordOnsitePaymentModal({
         </div>
       </DialogContent>
     </Dialog>
-  )
-}
-
-function PaymentSummaryCard({
-  booking,
-  bankRef,
-  paymentRecords,
-}: {
-  booking: Booking
-  bankRef: string | null
-  paymentRecords?: PaymentRecordLike[] | null
-}) {
-  const summary = calculatePaymentSummary(
-    booking,
-    getRecordsForBooking(paymentRecords, String(booking.id)),
-  )
-  const amountPaid = summary.moneyReceivedTotal
-  const totalPrice = summary.bookingTotal
-  const hasPaid = amountPaid > 0
-  const hasTotal = totalPrice > 0
-  const remaining = summary.remainingBalance
-  const selectedDP = Number((booking as any).selectedDownpaymentAmount || 0)
-  const downpaymentPaid = Number((booking as any).downpaymentPaid || 0)
-  const downpaymentRemaining = summary.remainingDownpayment
-  const paymentStage = String((booking as any).paymentStage || "")
-  const isDownpayment = String(booking.paymentType || "").toLowerCase() === "downpayment"
-  const showDP = isDownpayment && selectedDP > 0
-
-  return (
-    <div>
-      <div className="mb-4 flex items-center gap-2">
-        <div className="h-1.5 w-1.5 rounded-full bg-orange-500" />
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Payment Summary</p>
-      </div>
-
-      <div className="space-y-3">
-        <div className="min-w-0">
-          <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Method</p>
-          <p className="mt-0.5 whitespace-nowrap text-xs font-bold text-slate-800">
-            {booking.paymentMethod ? getPaymentMethodLabel(booking.paymentMethod) : "—"}
-          </p>
-        </div>
-        <div className="min-w-0">
-          <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Type</p>
-          <p className="mt-0.5 whitespace-nowrap text-xs font-bold text-slate-800">
-            {booking.paymentType ? formatTextLabel(booking.paymentType) : "—"}
-          </p>
-        </div>
-        <div className="min-w-0">
-          <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Total Amount</p>
-          <p className="mt-0.5 whitespace-nowrap text-xs font-bold text-slate-800">{hasTotal ? formatMoney(totalPrice) : "—"}</p>
-        </div>
-        {showDP && (
-          <div className="min-w-0">
-            <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Selected Downpayment</p>
-            <p className="mt-0.5 whitespace-nowrap text-xs font-bold text-slate-800">{formatMoney(selectedDP)}</p>
-          </div>
-        )}
-        {showDP && (
-          <div className="min-w-0">
-            <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Downpayment Paid</p>
-            <p className="mt-0.5 whitespace-nowrap text-xs font-bold text-slate-800">{formatMoney(downpaymentPaid)}</p>
-          </div>
-        )}
-        {showDP && downpaymentRemaining > 0 && (
-          <div className="min-w-0">
-            <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-amber-600">Downpayment Remaining</p>
-            <p className="mt-0.5 whitespace-nowrap text-xs font-bold text-amber-700">{formatMoney(downpaymentRemaining)}</p>
-          </div>
-        )}
-        <div className="min-w-0">
-          <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Amount Paid</p>
-          <p className="mt-0.5 whitespace-nowrap text-xs font-bold text-slate-800">{hasPaid ? formatMoney(amountPaid) : "—"}</p>
-        </div>
-        {remaining > 0 && (
-          <div className="min-w-0">
-            <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-amber-600">Remaining Balance</p>
-            <p className="mt-0.5 whitespace-nowrap text-xs font-bold text-amber-700">{formatMoney(remaining)}</p>
-          </div>
-        )}
-        {paymentStage && (
-          <div className="min-w-0">
-            <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Payment Stage</p>
-            <p className="mt-0.5 whitespace-nowrap text-xs font-bold text-slate-800">{paymentStage}</p>
-          </div>
-        )}
-        {bankRef && (
-          <div className="min-w-0">
-            <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Bank Reference</p>
-            <p className="mt-0.5 whitespace-nowrap text-xs font-bold text-slate-900">{bankRef}</p>
-          </div>
-        )}
-      </div>
-    </div>
   )
 }
 

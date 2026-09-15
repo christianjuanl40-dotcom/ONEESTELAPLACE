@@ -14,12 +14,32 @@ export function getTotalAmount(booking: Record<string, unknown>): number {
 }
 
 export function getAmountPaid(booking: Record<string, unknown>): number {
-  return getAmount(booking.amountPaid || booking.paymentAmount || booking.paidAmount)
+  const amountPaid = getAmount(booking.amountPaid)
+  if (amountPaid > 0) return amountPaid
+  const paidAmount = getAmount(booking.paidAmount)
+  if (paidAmount > 0) return paidAmount
+
+  const paymentStatus = normalizeStatus(booking.paymentStatus)
+  if (
+    [
+      "verified",
+      "paid",
+      "completed",
+      "fully paid",
+      "fully_paid",
+      "partial",
+      "slot_verified",
+      "reservation secured",
+      "reservation_secured",
+    ].includes(paymentStatus)
+  ) {
+    return getAmount(booking.paymentAmount)
+  }
+
+  return 0
 }
 
 export function getRemainingBalance(booking: Record<string, unknown>): number {
-  const stored = getAmount(booking.remainingBalance)
-  if (stored > 0) return stored
   return Math.max(getTotalAmount(booking) - getAmountPaid(booking), 0)
 }
 
@@ -27,7 +47,7 @@ export function isFullyPaid(booking: Record<string, unknown>): boolean {
   const amountPaid = getAmountPaid(booking)
   const total = getTotalAmount(booking)
   const remaining = getRemainingBalance(booking)
-  return amountPaid >= total && remaining === 0
+  return total > 0 && amountPaid >= total && remaining === 0
 }
 
 export function hasActivePaymentSubmission(booking: Record<string, unknown>): boolean {

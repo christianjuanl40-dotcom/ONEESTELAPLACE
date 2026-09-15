@@ -44,9 +44,9 @@ export function CMSVenuesTab({ onNavigate }: { onNavigate: (tab: string) => void
 
   return (
     <div>
-      <CMSSectionHeader title="Event Venues" description="Manage published and hidden event venue spaces."
+      <CMSSectionHeader title="Event Venues"
         currentSection="venues" onNavigate={onNavigate}
-        action={<Button type="button" onClick={openNew} className="h-9 rounded-lg bg-emerald-600 px-3.5 text-xs font-bold text-white hover:bg-emerald-700"><Plus className="mr-1 h-3.5 w-3.5" /> Add Venue</Button>} />
+        action={<Button type="button" onClick={openNew} className="h-9 shrink-0 whitespace-nowrap rounded-lg bg-emerald-600 px-3.5 text-sm font-bold text-white hover:bg-emerald-700"><Plus className="mr-1 h-3.5 w-3.5" /> Add Venue</Button>} />
 
       <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-2.5">
@@ -148,7 +148,7 @@ export function CMSVenuesTab({ onNavigate }: { onNavigate: (tab: string) => void
               <div>
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Description</label>
                 <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Venue description..."
-                  className="mt-1 w-full min-h-[80px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
+                  className="mt-1 w-full min-h-[128px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
               </div>
               <CMSImageUpload label="Venue Photo" value={form.image} storagePath="venues" onValueChange={(v) => setForm({ ...form, image: v })} note="Used in booking, landing page, and tour preview." />
               <CMSPanoramaUpload value={form.panoImage} storagePath="panoramas" onValueChange={(v) => setForm({ ...form, panoImage: v })} />

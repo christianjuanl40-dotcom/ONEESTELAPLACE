@@ -27,13 +27,12 @@ export function CMSPaymentTab({ onNavigate }: { onNavigate: (key: string) => voi
     <div>
       <CMSSectionHeader
         title="Payment Settings"
-        description="Manage bank account details shown on payment pages."
         currentSection="payment"
         onNavigate={onNavigate}
         action={
           <Button
             onClick={handleSave}
-            className="h-11 rounded-lg bg-orange-600 text-xs font-bold text-white hover:bg-orange-700 w-full sm:w-auto"
+            className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg bg-orange-600 px-3.5 text-sm font-bold text-white hover:bg-orange-700 sm:w-auto"
           >
             <Save className="mr-1.5 h-3.5 w-3.5" />
             Save Payment Settings
@@ -79,7 +78,7 @@ export function CMSPaymentTab({ onNavigate }: { onNavigate: (key: string) => voi
               value={instructions}
               onChange={(e) => setInstructions(e.target.value)}
               placeholder="e.g. Please upload a clear screenshot of your bank transfer receipt."
-              className="mt-1 w-full min-h-[80px] resize-none rounded-lg border border-slate-200 px-4 py-3 text-sm"
+              className="mt-1 w-full min-h-[160px] resize-none rounded-lg border border-slate-200 px-4 py-3 text-sm"
             />
           </div>
 

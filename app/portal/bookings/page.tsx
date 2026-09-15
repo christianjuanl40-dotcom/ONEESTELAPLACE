@@ -349,6 +349,21 @@ function getStatusLabel(status?: string) {
   return formatTextLabel(status || "Unknown")
 }
 
+function getRefundStatusLabel(status?: string) {
+  switch (status) {
+    case "eligible":
+      return "Eligible for Refund"
+    case "requested":
+      return "Refund Requested"
+    case "refunded":
+      return "Refunded"
+    case "not_eligible":
+      return "Not Eligible"
+    default:
+      return status || "Not Applicable"
+  }
+}
+
 function getPaymentStatusLabel(paymentStatus?: string, paymentStage?: string, remainingBalance?: number, status?: string) {
   const bookingStatus = String(status || "").toLowerCase()
   if (bookingStatus === "cancelled") return "Cancelled"
@@ -416,6 +431,7 @@ function readStoredReceipts(bookingId?: string): Promise<BookingReceipt[]> {
         result.push({
           receiptNumber: d.receiptNumber || "",
           bookingId: d.bookingId || "",
+          paymentId: d.paymentId || undefined,
           fullName: d.fullName || "",
           bookingDate: d.bookingDate || "",
           startDate: d.startDate || "",
@@ -425,13 +441,21 @@ function readStoredReceipts(bookingId?: string): Promise<BookingReceipt[]> {
           contractTerm: d.contractTerm,
           paymentPurpose: d.paymentPurpose || "",
           paymentMethod: d.paymentMethod || "",
-          amountPaid: d.amountPaid || 0,
-          paymentAmount: d.paymentAmount || 0,
+          amountPaid: d.amountPaid ?? d.paymentAmount ?? 0,
+          paymentAmount: d.paymentAmount ?? d.amountPaid ?? 0,
+          remainingBalance:
+            d.remainingBalance == null ? undefined : Number(d.remainingBalance),
           paymentStatus: d.paymentStatus || "",
           dateGenerated: d.dateGenerated || "",
           dateIssued: d.dateIssued || "",
+          paymentSubmittedAt: d.paymentSubmittedAt || undefined,
         })
       })
+      result.sort(
+        (a, b) =>
+          new Date(b.dateGenerated || b.dateIssued || b.paymentSubmittedAt || 0).getTime() -
+          new Date(a.dateGenerated || a.dateIssued || a.paymentSubmittedAt || 0).getTime(),
+      )
       return result
     },
     () => [] as BookingReceipt[]
@@ -680,106 +704,6 @@ function Pagination({
   )
 }
 
-function PaymentSummaryCard({
-  booking,
-  bankRef,
-  remainingDownpayment,
-  paymentSummary,
-}: {
-  booking: Booking
-  bankRef: string | null
-  remainingDownpayment?: number
-  paymentSummary?: ReturnType<typeof calculatePaymentSummary>
-}) {
-  const amountPaid = paymentSummary?.moneyReceivedTotal ?? 0
-  const totalPrice = paymentSummary?.bookingTotal ?? 0
-  const hasPaid = amountPaid > 0
-  const hasTotal = totalPrice > 0
-  const remaining = paymentSummary?.remainingBalance ?? (hasTotal ? Math.max(0, totalPrice - amountPaid) : 0)
-  const selectedDP = Number((booking as any).selectedDownpaymentAmount || 0)
-  const downpaymentPaid = Number((booking as any).downpaymentPaid || 0)
-  const downpaymentRemaining =
-    typeof remainingDownpayment === "number"
-      ? remainingDownpayment
-      : paymentSummary?.remainingDownpayment ?? Number((booking as any).downpaymentRemaining || 0)
-  const paymentStage = String((booking as any).paymentStage || "")
-  const isDownpayment = String(booking.paymentType || "").toLowerCase() === "downpayment"
-  const showDP = isDownpayment && selectedDP > 0
-  const isTerminal = ["cancelled", "declined", "completed", "rental_expired"].includes(
-    String(booking.status || "").toLowerCase(),
-  )
-
-  return (
-    <div>
-      <div className="mb-4 flex items-center gap-2">
-        <div className="h-1.5 w-1.5 rounded-full bg-orange-500" />
-        <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
-          Payment Summary
-        </p>
-      </div>
-
-      <div className="space-y-3">
-        <div className="flex justify-between gap-2">
-          <span className="text-sm font-black text-slate-900 shrink-0">Method</span>
-          <span className="text-sm font-black text-slate-900 text-right break-words max-w-[60%]">
-            {booking.paymentMethod ? getPaymentMethodLabel(booking.paymentMethod) : "—"}
-          </span>
-        </div>
-        <div className="flex justify-between gap-2">
-          <span className="text-sm font-black text-slate-900 shrink-0">Type</span>
-          <span className="text-sm font-black text-slate-900 text-right break-words max-w-[60%]">
-            {booking.paymentType ? formatTextLabel(booking.paymentType) : "—"}
-          </span>
-        </div>
-        <div className="flex justify-between gap-2">
-          <span className="text-sm font-black text-slate-900 shrink-0">Total Amount</span>
-          <span className="text-sm font-black text-slate-900 text-right break-words">{hasTotal ? formatMoney(totalPrice) : "—"}</span>
-        </div>
-        {showDP && (
-          <div className="flex justify-between gap-2">
-            <span className="text-sm font-black text-slate-900 shrink-0">Selected Downpayment</span>
-            <span className="text-sm font-black text-slate-900 text-right break-words">{formatMoney(selectedDP)}</span>
-          </div>
-        )}
-        {showDP && (
-          <div className="flex justify-between gap-2">
-            <span className="text-sm font-black text-slate-900 shrink-0">Downpayment Paid</span>
-            <span className="text-sm font-black text-slate-900 text-right break-words">{formatMoney(downpaymentPaid)}</span>
-          </div>
-        )}
-        {!isTerminal && showDP && downpaymentRemaining > 0 && (
-          <div className="flex justify-between gap-2">
-            <span className="text-sm font-black text-slate-900 shrink-0">Downpayment Remaining</span>
-            <span className="text-sm font-black text-amber-700 text-right break-words">{formatMoney(downpaymentRemaining)}</span>
-          </div>
-        )}
-        <div className="flex justify-between gap-2">
-          <span className="text-sm font-black text-slate-900 shrink-0">Amount Paid</span>
-          <span className="text-sm font-black text-slate-900 text-right break-words">{hasPaid ? formatMoney(amountPaid) : "—"}</span>
-        </div>
-        {!isTerminal && remaining > 0 && (
-          <div className="flex justify-between gap-2">
-            <span className="text-sm font-black text-slate-900 shrink-0">Remaining Balance</span>
-            <span className="text-sm font-black text-amber-700 text-right break-words">{formatMoney(remaining)}</span>
-          </div>
-        )}
-        {!isTerminal && paymentStage && (
-          <div className="flex justify-between gap-2">
-            <span className="text-sm font-black text-slate-900 shrink-0">Payment Stage</span>
-            <span className="text-sm font-black text-slate-900 text-right break-words">{paymentStage}</span>
-          </div>
-        )}
-        {bankRef && (
-          <div className="flex justify-between gap-2">
-            <span className="text-sm font-black text-slate-900 shrink-0">Bank Reference</span>
-            <span className="text-sm font-black text-slate-900 text-right break-words max-w-[60%] break-all">{bankRef}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
 function BookingDetailsModal({
   booking: propBooking,
   open,
@@ -813,11 +737,15 @@ function BookingDetailsModal({
 
   // Canonical overall payment state — same source the Admin Payment
   // Verification page and the client My Transactions page use.
+  const bookingPaymentRecords = getRecordsForBooking(paymentRecords, booking.id)
+  const hasPaymentRecords = bookingPaymentRecords.length > 0
   const paymentSummary = calculatePaymentSummary(
     booking,
-    getRecordsForBooking(paymentRecords, booking.id),
+    bookingPaymentRecords,
   )
   const canonicalPayStatus = paymentSummary.overallStatus
+  const storedPayStatus = String(booking.paymentStatus || "").toLowerCase()
+  const effectivePayStatus = hasPaymentRecords ? canonicalPayStatus : storedPayStatus
 
   const isCancelled =
     String(booking.status || "").toLowerCase() === "cancelled" ||
@@ -825,6 +753,9 @@ function BookingDetailsModal({
 
   const isPaymentVerified = (() => {
     const ps = String(booking.paymentStatus || "").toLowerCase()
+    if (hasPaymentRecords) {
+      return canonicalPayStatus === "partial" || canonicalPayStatus === "completed"
+    }
     return (
       ps === "verified" ||
       ps === "paid" ||
@@ -845,32 +776,31 @@ function BookingDetailsModal({
     ? formatDate((booking as any).endDate)
     : startDate
   const showNotice = canShowCancellationNotice(booking) && !booking.cancellationStatus
-  const bankRef =
-    (booking as any)?.bankReferenceNumber || (booking as any)?.referenceNumber || null
-  const payStatus = String(booking.paymentStatus || "").toLowerCase()
+  const payStatus = storedPayStatus
+  const amountPaid = paymentSummary.moneyReceivedTotal
   const balanceStatus = String((booking as any).balanceStatus || "").toLowerCase()
   const paymentStage = String((booking as any).paymentStage || "").toLowerCase()
   const remainingBalance = paymentSummary.remainingBalance
-  const amountPaid = paymentSummary.moneyReceivedTotal
   const hasRemainingPayment =
     (remainingBalance > 0 || paymentSummary.remainingBalance > 0) &&
     !["cancelled", "declined", "completed", "rental_expired"].includes(String(booking.status || "").toLowerCase()) && (
-      payStatus === "partial" ||
-      payStatus === "incomplete" ||
-      canonicalPayStatus === "partial" ||
+      effectivePayStatus === "partial" ||
+      effectivePayStatus === "incomplete" ||
       balanceStatus === "with remaining balance" ||
       paymentStage === "complete downpayment" ||
       paymentStage === "settle remaining balance"
     )
-  const showBalanceReminderNotice = (booking as any).balanceReminderSent === true && hasRemainingPayment
 
-  const isPayUnderReview = payStatus === "for_review" || payStatus === "cash_pending" || payStatus === "slot_pending"
+  const isPayUnderReview = hasPaymentRecords
+    ? paymentSummary.hasPendingSubmission || canonicalPayStatus === "for_review"
+    : payStatus === "for_review" || payStatus === "cash_pending" || payStatus === "slot_pending"
   const showPay =
     onPay &&
     !isPayUnderReview &&
-    payStatus !== "verified" &&
-    payStatus !== "paid" &&
-    payStatus !== "slot_verified" &&
+    effectivePayStatus !== "verified" &&
+    effectivePayStatus !== "paid" &&
+    effectivePayStatus !== "slot_verified" &&
+    effectivePayStatus !== "completed" &&
     !["cancelled", "declined", "completed", "rental_expired"].includes(String(booking.status || "").toLowerCase())
 
   const hasActiveCancellationRequest =
@@ -905,10 +835,10 @@ function BookingDetailsModal({
   const hasReceipt = !!(booking.receipt)
   const showReceipt =
     onViewReceipt &&
-    (payStatus === "verified" ||
-      payStatus === "paid" ||
-      payStatus === "slot_verified" ||
-      hasReceipt)
+    (hasReceipt ||
+      (hasPaymentRecords
+        ? canonicalPayStatus === "partial" || canonicalPayStatus === "completed"
+        : payStatus === "verified" || payStatus === "paid" || payStatus === "slot_verified"))
 
   const timeValue =
     booking.time ||
@@ -1078,15 +1008,6 @@ function BookingDetailsModal({
                 )
               })()}
 
-              <section>
-                <PaymentSummaryCard
-                  booking={booking}
-                  bankRef={bankRef}
-                  remainingDownpayment={paymentSummary.remainingDownpayment}
-                  paymentSummary={paymentSummary}
-                />
-              </section>
-
               {booking.specialRequests && (
                 <section>
                   <div className="mb-4 flex items-center gap-2">
@@ -1128,26 +1049,6 @@ function BookingDetailsModal({
                 </div>
               )}
 
-              {hasRemainingPayment && paymentSummary.remainingBalance > 0 && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                  <div className="flex items-start gap-3">
-                    <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
-                    <div>
-                      <p className="text-sm font-black text-amber-900">
-                        {canonicalPayStatus === "incomplete" ? "Incomplete Payment" : "Partial Payment"}
-                      </p>
-                      <p className="mt-1 text-lg font-black text-amber-700">
-                        Remaining Balance: ₱{paymentSummary.remainingBalance.toLocaleString()}
-                      </p>
-                      {showBalanceReminderNotice && (
-                        <p className="mt-2 text-sm font-bold text-amber-600">
-                          Reminder: Please settle your remaining balance of ₱{paymentSummary.remainingBalance.toLocaleString()}.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
               </>
               )}
 
@@ -1186,27 +1087,9 @@ function BookingDetailsModal({
                   <div className="flex justify-between gap-2">
                     <span className="text-sm font-black text-slate-900 shrink-0">Refund</span>
                     <span className="text-sm font-black text-slate-900 text-right break-words">
-                      {amountPaid > 0
-                        ? booking.refundStatus === "eligible"
-                          ? "Eligible for Refund"
-                          : booking.refundStatus === "requested"
-                            ? "Refund Requested"
-                            : booking.refundStatus === "refunded"
-                              ? "Refunded"
-                              : booking.refundStatus === "not_eligible"
-                                ? "Not Eligible"
-                                : booking.refundStatus || "Not Applicable"
-                        : "Not Applicable"}
+                      {getRefundStatusLabel(booking.refundStatus)}
                     </span>
                   </div>
-                  {booking.refundStatus === "eligible" && booking.refundAmount && booking.refundAmount > 0 && (
-                    <div className="flex justify-between gap-2">
-                      <span className="text-sm font-black text-slate-900 shrink-0">Refund Amount</span>
-                      <span className="text-sm font-black text-emerald-600 text-right break-words">
-                        ₱{booking.refundAmount.toLocaleString()}
-                      </span>
-                    </div>
-                  )}
                   {booking.refundEligibilityNote && (
                     <div className="flex justify-between gap-2">
                       <span className="text-sm font-black text-slate-900 shrink-0">Eligibility</span>
@@ -1412,9 +1295,6 @@ function BookingDetailsModal({
                       </div>
                     </div>
                   )}
-                  {amountPaid <= 0 && (
-                    <p className="text-center text-sm font-bold text-slate-900">No payment made</p>
-                  )}
                 </div>
               ) : (
               <>
@@ -1514,11 +1394,7 @@ function BookingDetailsModal({
                       )}
                     >
                       <CreditCard className="mr-1.5 h-3.5 w-3.5" />
-                      {isPayUnderReview
-                        ? "Payment Submitted"
-                        : paymentStage === "complete downpayment" || canonicalPayStatus === "incomplete"
-                          ? "Submit Remaining Downpayment"
-                          : "Settle Remaining Balance"}
+                       {isPayUnderReview ? "Payment Submitted" : "Continue Payment"}
                     </Button>
                   ) : null}
                 </div>
@@ -1593,19 +1469,9 @@ function ReceiptModal({
   const amountPaid =
     receipt.amountPaid ??
     receipt.paymentAmount ??
-    paymentSummary?.moneyReceivedTotal ??
-    (booking as any)?.amountPaid ??
-    (booking as any)?.paymentAmount ??
-    (booking as any)?.downPayment ??
     null
 
-  const remainingBalance =
-    receipt.remainingBalance ??
-    paymentSummary?.remainingBalance ??
-    (booking as any)?.remainingBalance ??
-    (totalAmount != null && amountPaid != null
-      ? Math.max(0, Number(totalAmount) - Number(amountPaid))
-      : null)
+  const remainingBalance = receipt.remainingBalance ?? null
 
   const timeStr = booking
     ? booking.time ||
@@ -3100,12 +2966,14 @@ export default function MyBookingsPage() {
       return
     }
     const payStatus = String(booking.paymentStatus || "").toLowerCase()
-    if (
-      payStatus === "verified" ||
-      payStatus === "paid" ||
-      payStatus === "slot_verified" ||
-      payStatus === "partial"
-    ) {
+    const records = getRecordsForBooking(paymentRecords, booking.id)
+    const summary = calculatePaymentSummary(booking, records)
+    const canIssueReceipt =
+      summary.overallStatus === "partial" ||
+      summary.overallStatus === "completed" ||
+      (records.length === 0 &&
+        (payStatus === "verified" || payStatus === "paid" || payStatus === "slot_verified"))
+    if (canIssueReceipt) {
       issueReceipt(booking.id)
       setTimeout(async () => {
         const updated = await getStoredReceiptByBookingId(booking.id)

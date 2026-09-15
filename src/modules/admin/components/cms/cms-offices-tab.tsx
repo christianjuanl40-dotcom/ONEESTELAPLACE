@@ -121,9 +121,9 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
 
   return (
     <div>
-      <CMSSectionHeader title="Office Spaces" description="Manage published and hidden office rental spaces."
+      <CMSSectionHeader title="Office Spaces"
         currentSection="offices" onNavigate={onNavigate}
-        action={<Button type="button" onClick={openNew} className="h-9 rounded-lg bg-blue-600 px-3.5 text-xs font-bold text-white hover:bg-blue-700"><Plus className="mr-1 h-3.5 w-3.5" /> Add Office</Button>} />
+        action={<Button type="button" onClick={openNew} className="h-9 shrink-0 whitespace-nowrap rounded-lg bg-blue-600 px-3.5 text-sm font-bold text-white hover:bg-blue-700"><Plus className="mr-1 h-3.5 w-3.5" /> Add Office</Button>} />
 
       <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-2.5">
@@ -234,7 +234,7 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
               <div>
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Description</label>
                 <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Office description..."
-                  className="mt-1 w-full min-h-[80px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
+                  className="mt-1 w-full min-h-[128px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
               </div>
               <CMSImageUpload label="Office Photo" value={form.image} accent="blue" storagePath="offices" onValueChange={(v) => setForm({ ...form, image: v })} />
               <CMSPanoramaUpload value={form.panoImage} storagePath="panoramas" onValueChange={(v) => setForm({ ...form, panoImage: v })} />

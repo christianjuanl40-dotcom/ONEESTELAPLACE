@@ -59,8 +59,8 @@ import {
   isUnresolvedPaymentRecord,
   isVerifiedPaymentRecord,
   getPaymentRecordAmount,
+  getPaymentRecordCreditedAmount,
   getPaymentRecordStatusLabel,
-  getOverallPaymentStatus,
   calculatePaymentSummary,
   getRecordsForBooking,
   type PaymentRecordLike,
@@ -170,7 +170,13 @@ export default function AdminPaymentsPage() {
     // Payment 1, Payment 2, ... are preserved as separate records.
     const recordsByBooking = new Map<string, PaymentRecord[]>()
     for (const record of allRecords) {
-      const key = normalizeKey(record.bookingId) || normalizeKey(record.bookingCode)
+      // Resolve the canonical booking first. Historical records may carry an
+      // id while others carry only the booking code; grouping by the first
+      // populated field would split those records into separate rows.
+      const matchedBooking =
+        bookingById.get(normalizeKey(record.bookingId)) ||
+        bookingById.get(normalizeKey(record.bookingCode))
+      const key = normalizeKey(matchedBooking?.id || record.bookingId || record.bookingCode)
       if (!key) continue
       const list = recordsByBooking.get(key) || []
       list.push(record)
@@ -455,7 +461,7 @@ const openActionModal = (payment: BookingRecord, type: PaymentAction, submission
       // BookingContext verify flow already generated one for verified records,
       // so the legacy fallback here runs ONLY for the verify action.
       if (type === "verify") {
-        ensureReceiptForVerifiedBooking(updatedBooking)
+        ensureReceiptForVerifiedBooking(updatedBooking, amount, paymentRecordId)
       }
 
       toast({
@@ -565,7 +571,7 @@ const openActionModal = (payment: BookingRecord, type: PaymentAction, submission
             })
           }}
         />
-        <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+        <div className="mb-5 flex w-full flex-col items-stretch gap-2 sm:ml-auto sm:w-fit sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
               <Select value={venueFilter} onValueChange={setVenueFilter}>
                 <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[170px]">
                   <div className="flex items-center gap-2">
@@ -882,19 +888,13 @@ function PaymentCard({
           <p className="break-words text-[11px] font-bold text-orange-600">
             {payment.id}
           </p>
-          {(payment.paymentCount ?? 1) > 1 && (
-            <p className="mt-0.5 truncate text-[10px] font-bold text-slate-500">
-              Latest: {formatCurrency(getSafePrice(payment.latestPaymentAmount || payment.paymentAmount))} · {formatSubmittedAt(payment.latestPaymentSubmittedAt || payment.paymentSubmittedAt)}
-            </p>
-          )}
-        </div>
-      </div>
+         </div>
+       </div>
 
       <div className="min-w-0 sm:col-start-2">
-        <p className="truncate text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Customer</p>
-        <p className="truncate text-xs font-black text-slate-800">{payment.userInfo?.name || "—"}</p>
-        <p className="truncate text-[10px] font-bold text-slate-500">{payment.userInfo?.email || "—"}</p>
-      </div>
+         <p className="truncate text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Customer</p>
+         <p className="truncate text-xs font-black text-slate-800">{payment.userInfo?.name || "—"}</p>
+       </div>
 
       <div className="min-w-0 sm:col-start-3">
         <p className="truncate text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
@@ -1073,8 +1073,9 @@ function PaymentReviewModal({
   // (verified payments + received amounts of incomplete payments).
   const paymentSummary = calculatePaymentSummary(payment, submissions)
   const amountPaid = paymentSummary.moneyReceivedTotal
-  const selectedAmount = getPaymentRecordAmount(selected) || getSafePrice(payment.pendingPaymentAmount || payment.paymentAmount || amountPaid)
-  const transactionAmount = getSafePrice(payment.pendingPaymentAmount || payment.paymentAmount || amountPaid)
+  const selectedAmount = selected
+    ? getPaymentRecordAmount(selected)
+    : getSafePrice(payment.pendingPaymentAmount || payment.paymentAmount || amountPaid)
   const remainingBalance = paymentSummary.remainingBalance
   const dpTarget = paymentSummary.requiredDownpayment
   const acceptedDPPaid = paymentSummary.downpaymentCreditedTotal
@@ -1089,7 +1090,9 @@ function PaymentReviewModal({
     String(payment.paymentStatus || "").toLowerCase() === "incomplete" ||
     String(payment.verificationStatus || "").toLowerCase() === "incomplete"
   const displayAmount = isIncompletePayment
-    ? getSafePrice(payment.paymentVerifiedAmount || payment.lastPaymentAmount || 0)
+    ? selected
+      ? getPaymentRecordCreditedAmount(selected)
+      : getSafePrice(payment.paymentVerifiedAmount || payment.lastPaymentAmount || 0)
     : selectedAmount
   const displayLabel = isIncompletePayment ? "Amount Received" : "Amount Submitted"
   const selectedMethod = selected?.paymentMethod || payment.paymentMethod
@@ -1710,16 +1713,17 @@ function PaymentMethodLabel({ payment }: { payment: BookingRecord }) {
 }
 
 function PaymentBadge({ payment }: { payment: BookingRecord }) {
-  const paymentStatus = String(payment?.paymentStatus || "").toLowerCase()
-  const totalAmount = getSafePrice(
-    (payment as any).totalAmount || payment.totalPrice || (payment as any).amount || (payment as any).price
-  )
-  const amountPaid = getSafePrice(
-    (payment as any).amountPaid || (payment as any).paymentAmount || (payment as any).paidAmount
-  )
-  const remainingBalance = getSafePrice(
-    (payment as any).remainingBalance || Math.max(totalAmount - amountPaid, 0)
-  )
+  const submissions = Array.isArray(payment?.incomingPayments)
+    ? payment.incomingPayments
+    : []
+  const paymentSummary = calculatePaymentSummary(payment, submissions)
+  const hasRecordHistory = submissions.length > 0
+  const paymentStatus = hasRecordHistory
+    ? paymentSummary.overallStatus
+    : String(payment?.paymentStatus || "").toLowerCase()
+  const totalAmount = paymentSummary.bookingTotal
+  const amountPaid = paymentSummary.moneyReceivedTotal
+  const remainingBalance = paymentSummary.remainingBalance
   const baseClass = "inline-flex items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap"
 
   // Canonical: the badge renders EXACTLY the same overall status that the
@@ -2012,6 +2016,7 @@ function buildPaymentBookingEntry(
       ? [base.receipt]
       : []
   const hasAnyPendingSubmission = submissions.some((record) => isUnresolvedPaymentRecord(record, receipts))
+  const paymentSummary = calculatePaymentSummary(base, submissions)
 
   return {
     ...base,
@@ -2032,7 +2037,9 @@ function buildPaymentBookingEntry(
     paymentMethod: method,
     actualPaymentMethod: latest.method || base.actualPaymentMethod,
     paymentType: mapPaymentTerm(latest.term, base.paymentType),
-    paymentStatus: getOverallPaymentStatus(base, submissions, receipts, bookingId),
+     paymentStatus: paymentSummary.overallStatus,
+     amountPaid: paymentSummary.moneyReceivedTotal,
+     remainingBalance: paymentSummary.remainingBalance,
     hasActivePaymentSubmission: hasAnyPendingSubmission,
     pendingPaymentAmount: amount,
     paymentAmount: amount,
@@ -2420,25 +2427,37 @@ function buildIncompletePaymentBooking(booking: BookingRecord, note: string, _ve
   }
 }
 
-function ensureReceiptForVerifiedBooking(booking: BookingRecord) {
+function ensureReceiptForVerifiedBooking(
+  booking: BookingRecord,
+  paymentAmount?: number,
+  paymentRecordId?: string,
+) {
   // The BookingContext already generates and persists a receipt per verified
   // payment (paymentReceipts / receipts collection). Only fall back to the
   // legacy single-receipt flow when the booking has no receipt history yet.
   if (
     (Array.isArray(booking.paymentReceipts) && booking.paymentReceipts.length > 0) ||
-    booking.receipt ||
-    booking.receiptIssued
+    booking.receipt
   ) {
     return
   }
   readStoredReceipts(booking.id).then((receipts) => {
     const existingReceipt = receipts.find((receipt) => receipt.bookingId === booking.id)
-    if (existingReceipt || booking.receipt || booking.receiptIssued) return
+    if (existingReceipt || booking.receipt) return
 
     const office = isOfficeRental(booking)
+    const receiptAmount = getSafePrice(
+      paymentAmount ??
+        booking.paymentVerifiedAmount ??
+        booking.lastPaymentAmount ??
+        booking.paymentAmount ??
+        booking.pendingPaymentAmount ??
+        getAmountPaid(booking),
+    )
     const receiptData = {
       receiptNumber: `ER-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`,
       bookingId: booking.id,
+      paymentId: paymentRecordId || booking.paymentRecordId || undefined,
       fullName: booking.userInfo?.name || "Client",
       bookingDate: booking.createdAt || new Date().toISOString(),
       startDate: booking.date,
@@ -2447,7 +2466,8 @@ function ensureReceiptForVerifiedBooking(booking: BookingRecord) {
       contractTerm: office ? (booking.contractTerm || booking.rentalTerm || "N/A") : null,
       paymentPurpose: office ? "Slot Reservation Only" : getPaymentTypeLabel(booking.paymentType),
       paymentMethod: getPaymentMethodLabel(booking.paymentMethod),
-      amountPaid: formatCurrency(getAmountPaid(booking)),
+      amountPaid: formatCurrency(receiptAmount),
+      paymentAmount: formatCurrency(receiptAmount),
       paymentStatus: office ? "Reservation Secured" : "Payment Verified",
       dateGenerated: new Date().toISOString(),
     }
