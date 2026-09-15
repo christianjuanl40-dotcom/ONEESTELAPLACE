@@ -571,7 +571,7 @@ const openActionModal = (payment: BookingRecord, type: PaymentAction, submission
             })
           }}
         />
-        <div className="mb-5 flex w-full flex-col items-stretch gap-2 sm:ml-auto sm:w-fit sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+        <div className="mb-3 flex w-full flex-col items-stretch gap-2 sm:ml-auto sm:w-fit sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
               <Select value={venueFilter} onValueChange={setVenueFilter}>
                 <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[170px]">
                   <div className="flex items-center gap-2">
@@ -638,7 +638,7 @@ const openActionModal = (payment: BookingRecord, type: PaymentAction, submission
               </div>
         </div>
 
-        <section className="mt-4 space-y-3">
+        <section className="mt-2 space-y-2">
           {filteredPayments.length === 0 ? (
             <EmptyState />
           ) : (
@@ -872,54 +872,53 @@ function PaymentCard({
   const innerCard = (
     <div
       ref={cardRef}
-      className="group grid w-full max-w-full min-w-0 grid-cols-[1fr_1fr] gap-x-5 gap-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition sm:grid-cols-[220px_220px_240px_200px] sm:items-center sm:gap-x-6 hover:border-orange-200 hover:shadow-md"
+      className="group grid w-full max-w-full min-w-0 grid-cols-1 gap-x-5 gap-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:bg-slate-50/70 md:grid-cols-2 md:items-center lg:min-h-[120px] lg:grid-cols-[minmax(0,24fr)_minmax(0,22fr)_minmax(0,24fr)_minmax(156px,30fr)] lg:gap-y-0"
     >
-      <div className="flex min-w-0 items-center gap-3 sm:col-start-1">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
-          <Receipt className="h-5 w-5" />
+      <div className="flex min-w-0 items-center gap-2.5">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
+          <Receipt className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
             Payment
           </p>
-          <p className="break-words whitespace-normal text-sm font-black leading-snug text-slate-900 line-clamp-2">
+          <p className="truncate text-sm font-black leading-snug text-slate-900">
             {payment.eventName || "Untitled"}
           </p>
-          <p className="break-words text-[11px] font-bold text-orange-600">
+          <p className="truncate text-[11px] font-bold text-orange-600">
             {payment.id}
           </p>
-         </div>
-       </div>
+        </div>
+      </div>
 
-      <div className="min-w-0 sm:col-start-2">
-         <p className="truncate text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Customer</p>
-         <p className="truncate text-xs font-black text-slate-800">{payment.userInfo?.name || "—"}</p>
-       </div>
+      <div className="min-w-0">
+        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Customer</p>
+        <p className="truncate text-xs font-black text-slate-800">{payment.userInfo?.name || "—"}</p>
+      </div>
 
-      <div className="min-w-0 sm:col-start-3">
-        <p className="truncate text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
+      <div className="min-w-0">
+        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
         <p className="truncate text-xs font-bold leading-snug text-slate-800">{payment.venue || "N/A"}</p>
       </div>
 
-      <div className="col-span-2 flex shrink-0 items-center justify-between gap-3 sm:col-span-1 sm:col-start-4 sm:flex-col sm:items-end sm:gap-2.5">
-        <div className="flex flex-wrap items-center justify-end gap-1.5 sm:flex-col sm:items-end">
+      <div className="flex w-full min-w-0 flex-col gap-1.5 md:col-span-1 md:ml-auto md:w-[156px] lg:col-span-1">
+        <div className="flex justify-end">
           <PaymentBadge payment={payment} />
-
-          {(payment.paymentCount ?? 1) > 1 && (
-            <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
-              <History className="h-3 w-3" />
-              {payment.paymentCount} Payments
-            </span>
-          )}
         </div>
         <Button
           variant="outline"
           onClick={onView}
-          className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
+          className="h-8 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
         >
           <Eye className="mr-1.5 h-3.5 w-3.5" />
           Review
         </Button>
+        <div className="flex justify-end">
+          <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
+            <History className="h-3 w-3" />
+            {payment.paymentCount ?? 1} {(payment.paymentCount ?? 1) === 1 ? "Payment" : "Payments"}
+          </span>
+        </div>
       </div>
     </div>
   )

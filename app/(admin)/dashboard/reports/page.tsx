@@ -895,7 +895,7 @@ export default function ReportsPage() {
   }
 
   return (
-    <div data-report-print-root className="mx-auto w-full max-w-7xl overflow-x-hidden bg-slate-50 px-4 py-4 sm:px-6 sm:py-6 lg:px-8 print:max-w-none print:bg-white print:p-0">
+    <div data-report-print-root className="mx-auto w-full max-w-7xl overflow-x-hidden bg-slate-50 px-4 py-3 sm:px-6 sm:py-4 lg:px-8 print:max-w-none print:bg-white print:p-0">
       <style media="print">{`
         @page { size: landscape; margin: 0.5in; }
         html, body { background: #fff !important; }
@@ -907,26 +907,7 @@ export default function ReportsPage() {
         [data-report-print-table] tr { break-inside: avoid; page-break-inside: avoid; }
       `}</style>
 
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-600">Admin Reports</p>
-          <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950">Reports</h1>
-          <p className="mt-1 text-sm font-semibold text-slate-500">Booking performance and revenue overview.</p>
-          <p className="mt-1 text-xs font-bold text-slate-500">Report Period: {reportPeriod}</p>
-        </div>
-        <div className="flex w-full justify-end sm:w-auto print:hidden">
-          <Button
-            type="button"
-            onClick={() => window.print()}
-            className="h-10 w-full rounded-xl bg-slate-900 px-4 text-xs font-black text-white shadow-sm hover:bg-slate-800 sm:w-auto"
-          >
-            <Printer className="mr-1.5 h-3.5 w-3.5" />
-            Print Report
-          </Button>
-        </div>
-      </div>
-
-      <div data-report-print-card className="mb-6 flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <div data-report-print-card className="mb-6 flex min-w-0 flex-col gap-4 py-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-bold text-slate-500">
           <span>
             Records: <b className="text-slate-950">{filteredData.length}</b>
@@ -945,8 +926,8 @@ export default function ReportsPage() {
           </span>
         </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center print:hidden">
-          <div className="relative">
+        <div className="flex w-full min-w-0 flex-col gap-3 print:hidden sm:flex-row sm:flex-wrap sm:items-center sm:justify-end lg:flex-1">
+          <div className="relative w-full sm:w-auto">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <input
               value={searchTerm}
@@ -973,10 +954,20 @@ export default function ReportsPage() {
           <Button
             onClick={exportExcel}
             disabled={filteredData.length === 0}
-            className="h-10 rounded-xl bg-orange-600 px-4 text-xs font-black text-white shadow-sm hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            className="h-10 w-full rounded-xl bg-orange-600 px-4 text-xs font-black text-white shadow-sm hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto"
           >
             <Download className="mr-1.5 h-3.5 w-3.5" />
             Export Excel
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => window.print()}
+            className="h-10 w-full rounded-xl border-slate-200 bg-white px-4 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50 sm:w-auto"
+          >
+            <Printer className="mr-1.5 h-3.5 w-3.5" />
+            Print Report
           </Button>
         </div>
       </div>
