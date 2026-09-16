@@ -74,7 +74,13 @@ export function hasPaymentProof(booking: Record<string, unknown>): boolean {
 }
 
 export function hasActiveCancellationRequest(booking: Record<string, unknown>): boolean {
-  return normalizeStatus(booking.cancellationStatus) === "under review"
+  const cancellationStatus = normalizeStatus(booking.cancellationStatus)
+  return Boolean(
+    booking.cancellationRequested === true ||
+      normalizeStatus(booking.status) === "cancellation_requested" ||
+      ["pending", "under review", "requested"].includes(cancellationStatus) ||
+      normalizeStatus(booking.cancelRequestStatus) === "pending",
+  )
 }
 
 export function hasActiveModificationRequest(booking: Record<string, unknown>): boolean {
@@ -179,7 +185,7 @@ export function isCancelled(booking: Record<string, unknown>): boolean {
 }
 
 export function isCancellationRequested(booking: Record<string, unknown>): boolean {
-  return normalizeStatus(booking.status) === "cancellation_requested"
+  return hasActiveCancellationRequest(booking)
 }
 
 export function isModificationUnderReview(booking: Record<string, unknown>): boolean {

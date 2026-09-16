@@ -232,7 +232,46 @@ service cloud.firestore {
         )
         && (
           request.resource.data.get("refundStatus", "") == resource.data.get("refundStatus", "")
-          || request.resource.data.get("refundStatus", "") == "requested"
+          || (
+            request.resource.data.get("refundStatus", "") == "requested"
+            && resource.data.get("refundStatus", "") == "eligible"
+            && request.resource.data.get("refundRequestedAt", null) is string
+          )
+        )
+        && request.resource.data.get("refundEligible", null) == resource.data.get("refundEligible", null)
+        && request.resource.data.get("refundMethod", null) == resource.data.get("refundMethod", null)
+        && request.resource.data.get("refundMode", null) == resource.data.get("refundMode", null)
+        && request.resource.data.get("refundAmount", null) == resource.data.get("refundAmount", null)
+        && request.resource.data.get("refundEligibilityNote", null) == resource.data.get("refundEligibilityNote", null)
+        && request.resource.data.get("refundClaimNote", null) == resource.data.get("refundClaimNote", null)
+        && request.resource.data.get("daysBeforeEventAtCancellation", null) == resource.data.get("daysBeforeEventAtCancellation", null)
+        && request.resource.data.get("refundReadyDate", null) == resource.data.get("refundReadyDate", null)
+        && request.resource.data.get("refundInstructions", null) == resource.data.get("refundInstructions", null)
+        && (
+          request.resource.data.get("refundStatus", "") != resource.data.get("refundStatus", "")
+          || request.resource.data.get("refundRequestedAt", null) == resource.data.get("refundRequestedAt", null)
+        )
+        // Cancellation requests and admin decisions are server-authoritative.
+        // A client can request through /api/bookings/cancellation, but cannot
+        // forge a pending, approved, or declined state with a direct write.
+        && request.resource.data.get("cancellationRequested", false) == resource.data.get("cancellationRequested", false)
+        && request.resource.data.get("cancellationRequestedAt", null) == resource.data.get("cancellationRequestedAt", null)
+        && request.resource.data.get("cancellationStatus", "None") == resource.data.get("cancellationStatus", "None")
+        && request.resource.data.get("cancellationStatusLabel", null) == resource.data.get("cancellationStatusLabel", null)
+        && request.resource.data.get("cancellationReason", null) == resource.data.get("cancellationReason", null)
+        && request.resource.data.get("cancellationUnderReview", false) == resource.data.get("cancellationUnderReview", false)
+        && request.resource.data.get("cancelRequestStatus", null) == resource.data.get("cancelRequestStatus", null)
+        && request.resource.data.get("cancelReason", null) == resource.data.get("cancelReason", null)
+        && request.resource.data.get("cancelRequestedAt", null) == resource.data.get("cancelRequestedAt", null)
+        && request.resource.data.get("adminCancelDecision", null) == resource.data.get("adminCancelDecision", null)
+        && request.resource.data.get("adminCancelReason", null) == resource.data.get("adminCancelReason", null)
+        && (
+          request.resource.data.get("status", "") != "cancellation_requested"
+          || resource.data.get("status", "") == "cancellation_requested"
+        )
+        && (
+          request.resource.data.get("bookingStatus", "") != "Cancellation Under Review"
+          || resource.data.get("bookingStatus", "") == "Cancellation Under Review"
         )
         && (
           request.resource.data.get("status", "") != "cancelled"

@@ -243,14 +243,16 @@ function StatusCard({
     String(booking.status).toLowerCase() === "reservation_secured" ||
     String(booking.status).toLowerCase() === "slot_secured"
 
-  const cancellationStatus = String(
-    booking.cancellationStatus || "",
-  ).toLowerCase()
-  const isCancelReq =
-    String(booking.status).toLowerCase() === "cancellation_requested" ||
-    cancellationStatus === "under review" ||
-    cancellationStatus === "pending" ||
-    cancellationStatus === "requested"
+    const cancellationStatus = String(
+      booking.cancellationStatus || "",
+    ).toLowerCase()
+    const isCancelReq =
+      booking.cancellationRequested === true ||
+      String(booking.status).toLowerCase() === "cancellation_requested" ||
+      cancellationStatus === "under review" ||
+      cancellationStatus === "pending" ||
+      cancellationStatus === "requested" ||
+      String((booking as any).cancelRequestStatus || "").toLowerCase() === "pending"
 
   const refundStatus = (booking as any).refundStatus as string | undefined
   const contractStatus = (booking as any).contractStatus as string | undefined
@@ -403,10 +405,10 @@ function StatusCard({
                 </div>
                 <p className="text-[10px] font-semibold text-amber-700 pl-6">
                   Cancellation Status: Under Review
-                </p>
-                <p className="text-[10px] font-semibold text-amber-700 pl-6">
-                  Refund Status: Pending Review
-                </p>
+                  </p>
+                  <p className="text-[10px] font-semibold text-amber-700 pl-6">
+                    Refund Status: {booking.refundStatus || "Not Applicable"}
+                  </p>
                 {booking.refundEligibilityNote && (
                   <p className="text-[10px] font-semibold text-amber-700 pl-6">
                     {booking.refundEligibilityNote}

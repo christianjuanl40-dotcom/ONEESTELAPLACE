@@ -421,10 +421,10 @@ interface BookingContextType {
   getBookingById: (id: string) => Booking | undefined;
   modifyBooking: (id: string, updates: Partial<Booking>) => void;
 
-  requestCancellation: (id: string, reason: string) => void;
-  approveCancellation: (id: string) => void;
-  declineCancellation: (id: string, reason: string) => void;
-  rejectCancellation: (id: string, reason?: string) => void;
+  requestCancellation: (id: string, reason: string) => Promise<Booking>;
+  approveCancellation: (id: string) => Promise<Booking>;
+  declineCancellation: (id: string, reason: string) => Promise<Booking>;
+  rejectCancellation: (id: string, reason?: string) => Promise<Booking>;
   requestModification: (id: string, changes: Record<string, unknown>, reason: string) => void;
   approveModification: (id: string) => void;
   declineModification: (id: string, reason: string) => void;
@@ -663,6 +663,13 @@ export function getRefundStatusLabel(status?: RefundStatus) {
 export function canShowCancellationNotice(booking: Partial<Booking>): boolean {
   if (!booking) return false;
   if (booking.status === "cancelled" || booking.status === "completed") return false;
+  if (
+    booking.cancellationRequested === true ||
+    ["under review", "pending", "requested"].includes(
+      String(booking.cancellationStatus || "").trim().toLowerCase(),
+    ) ||
+    String((booking as any).cancelRequestStatus || "").trim().toLowerCase() === "pending"
+  ) return false;
   const paymentStatus = String(booking.paymentStatus || "").toLowerCase();
   const isPaymentPending = paymentStatus === "unpaid" || paymentStatus === "pending" || !paymentStatus;
   const isForVerification = paymentStatus === "for_review" || paymentStatus === "cash_pending" || paymentStatus === "slot_pending" || paymentStatus === "pending_verification";
@@ -676,10 +683,16 @@ export function canRequestCancellation(booking: Partial<Booking>): boolean {
   if (!booking) return false;
   if (booking.status === "cancelled" || booking.status === "completed") return false;
   if (booking.status === "cancellation_requested") return false;
-  if (booking.cancellationStatus === "Under Review" || booking.cancellationStatus === "Pending" || booking.cancellationStatus === "Approved") return false;
+  if (
+    booking.cancellationRequested === true ||
+    ["under review", "pending", "approved", "requested"].includes(
+      String(booking.cancellationStatus || "").trim().toLowerCase(),
+    ) ||
+    String((booking as any).cancelRequestStatus || "").trim().toLowerCase() === "pending"
+  ) return false;
   if (!canShowCancellationNotice(booking)) return false;
   const daysBefore = calculateDaysBeforeEvent(booking.date);
-  return daysBefore > 0;
+  return daysBefore > CANCELLATION_CLOSED_DAYS;
 }
 
 export function getRestoredStatus(booking: Booking): { status: BookingStatus; bookingStatus: BookingStatusLabel } {
@@ -2348,6 +2361,20 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     const updatedBookings = bookings.map((booking) => {
       if (booking.id !== id) return booking;
 
+      // Client-side expiry is limited to the unpaid booking window. It must
+      // not use the admin cancellation fields or masquerade as an approved
+      // cancellation request.
+      if (user?.role === "client") {
+        return {
+          ...booking,
+          status: "cancelled" as BookingStatus,
+          bookingStatus: "Cancelled",
+          paymentStatus: "cancelled" as PaymentStatus,
+          lastActivityAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
       const eventDate = getBookingEventDate(booking);
       const daysBefore = calculateDaysBeforeEvent(eventDate);
       const eligible = daysBefore >= REFUND_ELIGIBLE_DAYS;
@@ -2531,211 +2558,77 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     );
   };
 
-  const requestCancellation = (id: string, reason: string) => {
-    const targetBooking = bookings.find((booking) => booking.id === id);
+  const applyCancellationResponse = (id: string, responseBody: unknown): Booking => {
+    const targetBooking = bookings.find((booking) => booking.id === id)
+    if (!targetBooking) throw new Error("Booking not found.")
 
-    if (!targetBooking) return;
+    const serverBooking = (
+      responseBody &&
+      typeof responseBody === "object" &&
+      "booking" in responseBody &&
+      responseBody.booking &&
+      typeof responseBody.booking === "object"
+        ? responseBody.booking
+        : null
+    ) as Partial<Booking> | null
+    if (!serverBooking) throw new Error("The cancellation server returned an invalid response.")
 
-    const isSlotSecured = isBookingSlotSecured(targetBooking);
-    const eventDate = getBookingEventDate(targetBooking);
-    const daysBefore = calculateDaysBeforeEvent(eventDate);
-    const eligibilityNote = isSlotSecured ? getRefundEligibilityNote(eventDate) : "";
-    const likelyEligible = isSlotSecured ? daysBefore >= REFUND_ELIGIBLE_DAYS : false;
-    const now = new Date().toISOString();
-
-    const updatedBookings = bookings.map((booking) => {
-      if (booking.id !== id) return booking;
-
-      return {
-        ...booking,
-        previousStatus: booking.status,
-        previousBookingStatus: booking.status,
-        previousPaymentStatus: booking.paymentStatus || "unpaid",
-        status: "cancellation_requested" as BookingStatus,
-        bookingStatus: "Cancellation Under Review",
-        cancellationRequested: true,
-        cancellationRequestedAt: now,
-        cancellationStatus: "Pending" as CancellationStatus,
-        cancellationStatusLabel: "Pending",
-        cancellationReason: reason,
-        cancelRequestStatus: "Pending",
-        cancellationUnderReview: true,
-        cancelReason: reason,
-        cancelRequestedAt: now,
-        adminCancelDecision: null,
-        adminCancelReason: "",
-        refundEligible: likelyEligible,
-        refundMethod: isSlotSecured && likelyEligible ? "Cash" : null,
-        refundMode: isSlotSecured && likelyEligible ? "Cash" : null,
-        refundStatus: "Pending Review" as RefundStatus,
-        refundEligibilityNote: eligibilityNote,
-        refundClaimNote: isSlotSecured
-          ? likelyEligible
-            ? "If approved by admin, refund may be claimed onsite in cash within the allowed processing period."
-            : "No refund will be processed if admin confirms the request is non-refundable based on policy."
-          : "No payment has been made, so no refund is applicable.",
-        daysBeforeEventAtCancellation: isSlotSecured ? daysBefore : null,
-        lastActivityAt: now,
-        updatedAt: now,
-        adminLogs: makeAdminLog(
-          booking,
-          "REQUEST_CANCELLATION",
-          isSlotSecured
-            ? `Client requested cancellation. Refund eligibility note: ${eligibilityNote}. Days before event: ${daysBefore}.`
-            : `Client requested cancellation. No payment has been made yet.`,
-        ),
-      };
-    });
-
-    saveBookings(updatedBookings as Booking[]);
-    const clientName = targetBooking.userInfo?.name || targetBooking.eventName || "A client"
-    const cancelVenue = targetBooking.venue || targetBooking.eventName || "a venue"
-    createNotification({
-      type: "cancellation_requested",
-      title: "Cancellation Requested",
-      message: `A cancellation has been requested for ${cancelVenue}.`,
-      bookingId: targetBooking.id,
-      userId: "admin",
-      relatedUserId: targetBooking.userId,
-      relatedUserName: clientName,
-      link: `/dashboard/bookings?highlight=${targetBooking.id}`,
+    const updatedBooking = normalizeBookingForNewFields({
+      ...targetBooking,
+      ...serverBooking,
+      id,
     })
-  };
+    setBookings((current) => current.map((booking) => (booking.id === id ? updatedBooking : booking)))
+    return updatedBooking
+  }
 
-  const approveCancellation = (id: string) => {
-    const updatedBookings = bookings.map((booking) => {
-      if (booking.id !== id) return booking;
-
-      const eventDate = getBookingEventDate(booking);
-      const daysBefore = booking.daysBeforeEventAtCancellation ?? calculateDaysBeforeEvent(eventDate);
-      const eligible = daysBefore >= REFUND_ELIGIBLE_DAYS;
-      const approvedAt = new Date();
-      const readyDate = addDays(approvedAt, 7).toISOString();
-
-      return {
-        ...booking,
-        status: "cancelled" as BookingStatus,
-        bookingStatus: "Cancelled",
-        cancellationRequested: false,
-        cancellationStatus: "Approved" as const,
-        cancellationStatusLabel: "Approved",
-        cancellationReviewedAt: approvedAt.toISOString(),
-        cancelRequestStatus: null,
-        cancellationUnderReview: false,
-        adminCancelDecision: "approved",
-        adminCancelReason: "",
-        refundEligible: eligible,
-        refundMethod: eligible ? ("Cash" as const) : null,
-        refundMode: eligible ? ("Cash" as const) : null,
-        refundStatus: eligible ? ("eligible" as RefundStatus) : ("not_eligible" as RefundStatus),
-        refundAmount: eligible ? getSafePrice(booking.totalPrice) : 0,
-        refundReadyDate: eligible ? readyDate : null,
-        refundEligibilityNote: eligible
-          ? "May be eligible for refund"
-          : "Non-refundable based on policy",
-        refundClaimNote: eligible
-          ? "Refund may be claimed onsite in cash within the allowed processing period."
-          : "No refund will be processed based on the venue cancellation policy.",
-        refundInstructions: eligible
-          ? "Refund may be claimed onsite in cash within the allowed processing period."
-          : "No refund will be processed based on the venue cancellation policy.",
-        daysBeforeEventAtCancellation: daysBefore,
-
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        adminLogs: makeAdminLog(
-          booking,
-          "APPROVE_CANCELLATION",
-          eligible
-            ? "Admin approved cancellation. Refund is eligible and can be claimed onsite in cash."
-            : "Admin approved cancellation. Booking is non-refundable based on policy.",
-        ),
-      };
-    });
-
-    saveBookings(updatedBookings as Booking[]);
-    const approvedBooking = updatedBookings.find((b) => b.id === id);
-    if (approvedBooking) {
-      createNotification({
-        type: "cancellation_approved",
-        title: "Cancellation Approved",
-        message: `Your cancellation request for Booking ${approvedBooking.id} has been approved.`,
-        bookingId: approvedBooking.id,
-        userId: approvedBooking.userId,
-        link: `/portal/bookings?highlight=${approvedBooking.id}`,
-      })
+  const callCancellationApi = async (
+    id: string,
+    body: Record<string, string>,
+  ): Promise<Booking> => {
+    const response = await fetch("/api/bookings/cancellation", {
+      method: body.action ? "PATCH" : "POST",
+      headers: await getAuthHeaders(true),
+      body: JSON.stringify({ bookingId: id, ...body }),
+    })
+    const responseBody = await response.json().catch(() => null) as {
+      error?: unknown
+      booking?: unknown
+    } | null
+    if (!response.ok) {
+      throw new Error(
+        responseBody && typeof responseBody.error === "string"
+          ? responseBody.error
+          : "Unable to update the cancellation request.",
+      )
     }
-  };
+    return applyCancellationResponse(id, responseBody)
+  }
 
-  const declineCancellation = (id: string, reason: string) => {
+  const requestCancellation = async (id: string, reason: string): Promise<Booking> => {
+    if (!user || user.role !== "client") throw new Error("Only signed-in clients can request cancellation.")
+    return callCancellationApi(id, { reason })
+  }
+
+  const approveCancellation = async (id: string): Promise<Booking> => {
+    return callCancellationApi(id, { action: "approve" })
+  }
+
+  const declineCancellation = async (id: string, reason: string): Promise<Booking> => {
     if (!reason.trim()) {
       toast({
         title: "Decline Reason Required",
-        description:
-          "Please provide a reason before declining the cancellation request.",
+        description: "Please provide a reason before declining the cancellation request.",
         variant: "destructive",
-      });
-      return;
-    }
-
-    const updatedBookings = bookings.map((booking) => {
-      if (booking.id !== id) return booking;
-
-      const restored = getRestoredStatus(booking);
-
-      const restoredPaymentStatus =
-        booking.previousPaymentStatus || booking.paymentStatus || "paid";
-
-      const restoredBooking = {
-        ...booking,
-        status: restored.status,
-        bookingStatus: restored.bookingStatus,
-        paymentStatus: restoredPaymentStatus,
-        isSlotSecured: isBookingSlotSecured({ ...booking, status: restored.status, paymentStatus: restoredPaymentStatus }),
-        cancellationRequested: false,
-        cancellationStatus: "Declined" as const,
-        cancellationStatusLabel: "Declined",
-        cancelRequestStatus: null,
-        cancellationReviewedAt: new Date().toISOString(),
-        cancellationDeclinedAt: new Date().toISOString(),
-        cancellationCooldownUntil: addDays(new Date(), 0).getTime() ? new Date(Date.now() + 60 * 60 * 1000).toISOString() : null,
-        cancellationDeclineReason: reason.trim(),
-        refundStatus: "Not Applicable" as RefundStatus,
-        refundEligibilityNote: null,
-        refundClaimNote: null,
-        previousStatus: null,
-        previousBookingStatus: null,
-
-        previousPaymentStatus: null,
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        adminLogs: makeAdminLog(
-          booking,
-          "DECLINE_CANCELLATION_REQUEST",
-          `Cancellation request declined. Reason: ${reason.trim()}`,
-        ),
-      } as unknown as Booking;
-
-      return restoredBooking;
-    });
-
-    saveBookings(updatedBookings);
-    const declinedBooking = updatedBookings.find((b: any) => b.id === id);
-    if (declinedBooking) {
-      createNotification({
-        type: "cancellation_declined",
-        title: "Cancellation Declined",
-        message: `Your cancellation request for Booking ${declinedBooking.id} has been declined.`,
-        bookingId: declinedBooking.id,
-        userId: declinedBooking.userId,
-        link: `/portal/bookings?highlight=${declinedBooking.id}`,
       })
+      throw new Error("A decline reason is required.")
     }
-  };
+    return callCancellationApi(id, { action: "decline", reason: reason.trim() })
+  }
 
-  const rejectCancellation = (id: string, reason?: string) => {
-    declineCancellation(id, reason || "");
-  };
+  const rejectCancellation = async (id: string, reason?: string): Promise<Booking> => {
+    return declineCancellation(id, reason || "")
+  }
 
   const requestModification = (id: string, changes: Record<string, unknown>, reason: string) => {
     const targetBooking = bookings.find((booking) => booking.id === id);

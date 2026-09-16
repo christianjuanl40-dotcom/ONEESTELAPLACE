@@ -55,6 +55,16 @@ rulesSuite("Firestore security rules", () => {
         }),
         firestore.collection("bookings").doc("BK001").set({ userId: "client" }),
         firestore.collection("bookings").doc("BK002").set({ userId: "another-client" }),
+        firestore.collection("bookings").doc("BK003").set({
+          userId: "client",
+          status: "confirmed",
+          bookingStatus: "Confirmed",
+          paymentStatus: "paid",
+          cancellationRequested: false,
+          cancellationStatus: "None",
+          refundStatus: "Not Applicable",
+          refundEligible: false,
+        }),
         firestore.collection("payments").doc("PAY001").set({ customerId: "client" }),
         firestore.collection("notifications").doc("booking-notification").set({
           type: "booking_submitted",
@@ -111,5 +121,33 @@ rulesSuite("Firestore security rules", () => {
 
     await assertSucceeds(firestore.collection("bookings").doc("BK001").get())
     await assertFails(firestore.collection("bookings").doc("BK002").get())
+  })
+
+  it("does not let clients forge cancellation decisions or refund eligibility", async () => {
+    await seedProfilesAndRecords()
+    const firestore = testEnv.authenticatedContext("client").firestore()
+    const booking = firestore.collection("bookings").doc("BK003")
+
+    await assertFails(booking.update({
+      status: "cancellation_requested",
+      bookingStatus: "Cancellation Under Review",
+      cancellationRequested: true,
+      cancellationStatus: "Pending",
+      cancellationReason: "Client supplied reason",
+    }))
+    await assertFails(booking.update({
+      status: "cancelled",
+      bookingStatus: "Cancelled",
+      cancellationRequested: false,
+      cancellationStatus: "Approved",
+    }))
+    await assertFails(booking.update({
+      cancellationStatus: "Declined",
+      cancellationDeclineReason: "Client supplied decision",
+    }))
+    await assertFails(booking.update({
+      refundEligible: true,
+      refundStatus: "eligible",
+    }))
   })
 })

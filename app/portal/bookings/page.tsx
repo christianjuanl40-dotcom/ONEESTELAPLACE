@@ -341,12 +341,22 @@ function getStatusLabel(status?: string) {
   if (normalized === "cancelled") return "Cancelled"
   if (normalized === "declined") return "Declined"
   if (normalized === "cancellation_requested" || normalized === "cancellation requested")
-    return "Cancel Req"
+    return "Cancellation Under Review"
   if (normalized === "reservation_secured") return "Reservation Secured"
   if (normalized === "contract_signing_required") return "Contract Signing Required"
   if (normalized === "active_rental") return "Active Rental"
   if (normalized === "rental_expired") return "Rental Expired"
   return formatTextLabel(status || "Unknown")
+}
+
+function hasPendingCancellationIndicator(booking: Booking) {
+  const cancellationStatus = normalizeStatus(booking.cancellationStatus)
+  return Boolean(
+    booking.cancellationRequested === true ||
+      booking.status === "cancellation_requested" ||
+      ["pending", "under review", "requested"].includes(cancellationStatus) ||
+      normalizeStatus((booking as any).cancelRequestStatus) === "pending",
+  )
 }
 
 function getRefundStatusLabel(status?: string) {
@@ -569,6 +579,11 @@ function HorizontalBookingCard({
         >
           {getStatusLabel(booking.status)}
         </span>
+        {hasPendingCancellationIndicator(booking) && (
+          <span className="inline-flex w-full items-center justify-center rounded-md border border-amber-100 bg-amber-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-amber-700 whitespace-nowrap sm:w-auto">
+            Cancellation Requested
+          </span>
+        )}
         <Button
           variant="outline"
           onClick={() => onView(booking)}
@@ -650,6 +665,11 @@ function HistoryRow({
         >
           {getStatusLabel(booking.status)}
         </span>
+        {hasPendingCancellationIndicator(booking) && (
+          <span className="inline-flex w-full items-center justify-center rounded-md border border-amber-100 bg-amber-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-amber-700 whitespace-nowrap sm:w-auto">
+            Cancellation Requested
+          </span>
+        )}
         <Button
           variant="outline"
           onClick={() => onView(booking)}
@@ -823,6 +843,7 @@ function BookingDetailsModal({
 
   const showCancelAction =
     onCancel &&
+    canRequestCancellation(booking) &&
     !["cancelled", "declined", "completed", "rental_expired"].includes(String(booking.status || "").toLowerCase()) &&
     booking.cancellationStatus !== "Approved" &&
     !hasCancellationHistory
@@ -1058,14 +1079,16 @@ function BookingDetailsModal({
                 <div className="mb-4 flex items-center gap-2">
                   <div className="h-1.5 w-1.5 rounded-full bg-rose-400" />
                   <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
-                    Cancellation / Refund Status
+                    {hasActiveCancellationRequest ? "Cancellation Request" : "Cancellation / Refund Status"}
                   </p>
                 </div>
                 <div className="space-y-3 text-sm font-black text-slate-900">
                   <div className="flex justify-between gap-2">
                     <span className="text-sm font-black text-slate-900 shrink-0">Cancellation</span>
                     <span className="text-sm font-black text-slate-900 text-right break-words">
-                      {booking.cancellationStatus || (booking as any).cancelRequestStatus || "None"}
+                      {hasActiveCancellationRequest
+                        ? "Pending Review"
+                        : booking.cancellationStatus || (booking as any).cancelRequestStatus || "None"}
                     </span>
                   </div>
                   {(booking.cancellationReason || (booking as any).cancelReason) && (
@@ -1307,10 +1330,10 @@ function BookingDetailsModal({
                 </div>
               )}
               {hasActiveCancellationRequest && (
-                <div className="rounded-xl bg-rose-50 p-3 text-center">
-                  <p className="text-sm font-black uppercase tracking-[0.2em] text-rose-600">Cancellation Under Review</p>
-                  <p className="mt-1 text-sm font-bold text-rose-700">
-                    Your cancellation request is under review. Please wait for admin response.
+                <div className="rounded-xl bg-amber-50 p-3 text-center">
+                  <p className="text-sm font-black uppercase tracking-[0.2em] text-amber-600">Cancellation Requested</p>
+                  <p className="mt-1 text-sm font-bold text-amber-700">
+                    Your cancellation request is awaiting admin review.
                   </p>
                 </div>
               )}
@@ -1699,12 +1722,14 @@ const CancellationDialog = ({
   setReason,
   onClose,
   onSubmit,
+  submitting,
 }: {
   booking: Booking | null
   reason: string
   setReason: (value: string) => void
   onClose: () => void
-  onSubmit: () => void
+  onSubmit: () => void | Promise<void>
+  submitting?: boolean
 }) => {
   const [reasonError, setReasonError] = useState(false)
 
@@ -1712,13 +1737,14 @@ const CancellationDialog = ({
   const allowed = isCancellationAllowed(booking.date)
   const refundEligible = isRefundEligible(booking.date)
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (submitting) return
     if (!reason.trim()) {
       setReasonError(true)
       return
     }
     setReasonError(false)
-    onSubmit()
+    await onSubmit()
   }
 
   const handleReasonChange = (value: string) => {
@@ -1849,9 +1875,10 @@ const CancellationDialog = ({
             </Button>
             <Button
               onClick={handleSubmit}
-              className="h-10 w-full sm:w-auto rounded-lg bg-orange-600 px-5 text-xs font-bold text-white shadow-sm hover:bg-orange-700"
+              disabled={submitting}
+              className="h-10 w-full sm:w-auto rounded-lg bg-orange-600 px-5 text-xs font-bold text-white shadow-sm hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Submit Cancellation Request
+              {submitting ? "Submitting..." : "Submit Cancellation Request"}
             </Button>
           </footer>
         </div>
@@ -2636,6 +2663,7 @@ export default function MyBookingsPage() {
   const [myBookings, setMyBookings] = useState<Booking[]>([])
   const [bookingToCancel, setBookingToCancel] = useState<Booking | null>(null)
   const [cancelReason, setCancelReason] = useState("")
+  const [isSubmittingCancellation, setIsSubmittingCancellation] = useState(false)
   const [modifyTarget, setModifyTarget] = useState<Booking | null>(null)
   const [reviews, setReviews] = useState<ReviewRecord[]>([])
   const [reviewTarget, setReviewTarget] = useState<Booking | null>(null)
@@ -2999,8 +3027,9 @@ export default function MyBookingsPage() {
     }
   }
 
-  const submitCancellation = () => {
+  const submitCancellation = async () => {
     if (!bookingToCancel) return
+    if (isSubmittingCancellation) return
     if (!isCancellationAllowed(bookingToCancel.date)) {
       toast({
         title: "Cancellation Not Available",
@@ -3017,21 +3046,26 @@ export default function MyBookingsPage() {
       })
       return
     }
-    requestCancellation(bookingToCancel.id, cancelReason.trim())
-    // Update booking details modal immediately
-    if (user) {
-      const updated = getUserBookings(user.id).find((b: any) => b.id === bookingToCancel.id)
-      if (updated) setViewingBooking(updated)
+    setIsSubmittingCancellation(true)
+    try {
+      const updated = await requestCancellation(bookingToCancel.id, cancelReason.trim())
+      setViewingBooking(updated)
+      toast({
+        title: "Cancellation Requested",
+        description: "Your cancellation request is awaiting admin review.",
+        className: "bg-slate-900 text-white border-none",
+      })
+      setBookingToCancel(null)
+      setCancelReason("")
+    } catch (error: unknown) {
+      toast({
+        title: "Cancellation Request Failed",
+        description: error instanceof Error ? error.message : "Unable to submit the cancellation request.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmittingCancellation(false)
     }
-    toast({
-      title: "Cancellation Requested",
-      description: isRefundEligible(bookingToCancel.date)
-        ? "Admin will review your request. If approved, your cash refund can be claimed at the office after 1 week."
-        : "Admin will review your cancellation request.",
-      className: "bg-slate-900 text-white border-none",
-    })
-    setBookingToCancel(null)
-    setCancelReason("")
   }
 
   const historyEmpty = filteredHistory.length === 0
@@ -3053,6 +3087,7 @@ export default function MyBookingsPage() {
           booking={bookingToCancel}
           reason={cancelReason}
           setReason={setCancelReason}
+          submitting={isSubmittingCancellation}
           onClose={() => {
             setBookingToCancel(null)
             setCancelReason("")
