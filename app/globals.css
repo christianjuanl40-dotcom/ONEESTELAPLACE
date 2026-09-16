@@ -217,7 +217,8 @@ nextjs-portal {
 }
 
 @media print {
-  body * {
+  /* Reports has its own document-flow print layout, separate from receipts. */
+  body:not(:has([data-report-print-root])) * {
     visibility: hidden;
   }
   body .receipt-print,

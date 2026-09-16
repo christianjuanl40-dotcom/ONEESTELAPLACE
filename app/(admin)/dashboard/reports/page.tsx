@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useEffect, useMemo, useRef, useState } from "react"
+import { flushSync } from "react-dom"
 import { useRouter } from "next/navigation"
 import {
   BarChart3,
@@ -400,6 +401,29 @@ export default function ReportsPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [printDate, setPrintDate] = useState<Date | null>(null)
+  const isPrinting = printDate !== null
+
+  useEffect(() => {
+    // Commit print dimensions and all filtered rows before the browser snapshots
+    // the page; ResizeObserver alone can update responsive charts too late.
+    const beforePrint = () => flushSync(() => setPrintDate(new Date()))
+    const afterPrint = () => setPrintDate(null)
+    const printMedia = window.matchMedia("print")
+    const onPrintMediaChange = (event: MediaQueryListEvent) => {
+      if (event.matches) beforePrint()
+      else afterPrint()
+    }
+
+    window.addEventListener("beforeprint", beforePrint)
+    window.addEventListener("afterprint", afterPrint)
+    printMedia.addEventListener("change", onPrintMediaChange)
+    return () => {
+      window.removeEventListener("beforeprint", beforePrint)
+      window.removeEventListener("afterprint", afterPrint)
+      printMedia.removeEventListener("change", onPrintMediaChange)
+    }
+  }, [])
 
   const bookingList = useMemo(() => {
     return Array.isArray(bookings) ? (bookings as BookingRecord[]) : []
@@ -897,15 +921,116 @@ export default function ReportsPage() {
   return (
     <div data-report-print-root className="mx-auto w-full max-w-7xl overflow-x-hidden bg-slate-50 px-4 py-3 sm:px-6 sm:py-4 lg:px-8 print:max-w-none print:bg-white print:p-0">
       <style media="print">{`
-        @page { size: landscape; margin: 0.5in; }
-        html, body { background: #fff !important; }
-        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        [data-report-print-root] { max-width: none !important; background: #fff !important; }
-        [data-report-print-card] { box-shadow: none !important; }
-        [data-report-print-table] { overflow: visible !important; box-shadow: none !important; }
-        [data-report-print-table] table { min-width: 0 !important; width: 100% !important; }
+        @page { size: A4 landscape; margin: 10mm; }
+
+        /* Keep only the report and its ancestor path. Removed UI occupies no space. */
+        body:has([data-report-print-root]) *:not([data-report-print-root]):not([data-report-print-root] *):not(:has([data-report-print-root])) {
+          display: none !important;
+        }
+        html:has([data-report-print-root]),
+        body:has([data-report-print-root]),
+        body :has([data-report-print-root]) {
+          display: block !important;
+          position: static !important;
+          width: auto !important;
+          height: auto !important;
+          min-height: 0 !important;
+          max-height: none !important;
+          overflow: visible !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          transform: none !important;
+          scrollbar-gutter: auto !important;
+          background: #fff !important;
+        }
+        [data-report-print-root] {
+          display: block !important;
+          width: 100% !important;
+          max-width: none !important;
+          height: auto !important;
+          min-height: 0 !important;
+          overflow: visible !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #fff !important;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+        [data-report-print-root] :is([data-report-print-hidden], button, input, select, [role="combobox"], .recharts-tooltip-wrapper) {
+          display: none !important;
+        }
+        [data-report-print-header] {
+          display: block !important;
+          margin-bottom: 4mm;
+          padding-bottom: 3mm;
+          border-bottom: 1px solid #cbd5e1;
+        }
+        [data-report-print-card] {
+          break-inside: avoid;
+          page-break-inside: avoid;
+          margin-bottom: 4mm !important;
+          padding: 4mm !important;
+          border-radius: 3mm !important;
+          box-shadow: none !important;
+        }
+        [data-report-print-heading] {
+          margin-bottom: 3mm !important;
+          break-after: avoid;
+          page-break-after: avoid;
+        }
+        [data-report-print-root] h3 { font-size: 12pt !important; }
+        [data-report-print-charts] {
+          display: grid !important;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+          gap: 4mm !important;
+          margin-bottom: 0 !important;
+        }
+        [data-report-print-charts] > [data-report-print-card] { grid-column: auto !important; min-width: 0; }
+        [data-report-print-chart] { width: 100% !important; height: 56mm !important; overflow: visible !important; }
+        [data-report-print-charts] [data-report-print-chart] { height: 50mm !important; }
+        [data-report-print-status-layout] { flex-direction: row !important; gap: 4mm !important; align-items: center; }
+        [data-report-print-status-layout] > :first-child { width: 42mm !important; flex-shrink: 0; }
+        [data-report-print-status-layout] > :last-child { width: auto !important; min-width: 0; flex: 1; }
+        [data-report-print-status-layout] > :last-child > div { grid-template-columns: minmax(0, 1fr) !important; gap: 2mm !important; }
+        [data-report-print-status-layout] span { font-size: 8pt !important; }
+        [data-report-print-status-chart] { width: 42mm !important; height: 42mm !important; max-width: none !important; }
+        [data-report-print-root] .recharts-responsive-container,
+        [data-report-print-root] .recharts-wrapper,
+        [data-report-print-root] .recharts-wrapper > .recharts-surface {
+          width: 100% !important;
+          height: 100% !important;
+          overflow: visible !important;
+        }
+        [data-report-print-root] .recharts-legend-wrapper { width: 100% !important; left: 0 !important; }
+        [data-report-print-empty], [data-report-print-chart]:has([data-report-print-empty]) {
+          height: auto !important;
+          min-height: 0 !important;
+          padding: 6mm !important;
+        }
+        /* Let long tables paginate; keep only individual rows together. */
+        [data-report-print-table] { display: block; overflow: visible !important; box-shadow: none !important; }
+        [data-report-print-table] table { min-width: 0 !important; width: 100% !important; font-size: 9pt; }
+        [data-report-print-table] thead { display: table-header-group; }
         [data-report-print-table] tr { break-inside: avoid; page-break-inside: avoid; }
+        [data-report-print-table] :is(th, td) { padding: 2mm !important; overflow-wrap: anywhere; }
+        [data-report-print-table] th { font-size: 8pt; letter-spacing: 0.04em; }
+        [data-report-print-table] td p { font-size: 9pt !important; }
+        [data-report-print-table] td span { white-space: normal !important; letter-spacing: 0.04em !important; }
       `}</style>
+
+      <header data-report-print-header className="hidden text-slate-950">
+        <h1 className="text-xl font-black">One Estela Place — Reports</h1>
+        <div className="mt-1 flex flex-wrap justify-between gap-2 text-xs">
+          <p>Report Period: {reportPeriod}</p>
+          <p>Generated: {printDate?.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</p>
+        </div>
+        {(filterStatus !== "all" || searchTerm.trim()) && (
+          <p className="mt-1 text-xs">
+            Status: {filterStatus === "all" ? "All" : prettifyStatus(filterStatus)}
+            {searchTerm.trim() && ` · Search: ${searchTerm.trim()}`}
+          </p>
+        )}
+      </header>
 
       <div data-report-print-card className="mb-6 flex min-w-0 flex-col gap-4 py-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-bold text-slate-500">
@@ -926,7 +1051,7 @@ export default function ReportsPage() {
           </span>
         </div>
 
-        <div className="flex w-full min-w-0 flex-col gap-3 print:hidden sm:flex-row sm:flex-wrap sm:items-center sm:justify-end lg:flex-1">
+        <div data-report-print-hidden className="flex w-full min-w-0 flex-col gap-3 print:hidden sm:flex-row sm:flex-wrap sm:items-center sm:justify-end lg:flex-1">
           <div className="relative w-full sm:w-auto">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <input
@@ -964,7 +1089,7 @@ export default function ReportsPage() {
             type="button"
             variant="outline"
             onClick={() => window.print()}
-            className="h-10 w-full rounded-xl border-slate-200 bg-white px-4 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50 sm:w-auto"
+            className="h-10 w-full rounded-xl border-slate-200 bg-white px-4 text-xs font-black text-slate-900 shadow-none hover:bg-slate-50 hover:text-slate-900 dark:border-slate-200 dark:bg-white dark:hover:bg-slate-50 sm:w-auto"
           >
             <Printer className="mr-1.5 h-3.5 w-3.5" />
             Print Report
@@ -973,7 +1098,7 @@ export default function ReportsPage() {
       </div>
 
       <div data-report-print-card className="mb-6 rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div data-report-print-heading className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-orange-50 p-3 text-orange-700">
               <CalendarDays className="h-5 w-5" />
@@ -986,7 +1111,7 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3 print:hidden">
+          <div data-report-print-hidden className="flex flex-wrap items-center gap-2 sm:gap-3 print:hidden">
             <Select value={filterYear} onValueChange={setFilterYear}>
               <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[130px]">
                 <div className="flex items-center gap-2">
@@ -1030,7 +1155,7 @@ export default function ReportsPage() {
         </div>
 
         {filteredData.length === 0 ? (
-          <div className="flex h-[280px] w-full flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 sm:h-[320px]">
+          <div data-report-print-empty className="flex h-[280px] w-full flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 sm:h-[320px]">
             <div className="rounded-2xl bg-white p-3 text-slate-400 shadow-sm">
               <BarChart3 className="h-6 w-6" />
             </div>
@@ -1038,8 +1163,8 @@ export default function ReportsPage() {
             <p className="mt-1 text-xs font-semibold text-slate-400">Try a different year or month.</p>
           </div>
         ) : (
-          <div className="h-[280px] sm:h-[320px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
+          <div data-report-print-chart className="h-[280px] sm:h-[320px] w-full">
+            <ResponsiveContainer width={isPrinting ? 1000 : "100%"} height={isPrinting ? 210 : "100%"}>
               <ComposedChart data={monthlyPerformance} margin={{ top: 10, right: 10, left: -18, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
               <XAxis
@@ -1076,7 +1201,7 @@ export default function ReportsPage() {
                 }}
               />
               <Legend wrapperStyle={{ fontSize: 11, fontWeight: 800 }} />
-              <Bar yAxisId="left" dataKey="revenue" fill="#ea580c" radius={[8, 8, 0, 0]} name="Revenue" />
+              <Bar yAxisId="left" dataKey="revenue" fill="#ea580c" radius={[8, 8, 0, 0]} name="Revenue" isAnimationActive={!isPrinting} />
               <Line
                 yAxisId="right"
                 type="monotone"
@@ -1085,6 +1210,7 @@ export default function ReportsPage() {
                 strokeWidth={3}
                 dot={{ r: 4 }}
                 name="Bookings"
+                isAnimationActive={!isPrinting}
               />
             </ComposedChart>
           </ResponsiveContainer>
@@ -1092,9 +1218,9 @@ export default function ReportsPage() {
         )}
       </div>
 
-      <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <div data-report-print-charts className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div data-report-print-card className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
-          <div className="mb-6 flex items-center gap-3">
+          <div data-report-print-heading className="mb-6 flex items-center gap-3">
             <div className="rounded-2xl bg-orange-50 p-3 text-orange-700">
               <TrendingUp className="h-5 w-5" />
             </div>
@@ -1106,9 +1232,9 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          <div className="h-[250px] sm:h-[300px] w-full">
+          <div data-report-print-chart className="h-[250px] sm:h-[300px] w-full">
             {revenueByVenue.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width={isPrinting ? 480 : "100%"} height={isPrinting ? 190 : "100%"}>
                 <BarChart data={revenueByVenue} margin={{ top: 5, right: 10, left: -18, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                   <XAxis
@@ -1134,11 +1260,11 @@ export default function ReportsPage() {
                       fontWeight: 700,
                     }}
                   />
-                  <Bar dataKey="total" fill="#ea580c" radius={[8, 8, 0, 0]} barSize={42} />
+                  <Bar dataKey="total" fill="#ea580c" radius={[8, 8, 0, 0]} barSize={42} isAnimationActive={!isPrinting} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50">
+              <div data-report-print-empty className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50">
                 <div className="text-center">
                   <p className="text-sm font-black text-slate-500">No revenue data yet</p>
                   <p className="mt-1 text-xs font-semibold text-slate-400">
@@ -1155,7 +1281,7 @@ export default function ReportsPage() {
           data-report-print-card
           className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm"
         >
-          <div className="mb-4 flex items-center gap-3">
+          <div data-report-print-heading className="mb-4 flex items-center gap-3">
             <div className="rounded-2xl bg-slate-100 p-3 text-slate-700">
               <PieChartIcon className="h-5 w-5" />
             </div>
@@ -1166,10 +1292,10 @@ export default function ReportsPage() {
           </div>
 
           {statusCounts.length > 0 ? (
-            <div className={isWideLayout ? "flex items-center gap-10" : "flex flex-col gap-6"}>
+            <div data-report-print-status-layout className={isWideLayout ? "flex items-center gap-10" : "flex flex-col gap-6"}>
               <div className={isWideLayout ? "w-[45%] shrink-0" : "w-full"}>
-                <div className="mx-auto aspect-square w-full max-w-[280px] sm:max-w-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
+                <div data-report-print-status-chart className="mx-auto aspect-square w-full max-w-[280px] sm:max-w-[300px]">
+                  <ResponsiveContainer width={isPrinting ? 160 : "100%"} height={isPrinting ? 160 : "100%"}>
                     <PieChart>
                       <Pie
                         data={statusCounts}
@@ -1180,6 +1306,7 @@ export default function ReportsPage() {
                         paddingAngle={3}
                         dataKey="value"
                         stroke="none"
+                        isAnimationActive={!isPrinting}
                       >
                         {statusCounts.map((entry) => (
                           <Cell key={entry.name} fill={getStatusGroupColor(entry.name)} />
@@ -1223,7 +1350,7 @@ export default function ReportsPage() {
               </div>
             </div>
           ) : (
-            <div className="flex h-[220px] w-full items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50">
+            <div data-report-print-empty className="flex h-[220px] w-full items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50">
               <p className="text-sm font-black text-slate-400">No status data.</p>
             </div>
           )}
@@ -1231,7 +1358,7 @@ export default function ReportsPage() {
       </div>
 
       <div data-report-print-card className="mb-6 rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-6 flex items-center gap-3">
+        <div data-report-print-heading className="mb-6 flex items-center gap-3">
           <div className="rounded-2xl bg-orange-50 p-3 text-orange-700">
             <BarChart3 className="h-5 w-5" />
           </div>
@@ -1243,9 +1370,9 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        <div className="h-[250px] sm:h-[300px] w-full">
+        <div data-report-print-chart className="h-[250px] sm:h-[300px] w-full">
           {eventTypeCounts.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width={isPrinting ? 1000 : "100%"} height={isPrinting ? 210 : "100%"}>
               <BarChart data={eventTypeCounts} margin={{ top: 5, right: 10, left: -18, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                 <XAxis
@@ -1270,11 +1397,11 @@ export default function ReportsPage() {
                     fontWeight: 700,
                   }}
                 />
-                <Bar dataKey="value" fill="#0f172a" radius={[8, 8, 0, 0]} barSize={42} />
+                <Bar dataKey="value" fill="#0f172a" radius={[8, 8, 0, 0]} barSize={42} isAnimationActive={!isPrinting} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50">
+            <div data-report-print-empty className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50">
               <p className="text-sm font-black text-slate-400">No event type data.</p>
             </div>
           )}
@@ -1282,7 +1409,7 @@ export default function ReportsPage() {
       </div>
 
       <div data-report-print-table className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center border-b border-slate-100 bg-slate-50 px-6 py-5">
+        <div data-report-print-heading className="flex items-center border-b border-slate-100 bg-slate-50 px-6 py-5">
           <h3 className="text-lg font-black text-slate-950">Booking Records</h3>
           <p className="ml-2 text-xs font-semibold text-slate-500">({filteredData.length} record{filteredData.length === 1 ? "" : "s"})</p>
         </div>
@@ -1301,7 +1428,7 @@ export default function ReportsPage() {
             </thead>
 
             <tbody className="divide-y divide-slate-100">
-              {paginatedData.map((booking, index) => {
+              {(isPrinting ? enrichedData : paginatedData).map((booking, index) => {
                 const status = booking.status || "pending"
                 const clientName = getReportClientName(booking)
 
@@ -1360,7 +1487,7 @@ export default function ReportsPage() {
         </div>
 
         {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-4 border-t border-slate-100 px-6 py-4 print:hidden">
+          <div data-report-print-hidden className="flex items-center justify-center gap-4 border-t border-slate-100 px-6 py-4 print:hidden">
             <button
               disabled={safePage <= 1}
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}

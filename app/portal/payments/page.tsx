@@ -28,6 +28,11 @@ import {
 
 import { Button } from "@/src/modules/shared/components/ui/button";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/src/modules/shared/components/ui/collapsible";
+import {
   Dialog,
   DialogContent,
   DialogTitle,
@@ -556,6 +561,8 @@ function CurrentTransactionCard({
   // required downpayment (verified payments + received amounts of short
   // incomplete payments already subtracted from the requirement).
   const cardDownpaymentRemainder = paymentSummary.remainingDownpayment;
+  const displayAmount = getTransactionDisplayAmount(booking, cardDownpaymentRemainder, remaining);
+  const showDisplayAmount = displayAmount !== 0 || !paymentSummary.fullyPaid;
 
   return (
     <div className="group flex w-full min-w-0 flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-4">
@@ -569,9 +576,11 @@ function CurrentTransactionCard({
             <p className="break-words whitespace-normal text-base font-black leading-snug text-slate-900">
               {booking.eventName || "Untitled"}
             </p>
-            <p className="mt-0.5 text-sm font-bold text-orange-600">
-              {formatMoney(getTransactionDisplayAmount(booking, cardDownpaymentRemainder, remaining))}
-            </p>
+            {showDisplayAmount && (
+              <p className="mt-0.5 text-sm font-bold text-orange-600">
+                {formatMoney(displayAmount)}
+              </p>
+            )}
           </div>
         </div>
         <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
@@ -613,9 +622,11 @@ function CurrentTransactionCard({
             <span className="break-words whitespace-normal min-w-0">{booking.eventName || "Untitled"}</span>
             <span className="shrink-0 whitespace-nowrap text-xs font-semibold text-slate-500">• {booking.id}</span>
           </p>
-          <p className="mt-1.5 break-words whitespace-normal text-[11px] font-bold text-orange-600">
-            {formatMoney(getTransactionDisplayAmount(booking, cardDownpaymentRemainder, remaining))}
-          </p>
+          {showDisplayAmount && (
+            <p className="mt-1.5 break-words whitespace-normal text-[11px] font-bold text-orange-600">
+              {formatMoney(displayAmount)}
+            </p>
+          )}
         </div>
       </div>
 
@@ -631,9 +642,11 @@ function CurrentTransactionCard({
           <p className="break-words whitespace-normal text-sm font-black leading-snug text-slate-900 min-w-0">
             {booking.eventName || "Untitled"}
           </p>
-          <p className="break-words whitespace-normal text-[11px] font-bold text-orange-600">
-            {formatMoney(getTransactionDisplayAmount(booking, cardDownpaymentRemainder, remaining))}
-          </p>
+          {showDisplayAmount && (
+            <p className="break-words whitespace-normal text-[11px] font-bold text-orange-600">
+              {formatMoney(displayAmount)}
+            </p>
+          )}
         </div>
       </div>
 
@@ -945,6 +958,7 @@ function TransactionsContent() {
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
   const [viewingReceipt, setViewingReceipt] = useState<Booking | null>(null);
   const [viewingReceiptNo, setViewingReceiptNo] = useState<string | null>(null);
+  const [isPaymentHistoryOpen, setIsPaymentHistoryOpen] = useState(false);
   const [storedReceiptsByBooking, setStoredReceiptsByBooking] = useState<Map<string, any[]>>(new Map());
 
   useEffect(() => {
@@ -1102,6 +1116,7 @@ function TransactionsContent() {
   };
   const handleView = (booking: Booking) => {
     markByBookingId(booking.id, CLIENT_PAYMENT_TYPES);
+    setIsPaymentHistoryOpen(false);
     setViewingReceiptNo(null);
     setViewingReceipt(booking);
   };
@@ -1118,6 +1133,7 @@ function TransactionsContent() {
       const found = localBookings.find((b) => b.id === urlViewId);
       if (found) {
         markByBookingId(found.id, CLIENT_PAYMENT_TYPES);
+        setIsPaymentHistoryOpen(false);
         setViewingReceiptNo(null);
         setViewingReceipt(found);
       }
@@ -2504,7 +2520,12 @@ function TransactionsContent() {
       >
         <DialogContent aria-describedby={undefined}
           showCloseButton={false}
-          className="w-[95vw] sm:max-w-[720px] max-h-[90dvh] overflow-hidden rounded-3xl bg-white shadow-2xl">
+          className={cn(
+            "w-[95vw] max-h-[90dvh] overflow-hidden rounded-3xl bg-white shadow-2xl",
+            isPaymentHistoryOpen && viewingReceiptHistory.length > 0
+              ? "sm:max-w-[720px]"
+              : "sm:max-w-[560px]",
+          )}>
           <div className="flex max-h-[90dvh] min-h-0 flex-col overflow-hidden">
             <div className="shrink-0 border-b border-slate-100 px-5 py-5">
               <div className="flex items-start justify-between gap-3">
@@ -2526,94 +2547,113 @@ function TransactionsContent() {
               </div>
             </div>
             {viewingReceipt && (
-              <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+              <Collapsible
+                open={isPaymentHistoryOpen}
+                onOpenChange={setIsPaymentHistoryOpen}
+                className="flex min-h-0 flex-1 flex-col overflow-hidden"
+              >
                 {viewingReceiptHistory.length > 0 && (
-                  <div className="max-h-[40vh] shrink-0 overflow-y-auto border-b border-slate-100 p-5 sm:max-h-none sm:min-h-0 sm:w-72 sm:shrink-0 sm:overflow-y-auto sm:border-b-0 sm:border-r">
-                    <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-                      Payment Receipts
-                    </p>
-                    <div className="space-y-1.5">
-                      {viewingReceiptHistory.map((receipt, idx) => {
-                        const isSelected =
-                          selectedViewingReceipt?.paymentId === receipt.paymentId ||
-                          (!!receipt.receiptNumber &&
-                            selectedViewingReceipt?.receiptNumber ===
-                              receipt.receiptNumber);
-                        return (
-                          <button
-                            key={
-                              receipt.paymentId ||
-                              receipt.receiptNumber ||
-                              `payment-${idx}`
-                            }
-                            type="button"
-                            onClick={() =>
-                              setViewingReceiptNo(
-                                isSelected
-                                  ? null
-                                  : receipt.paymentId || receipt.receiptNumber,
-                              )
-                            }
-                            className={cn(
-                              "flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
-                              isSelected
-                                ? "border-orange-200 bg-orange-50 shadow-sm ring-1 ring-orange-200"
-                                : "border-slate-200 bg-white hover:bg-slate-50",
-                            )}
-                          >
-                            <span className="min-w-0">
-                              <span className="block text-xs font-black text-slate-900">
-                                Payment {viewingReceiptHistory.length - idx} —{" "}
-                                {formatMoney(
-                                  Number(
-                                    receipt.paymentAmount ??
-                                      receipt.amount ??
-                                      receipt.amountPaid ??
-                                      0,
-                                  ),
-                                )}
-                              </span>
-                              <span className="mt-0.5 block text-[10px] font-semibold text-slate-500">
-                                {receipt.receipt
-                                  ? Number(receipt.remainingBalance ?? 0) > 0
-                                    ? `Remaining balance: ${formatMoney(Number(receipt.remainingBalance))}`
-                                    : "Balance fully settled"
-                                  : receipt.status || "Awaiting verification"}
-                              </span>
-                              <span className="mt-1 block truncate text-[10px] font-black uppercase tracking-[0.12em] text-orange-600">
-                                {receipt.receiptNumber || "No receipt record"}
-                              </span>
-                            </span>
-                            {isSelected && (
-                              <Check className="h-4 w-4 shrink-0 text-orange-600" />
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
+                  <div className="shrink-0 border-b border-slate-100 px-5 py-3">
+                    <CollapsibleTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="h-11 w-full justify-between rounded-xl border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-200 dark:bg-white dark:hover:bg-slate-50 [&[data-state=open]>svg]:rotate-180"
+                      >
+                        Payment History ({viewingReceiptHistory.length})
+                        <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-slate-500 transition-transform" />
+                      </Button>
+                    </CollapsibleTrigger>
                   </div>
                 )}
-                <div className="min-h-0 flex-1 overflow-y-auto p-5">
-                  <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-                    Payment Receipt
-                  </p>
-                  <ReceiptDetails
-                    booking={viewingReceipt}
-                    receipt={selectedViewingReceipt?.receipt || null}
-                    isCancelled={
-                      String(viewingReceipt.status).toLowerCase() === "cancelled" ||
-                      String(viewingReceipt.status).toLowerCase() === "declined"
-                    }
-                    displayTotal={
-                      ["cancelled", "declined"].includes(
-                        String(viewingReceipt.status).toLowerCase(),
-                      )
-                        ? 0
-                        : (viewingReceipt as any).totalPrice || 0
-                    }
-                  />
+                <div className="min-h-0 flex-1 overflow-y-auto sm:flex sm:overflow-hidden">
+                  {viewingReceiptHistory.length > 0 && (
+                    <CollapsibleContent className="border-b border-slate-100 p-5 sm:min-h-0 sm:w-72 sm:shrink-0 sm:overflow-y-auto sm:border-b-0 sm:border-r">
+                      <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                        Payment Receipts
+                      </p>
+                      <div className="space-y-1.5">
+                        {viewingReceiptHistory.map((receipt, idx) => {
+                          const isSelected =
+                            selectedViewingReceipt?.paymentId === receipt.paymentId ||
+                            (!!receipt.receiptNumber &&
+                              selectedViewingReceipt?.receiptNumber ===
+                                receipt.receiptNumber);
+                          return (
+                            <button
+                              key={
+                                receipt.paymentId ||
+                                receipt.receiptNumber ||
+                                `payment-${idx}`
+                              }
+                              type="button"
+                              onClick={() =>
+                                setViewingReceiptNo(
+                                  isSelected
+                                    ? null
+                                    : receipt.paymentId || receipt.receiptNumber,
+                                )
+                              }
+                              className={cn(
+                                "flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
+                                isSelected
+                                  ? "border-orange-200 bg-orange-50 shadow-sm ring-1 ring-orange-200"
+                                  : "border-slate-200 bg-white hover:bg-slate-50",
+                              )}
+                            >
+                              <span className="min-w-0">
+                                <span className="block text-xs font-black text-slate-900">
+                                  Payment {viewingReceiptHistory.length - idx} —{" "}
+                                  {formatMoney(
+                                    Number(
+                                      receipt.paymentAmount ??
+                                        receipt.amount ??
+                                        receipt.amountPaid ??
+                                        0,
+                                    ),
+                                  )}
+                                </span>
+                                <span className="mt-0.5 block text-[10px] font-semibold text-slate-500">
+                                  {receipt.receipt
+                                    ? Number(receipt.remainingBalance ?? 0) > 0
+                                      ? `Remaining balance: ${formatMoney(Number(receipt.remainingBalance))}`
+                                      : "Balance fully settled"
+                                    : receipt.status || "Awaiting verification"}
+                                </span>
+                                <span className="mt-1 block truncate text-[10px] font-black uppercase tracking-[0.12em] text-orange-600">
+                                  {receipt.receiptNumber || "No receipt record"}
+                                </span>
+                              </span>
+                              {isSelected && (
+                                <Check className="h-4 w-4 shrink-0 text-orange-600" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </CollapsibleContent>
+                  )}
+                  <div className="min-w-0 p-5 sm:min-h-0 sm:flex-1 sm:overflow-y-auto">
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                      Payment Receipt
+                    </p>
+                    <ReceiptDetails
+                      booking={viewingReceipt}
+                      receipt={selectedViewingReceipt?.receipt || null}
+                      isCancelled={
+                        String(viewingReceipt.status).toLowerCase() === "cancelled" ||
+                        String(viewingReceipt.status).toLowerCase() === "declined"
+                      }
+                      displayTotal={
+                        ["cancelled", "declined"].includes(
+                          String(viewingReceipt.status).toLowerCase(),
+                        )
+                          ? 0
+                          : (viewingReceipt as any).totalPrice || 0
+                      }
+                    />
+                  </div>
                 </div>
-              </div>
+              </Collapsible>
             )}
             <div className="shrink-0 border-t border-slate-100 px-5 py-4">
               <Button
