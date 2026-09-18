@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Users } from "lucide-react"
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { UserAvatar } from "@/src/modules/shared/components/user-avatar"
+import { formatDisplayName } from "@/src/modules/shared/lib/name-utils"
 import { db } from "@/lib/firebase"
 import {
   collection,
@@ -50,7 +51,7 @@ export default function UsersPage() {
     const data = docSnap.data()
     return {
       uid: docSnap.id,
-      fullName: data.fullName || "",
+      fullName: formatDisplayName(data),
       email: data.email || "",
       phone: data.phone || "",
       role: data.role || "",

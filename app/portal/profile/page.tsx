@@ -19,18 +19,20 @@ import {
   Mail,
   Phone,
   Save,
-  ShieldCheck,
   User as UserIcon,
 } from "lucide-react"
 import { cn } from "@/src/modules/shared/lib/utils"
 import { ProfilePictureUploader } from "@/src/modules/shared/components/profile-picture-uploader"
+import { formatDisplayName, getStructuredName } from "@/src/modules/shared/lib/name-utils"
 
 export default function ProfilePage() {
-  const { user, updateProfilePicture, removeProfilePicture } = useAuth()
+  const { user, updateProfileDetails, updateProfilePicture, removeProfilePicture, refreshUser } = useAuth()
   const { toast } = useToast()
 
   const [email, setEmail] = useState(user?.email || "")
   const [phone, setPhone] = useState(user?.phone || "")
+  const [emailPassword, setEmailPassword] = useState("")
+  const [isSavingProfile, setIsSavingProfile] = useState(false)
 
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
@@ -39,8 +41,9 @@ export default function ProfilePage() {
   const [profilePicture, setPicture] = useState<string | null>(user?.profilePicture ?? null)
 
   useEffect(() => {
-    if (user?.email) setEmail(user.email)
-  }, [user?.email])
+    setEmail(user?.email || "")
+    setPhone(user?.phone || "")
+  }, [user?.email, user?.phone])
 
   useEffect(() => {
     if (!user?.id) {
@@ -52,15 +55,49 @@ export default function ProfilePage() {
 
   if (!user) return null
 
-  const nameParts = user.name ? user.name.trim().split(" ") : [""]
-  const firstName = nameParts[0] || ""
-  const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : ""
+  const nameParts = getStructuredName(user)
+  const displayName = formatDisplayName(user, user.name || "Client")
 
-  const handleSaveProfile = () => {
-    toast({
-      title: "Profile Updated",
-      description: "Your contact details have been successfully saved.",
-    })
+  const handleSaveProfile = async () => {
+    if (!user || isSavingProfile) return
+
+    const nextEmail = email.trim().toLowerCase()
+    const currentEmail = user.email.trim().toLowerCase()
+    if (nextEmail !== currentEmail && !emailPassword.trim()) {
+      toast({
+        title: "Current password required",
+        description: "Enter your current password to securely change your email address.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSavingProfile(true)
+    try {
+      const persistedProfile = await updateProfileDetails({
+        email: nextEmail,
+        phone,
+        currentPassword: emailPassword,
+      })
+      setEmail(persistedProfile.email)
+      setPhone(persistedProfile.phone)
+      setEmailPassword("")
+      toast({
+        title: "Profile Updated",
+        description: "Your contact details have been saved to your account.",
+      })
+    } catch (error) {
+      await refreshUser()
+      setEmail(user.email)
+      setPhone(user.phone || "")
+      toast({
+        title: "Profile update failed",
+        description: error instanceof Error ? error.message : "Unable to update your profile. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSavingProfile(false)
+    }
   }
 
   const handleChangePassword = () => {
@@ -123,11 +160,11 @@ export default function ProfilePage() {
         <Card className="overflow-hidden rounded-2xl border-slate-200 bg-white shadow-sm">
         <CardContent className="p-0">
           <div className="border-b border-slate-100 bg-white p-5 sm:p-6">
-            <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-center sm:justify-start">
               <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center sm:gap-5 sm:min-w-0">
                 <ProfilePictureUploader
                   value={profilePicture || ""}
-                  fallbackName={user.name || "Client"}
+                  fallbackName={displayName}
                   onChange={handleProfilePictureChange}
                   onError={(message) =>
                     toast({
@@ -144,7 +181,7 @@ export default function ProfilePage() {
                     Client Account
                   </p>
                   <h2 className="mt-1 break-words text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">
-                    {user.name || "Client"}
+                    {displayName}
                   </h2>
                   <p className="mt-1 break-words text-sm font-medium text-slate-500">
                     {user.email}
@@ -152,17 +189,6 @@ export default function ProfilePage() {
                 </div>
               </div>
 
-              <div className="flex flex-col items-center gap-2 sm:items-end">
-                <div className="flex w-fit items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-emerald-700">
-                  <ShieldCheck className="h-5 w-5 shrink-0" />
-                  <span className="text-xs font-black uppercase tracking-[0.2em]">
-                    Active Account
-                  </span>
-                </div>
-                <p className="text-[10px] font-semibold text-slate-400">
-                  Signed in as a {user.role}
-                </p>
-              </div>
             </div>
           </div>
 
@@ -200,7 +226,15 @@ export default function ProfilePage() {
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <FieldWrapper label="First Name">
                     <Input
-                      value={firstName}
+                      value={nameParts.firstName}
+                      disabled
+                      className="h-11 cursor-not-allowed rounded-xl border-slate-200 bg-slate-100 font-medium text-slate-500"
+                    />
+                  </FieldWrapper>
+
+                  <FieldWrapper label="Middle Name">
+                    <Input
+                      value={nameParts.middleName}
                       disabled
                       className="h-11 cursor-not-allowed rounded-xl border-slate-200 bg-slate-100 font-medium text-slate-500"
                     />
@@ -208,7 +242,7 @@ export default function ProfilePage() {
 
                   <FieldWrapper label="Last Name">
                     <Input
-                      value={lastName}
+                      value={nameParts.lastName}
                       disabled
                       className="h-11 cursor-not-allowed rounded-xl border-slate-200 bg-slate-100 font-medium text-slate-500"
                     />
@@ -226,6 +260,18 @@ export default function ProfilePage() {
                     </div>
                   </FieldWrapper>
 
+                  {email.trim().toLowerCase() !== user.email.trim().toLowerCase() && (
+                    <FieldWrapper label="Current Password">
+                      <Input
+                        type="password"
+                        value={emailPassword}
+                        onChange={(e) => setEmailPassword(e.target.value)}
+                        placeholder="Required to change email"
+                        className="h-11 rounded-xl border-slate-200 focus-visible:ring-orange-600"
+                      />
+                    </FieldWrapper>
+                  )}
+
                   <FieldWrapper label="Phone Number">
                     <div className="relative">
                       <Phone className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -242,10 +288,11 @@ export default function ProfilePage() {
 
                 <Button
                   onClick={handleSaveProfile}
-                  className="h-11 w-full rounded-xl bg-orange-600 px-8 font-bold text-white hover:bg-orange-700 sm:w-auto"
+                  disabled={isSavingProfile}
+                  className="h-11 w-full rounded-xl bg-orange-600 px-8 font-bold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                 >
                   <Save className="mr-2 h-4 w-4" />
-                  Save Changes
+                  {isSavingProfile ? "Saving..." : "Save Changes"}
                 </Button>
               </div>
             </TabsContent>

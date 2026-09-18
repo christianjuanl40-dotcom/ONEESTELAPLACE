@@ -423,32 +423,34 @@ const openActionModal = (payment: BookingRecord, type: PaymentAction, submission
     try {
       // Use BookingContext as single source of truth for payment actions
       const reviewerName = user?.name || "Administrator"
+      let updatedBooking: BookingRecord
       if (type === "verify") {
-        bookingCtx.verifyPayment(bookingId, {
+        const result = await bookingCtx.reviewPayment(bookingId, {
           verifiedAmount: amount,
           adminNote: note || undefined,
           adminName: reviewerName,
           paymentRecordId,
         })
+        updatedBooking = {
+          ...payment,
+          ...result.booking,
+          paymentRecordId: result.payment.id,
+          incomingPayments: (payment.incomingPayments || []).map((record: PaymentRecord) =>
+            record.id === result.payment.id ? result.payment : record,
+          ),
+        }
       } else if (type === "reject") {
         bookingCtx.rejectPayment(bookingId, note, reviewerName, paymentRecordId)
+        updatedBooking = buildRejectedPaymentBooking(payment, note)
       } else if (type === "incomplete") {
         // verifiedAmount = the money actually received on this attempt (the
         // record's submitted amount when no other figure was captured). It
         // must NEVER be 0 — an INCOMPLETE payment keeps its real amount and
         // stays credited toward completing the required downpayment.
         bookingCtx.markIncompletePayment(bookingId, { verifiedAmount: amount || getPaymentRecordAmount(paymentSubmissionById(paymentRecordId)), adminNote: note, adminName: reviewerName, paymentRecordId })
+        updatedBooking = buildIncompletePaymentBooking(payment, note, 0)
       }
 
-      let updatedBooking: BookingRecord
-      const paymentForAction = amount ? { ...payment, paymentAmount: amount, pendingPaymentAmount: amount } : payment
-      if (type === "verify") {
-        updatedBooking = buildVerifiedPaymentBooking(paymentForAction)
-      } else if (type === "reject") {
-        updatedBooking = buildRejectedPaymentBooking(paymentForAction, note)
-      } else {
-        updatedBooking = buildIncompletePaymentBooking(paymentForAction, note, 0)
-      }
       if (updatedBooking && !updatedBooking.proofUrl) {
         const matchingPayment = paymentSubmissionById(paymentRecordId)
         if (matchingPayment?.proofUrl) {
@@ -512,32 +514,39 @@ const openActionModal = (payment: BookingRecord, type: PaymentAction, submission
             onsiteVerifyTarget
               ? getRecordsForBooking(bookingCtx.paymentRecords || [], onsiteVerifyTarget.id)
               : []
-          }
-          onClose={() => setOnsiteVerifyTarget(null)}
-          onConfirm={(updatedBooking) => {
-            // Use BookingContext verifyPayment as single source of truth
-            const paymentRecordId = (updatedBooking as BookingRecord).paymentRecordId
-            bookingCtx.verifyPayment(updatedBooking.id, {
-              verifiedAmount: updatedBooking.lastPaymentAmount || updatedBooking.paymentVerifiedAmount,
-              adminNote: updatedBooking.adminLogs?.[updatedBooking.adminLogs.length - 1]?.message || undefined,
-              adminName: user?.name || "Administrator",
-              paymentRecordId,
-            })
-            let updated = updatedBooking
-            if (!updated.proofUrl && updatedBooking.submissionAmount) {
-              const matchingPayment = paymentSubmissionById(paymentRecordId)
-              if (matchingPayment?.proofUrl) {
-                updated = { ...updated, proofUrl: matchingPayment.proofUrl }
+           }
+           onClose={() => setOnsiteVerifyTarget(null)}
+          onConfirm={async (updatedBooking) => {
+            try {
+              const paymentRecordId = (updatedBooking as BookingRecord).paymentRecordId
+              const result = await bookingCtx.reviewPayment(updatedBooking.id, {
+                verifiedAmount: updatedBooking.lastPaymentAmount || updatedBooking.paymentVerifiedAmount,
+                adminNote: updatedBooking.adminLogs?.[updatedBooking.adminLogs.length - 1]?.message || undefined,
+                adminName: user?.name || "Administrator",
+                paymentRecordId,
+              })
+              let updated = { ...updatedBooking, ...result.booking, paymentRecordId: result.payment.id }
+              if (!updated.proofUrl && updatedBooking.submissionAmount) {
+                const matchingPayment = paymentSubmissionById(paymentRecordId)
+                if (matchingPayment?.proofUrl) {
+                  updated = { ...updated, proofUrl: matchingPayment.proofUrl }
+                }
               }
+              setSelectedPayment(updated)
+              setOnsiteVerifyTarget(null)
+              toast({
+                title: "Onsite Payment Verified",
+                description: `Onsite payment verified for booking ${updatedBooking.id}.`,
+                className: "border-none bg-emerald-500 text-white",
+              })
+            } catch (error) {
+              console.error("Onsite payment verification error:", error)
+              toast({
+                title: "Action Failed",
+                description: error instanceof Error ? error.message : "Something went wrong while verifying the payment.",
+                variant: "destructive",
+              })
             }
-            setSelectedPayment(updated)
-            ensureReceiptForVerifiedBooking(updated)
-            setOnsiteVerifyTarget(null)
-            toast({
-              title: "Onsite Payment Verified",
-              description: `Onsite payment verified for booking ${updatedBooking.id}.`,
-              className: "border-none bg-emerald-500 text-white",
-            })
           }}
         />
         <IncompletePaymentModal
@@ -2486,7 +2495,7 @@ function IncompletePaymentModal({
   booking: BookingRecord | null
   paymentRecords?: PaymentRecordLike[] | null
   onClose: () => void
-  onConfirm: (updated: BookingRecord) => void
+  onConfirm: (updated: BookingRecord) => void | Promise<void>
 }) {
   const [verifiedAmount, setVerifiedAmount] = useState("")
   const [adminReason, setAdminReason] = useState("")
@@ -2756,7 +2765,7 @@ function OnsiteVerifyModal({
   // INCOMPLETE money is always respected.
   paymentRecords?: PaymentRecordLike[] | null
   onClose: () => void
-  onConfirm: (updated: BookingRecord) => void
+  onConfirm: (updated: BookingRecord) => void | Promise<void>
 }) {
   const [amountReceived, setAmountReceived] = useState("")
   const [adminNote, setAdminNote] = useState("")

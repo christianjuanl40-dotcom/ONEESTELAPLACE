@@ -53,6 +53,10 @@ rulesSuite("Firestore security rules", () => {
           role: "client",
           status: "active",
         }),
+        firestore.collection("users").doc("another-client").set({
+          role: "client",
+          status: "active",
+        }),
         firestore.collection("bookings").doc("BK001").set({ userId: "client" }),
         firestore.collection("bookings").doc("BK002").set({ userId: "another-client" }),
         firestore.collection("bookings").doc("BK003").set({
@@ -92,6 +96,40 @@ rulesSuite("Firestore security rules", () => {
 
     await assertSucceeds(firestore.collection("bookings").get())
     await assertFails(firestore.collection("payments").get())
+  })
+
+  it("does not let clients verify a payment record", async () => {
+    await seedProfilesAndRecords()
+    const firestore = testEnv.authenticatedContext("client").firestore()
+
+    await assertFails(
+      firestore.collection("payments").doc("PAY001").update({
+        status: "Verified",
+        verificationStatus: "Verified",
+      }),
+    )
+  })
+
+  it("limits client profile updates to the authenticated user's contact fields", async () => {
+    await seedProfilesAndRecords()
+    const firestore = testEnv.authenticatedContext("client").firestore()
+
+    await assertSucceeds(
+      firestore.collection("users").doc("client").update({
+        email: "updated@example.com",
+        phone: "+63 900 000 0000",
+      }),
+    )
+    await assertFails(
+      firestore.collection("users").doc("another-client").update({
+        email: "attacker@example.com",
+      }),
+    )
+    await assertFails(
+      firestore.collection("users").doc("client").update({
+        role: "admin",
+      }),
+    )
   })
 
   it("limits admin notifications to the staff member's permission area", async () => {

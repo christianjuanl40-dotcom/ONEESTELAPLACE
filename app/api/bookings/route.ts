@@ -7,6 +7,7 @@ import {
   isApiAuthError,
   requireAuthenticatedUser,
 } from "@/lib/server-auth"
+import { formatDisplayName } from "@/src/modules/shared/lib/name-utils"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -288,7 +289,7 @@ export async function POST(request: NextRequest) {
       const venue = catalog.isOffice && roomNumber
         ? `${String(catalog.item.name || venueId)} - Room ${roomNumber}`
         : String(catalog.item.name || venueId)
-      const fullName = user.fullName || "Client"
+       const fullName = formatDisplayName(user, user.fullName || "Client")
 
       const booking = {
         uid: user.uid,

@@ -54,6 +54,11 @@ export interface PaymentRecordLike {
   id?: string
   bookingId?: unknown
   bookingCode?: unknown
+  customerId?: unknown
+  customerName?: unknown
+  eventName?: unknown
+  venueName?: unknown
+  term?: unknown
   status?: unknown
   verificationStatus?: unknown
   method?: unknown
@@ -72,6 +77,12 @@ export interface PaymentRecordLike {
   requestedAmount?: unknown
   submittedAt?: unknown
   updatedAt?: unknown
+  reviewedAt?: unknown
+  reviewedBy?: unknown
+  adminNote?: unknown
+  rejectionReason?: unknown
+  receiptNumber?: unknown
+  isRemainingDownPayment?: unknown
 }
 
 export interface BookingLike {

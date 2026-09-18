@@ -8,6 +8,7 @@ import {
   isApiAuthError,
   requireAuthenticatedUser,
 } from "@/lib/server-auth"
+import { formatDisplayName } from "@/src/modules/shared/lib/name-utils"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -212,7 +213,10 @@ export async function POST(request: NextRequest) {
       const total = getNumber(booking, "totalPrice")
       const currentPaid = Math.max(0, getNumber(booking, "amountPaid"))
       const paymentStatus = method === "cash" ? "Awaiting Onsite Payment" : "For Verification"
-      const fullName = user.fullName || String(booking.userInfo && isRecord(booking.userInfo) ? booking.userInfo.name : "Client")
+       const fullName = formatDisplayName(
+         user,
+         user.fullName || String(booking.userInfo && isRecord(booking.userInfo) ? booking.userInfo.name : "Client"),
+       )
       const paymentMethodLabel = method === "cash" ? "Pay at the Office" : "Bank Transfer"
       const termLabel = type === "downpayment" ? "Down Payment" : type === "full" ? "Full Payment" : "Slot Reservation"
 

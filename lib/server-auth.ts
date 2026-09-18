@@ -3,6 +3,7 @@ import {
   type StaffPermissions,
 } from "@/src/modules/shared/types/permissions"
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebase-admin"
+import { formatDisplayName, getStructuredName } from "@/src/modules/shared/lib/name-utils"
 
 export class ApiAuthError extends Error {
   readonly status: 400 | 401 | 403 | 404 | 409 | 413 | 500 | 503
@@ -16,16 +17,27 @@ export class ApiAuthError extends Error {
 
 export type AuthorizedBackofficeUser = {
   uid: string
+  authTime: number
   role: "admin" | "staff"
   permissions: Partial<StaffPermissions>
+  email?: string
+  fullName?: string
+  firstName?: string
+  middleName?: string
+  lastName?: string
+  phone?: string
 }
 
 export type AuthorizedUser = {
   uid: string
+  authTime: number
   role: "admin" | "staff" | "client"
   permissions: Partial<StaffPermissions>
   email?: string
   fullName?: string
+  firstName?: string
+  middleName?: string
+  lastName?: string
   phone?: string
 }
 
@@ -54,9 +66,11 @@ export async function requireAuthenticatedUser(request: Request): Promise<Author
   const token = getBearerToken(request)
 
   let uid: string
+  let authTime = 0
   try {
     const decoded = await getAdminAuth().verifyIdToken(token, true)
     uid = decoded.uid
+    authTime = typeof decoded.auth_time === "number" ? decoded.auth_time : 0
   } catch (error) {
     console.error("[API auth] ID token verification failed:", getErrorCode(error))
     throw new ApiAuthError(401, "Authentication is required.")
@@ -93,10 +107,12 @@ export async function requireAuthenticatedUser(request: Request): Promise<Author
 
   return {
     uid,
+    authTime,
     role: roleValue as AuthorizedUser["role"],
     permissions,
     email: typeof profile.email === "string" ? profile.email : undefined,
-    fullName: typeof profile.fullName === "string" ? profile.fullName : undefined,
+    fullName: formatDisplayName(profile),
+    ...getStructuredName(profile),
     phone: typeof profile.phone === "string" ? profile.phone : undefined,
   }
 }

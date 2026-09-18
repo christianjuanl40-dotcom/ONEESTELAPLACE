@@ -444,7 +444,7 @@ interface BookingContextType {
     adminNote?: string;
     adminName?: string;
   }) => Booking | null;
-  verifyPayment: (id: string, reviewData?: { verifiedAmount?: number; adminNote?: string; adminName?: string; paymentRecordId?: string }) => void;
+  reviewPayment: (id: string, reviewData?: { verifiedAmount?: number; adminNote?: string; adminName?: string; paymentRecordId?: string }) => Promise<{ booking: Booking; payment: PaymentRecord }>;
   rejectPayment: (id: string, reason?: string, adminName?: string, paymentRecordId?: string) => void;
   markIncompletePayment: (id: string, data: { verifiedAmount: number; adminNote: string; adminName?: string; paymentRecordId?: string }) => void;
   toggleMaintenanceDate: (date: string, venueId: string) => void;
@@ -3453,7 +3453,8 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           .find((record) => isUnresolvedPaymentRecord(record))
       }
       if (!target) return
-      const { id: _id, ...data } = { ...target, ...patch }
+      const { id: _id, ...rawData } = { ...target, ...patch }
+      const data = stripUndefinedDeep(rawData) as Partial<PaymentRecord>
       const previousStatus = String(target.status || target.verificationStatus || "").trim() || "for_review"
       const nextStatus = String(data.status || data.verificationStatus || "").trim() || previousStatus
       if (previousStatus !== nextStatus) {
@@ -3509,257 +3510,53 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       .find((record) => isUnresolvedPaymentRecord(record))?.id
   }
 
-  const verifyPayment = (id: string, reviewData?: { verifiedAmount?: number; adminNote?: string; adminName?: string; paymentRecordId?: string }) => {
-    const winningBooking = bookings.find((b) => b.id === id && isOfficeBooking(b));
-    const winningRoomKey = winningBooking ? getRoomKey(winningBooking) : "";
-    // The receipt generated below must reference THIS verified payment only.
-    const receiptPaymentId = resolveReceiptPaymentId(id, reviewData?.paymentRecordId)
-
-    const updatedBookings = bookings.map((booking) => {
-      if (booking.id !== id) {
-        if (winningRoomKey && isActiveCompetingBooking(booking) && getRoomKey(booking) === winningRoomKey) {
-          return {
-            ...booking,
-            status: "cancelled" as BookingStatus,
-            bookingStatus: "Cancelled",
-            cancellationStatus: "Approved" as const,
-            cancellationReviewedAt: new Date().toISOString(),
-            cancellationStatusLabel: "Cancellation Approved",
-            adminCancelDecision: "Auto-cancelled",
-            adminCancelReason:
-              "Another customer completed payment for this office room before your payment was verified. Please choose another available room.",
-            cancellationReason:
-              "Another customer completed payment for this office room before your payment was verified.",
-            lastActivityAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            adminLogs: makeAdminLog(
-              booking,
-              "AUTO_CANCELLED_COMPETING_BOOKING",
-              "This booking was automatically cancelled because another customer's payment for the same office room was verified first.",
-            ),
-          } as Booking;
-        }
-        return booking;
-      }
-
-      if (isOfficeBooking(booking)) {
-        const total = getSafePrice(booking.totalPrice);
-        const currentAmountPaid = typeof booking.amountPaid === "number" ? booking.amountPaid : 0;
-        const verifiedAmount = reviewData?.verifiedAmount || (typeof booking.paymentAmount === "number" ? booking.paymentAmount : total);
-        const newAmountPaid = currentAmountPaid + verifiedAmount;
-        const isFullyPaid = newAmountPaid >= total;
-
-        const officeUpdated: Booking = {
-          ...booking,
-          status: isFullyPaid ? "reservation_secured" : ("verifying" as BookingStatus),
-          bookingStatus: isFullyPaid ? "Slot Secured" : "Pending Verification",
-          isSlotSecured: isFullyPaid,
-          paymentStatus: isFullyPaid ? ("paid" as PaymentStatus) : ("partial" as PaymentStatus),
-          paymentType: isFullyPaid ? "slot_reservation" as const : booking.paymentType,
-          amountPaid: newAmountPaid,
-          lastPaymentAmount: verifiedAmount,
-          remainingBalance: Math.max(total - newAmountPaid, 0),
-          remainingBalancePaid: isFullyPaid,
-          hasActivePaymentSubmission: false,
-          paymentVerifiedAt: new Date().toISOString(),
-          paymentVerifiedBy: reviewData?.adminName || "Administrator",
-          paymentVerifiedAmount: verifiedAmount,
-          contractSigningRequired: isFullyPaid,
-          officeReservationStatus: isFullyPaid
-            ? "reservation_secured" as OfficeReservationStatus
-            : booking.officeReservationStatus || "pending_verification" as OfficeReservationStatus,
-          officeContractSigningRequired: isFullyPaid,
-          verifiedByAdmin: true,
-          verifiedAt: new Date().toISOString(),
-          lastActivityAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          adminLogs: makeAdminLog(
-            booking,
-            "VERIFY_OFFICE_PAYMENT",
-            isFullyPaid
-              ? `Admin verified full office payment of ₱${verifiedAmount.toLocaleString()}. Reservation secured. Contract signing required.${reviewData?.adminNote ? ` Note: ${reviewData.adminNote}` : ""}`
-              : `Admin verified office payment of ₱${verifiedAmount.toLocaleString()}. Total paid: ₱${newAmountPaid.toLocaleString()}. Remaining reservation fee: ₱${Math.max(total - newAmountPaid, 0).toLocaleString()}.${reviewData?.adminNote ? ` Note: ${reviewData.adminNote}` : ""}`,
-          ),
-        };
-        // Verification updates THIS payment's own transaction receipt in place;
-        // a receipt is created here only if the submission pre-dates receipts.
-        // The receipt remainingBalance must reflect the canonical booking
-        // remaining AFTER this payment is verified — accounting for any money
-        // already credited from other payments (e.g. incomplete amounts).
-        const officeReceiptRemaining = computeReceiptRemaining(
-          getSafePrice(booking.totalPrice),
-          paymentRecords,
-          receiptPaymentId,
-          { amount: verifiedAmount, amountPaid: verifiedAmount, status: "Verified" },
-          booking.id,
-        );
-        return upsertVerifiedReceipt(officeUpdated, receiptPaymentId, {
-          amountPaid: verifiedAmount,
-          remainingBalance: officeReceiptRemaining,
-        });
-      }
-
-      const total = getSafePrice(booking.totalPrice);
-      const downpayment = getDownpaymentAmount(booking);
-      const isDownpayment = booking.paymentType === "downpayment";
-
-      const currentDownpaymentPaid = typeof booking.downpaymentPaid === "number" ? booking.downpaymentPaid : 0;
-      const currentAmountPaid = typeof booking.amountPaid === "number" ? booking.amountPaid : 0;
-
-      if (isDownpayment) {
-        const paymentAmount = reviewData?.verifiedAmount || (typeof booking.paymentAmount === "number" ? booking.paymentAmount : downpayment);
-        const selectedDP = typeof booking.selectedDownpaymentAmount === "number" && booking.selectedDownpaymentAmount > 0
-          ? booking.selectedDownpaymentAmount
-          : downpayment;
-        const newDownpaymentPaid = currentDownpaymentPaid + paymentAmount;
-        const newAmountPaid = currentAmountPaid + paymentAmount;
-
-        const updated = recalculatePaymentStage({
-          ...booking,
-          amountPaid: newAmountPaid,
-          lastPaymentAmount: paymentAmount,
-          downpaymentPaid: newDownpaymentPaid,
-          selectedDownpaymentAmount: selectedDP,
-          downpaymentRemaining: Math.max(selectedDP - newDownpaymentPaid, 0),
-          hasActivePaymentSubmission: false,
-          paymentVerifiedAt: new Date().toISOString(),
-          paymentVerifiedBy: reviewData?.adminName || "Administrator",
-          paymentVerifiedAmount: paymentAmount,
-        verifiedByAdmin: true,
-        verifiedAt: new Date().toISOString(),
-        contractSigningRequired: true,
-        contractSigned: booking.contractSigned || false,
-        contractStatus: booking.contractSigned ? "Signed" : "Pending Signature",
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-
-      const dpComplete = newDownpaymentPaid >= selectedDP;
-      const dpVerified: Booking = {
-        ...updated,
-        status: (dpComplete ? "confirmed" : "verifying") as BookingStatus,
-        bookingStatus: dpComplete ? "Confirmed" : "Pending Verification",
-        isSlotSecured: dpComplete,
-        verifiedByAdmin: true,
-        verifiedAt: new Date().toISOString(),
-        contractSigningRequired: true,
-        contractSigned: booking.contractSigned || false,
-        contractStatus: booking.contractSigned ? "Signed" : "Pending Signature",
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-          adminLogs: makeAdminLog(
-            booking,
-            "VERIFY_PAYMENT",
-            `${newDownpaymentPaid < selectedDP
-              ? `Admin verified downpayment of ₱${paymentAmount.toLocaleString()}. Downpayment remaining: ₱${(selectedDP - newDownpaymentPaid).toLocaleString()}.`
-              : newAmountPaid < total
-                ? `Admin verified payment of ₱${paymentAmount.toLocaleString()}. Remaining balance: ₱${(total - newAmountPaid).toLocaleString()}.`
-                : "Admin verified full payment and confirmed booking."}${reviewData?.adminNote ? ` Note: ${reviewData.adminNote}` : ""} Contract signing is still required.`,
-          ),
-        };
-        // Verification updates THIS payment's own transaction receipt in place;
-        // a receipt is created here only if the submission pre-dates receipts.
-        // The receipt remainingBalance must reflect the canonical booking
-        // remaining AFTER this payment is verified — accounting for any money
-        // already credited from other payments (e.g. incomplete amounts).
-        const dpReceiptRemaining = computeReceiptRemaining(
-          getSafePrice(booking.totalPrice),
-          paymentRecords,
-          receiptPaymentId,
-          { amount: paymentAmount, amountPaid: paymentAmount, status: "Verified" },
-          booking.id,
-        );
-        return upsertVerifiedReceipt(dpVerified, receiptPaymentId, {
-          amountPaid: paymentAmount,
-          remainingBalance: dpReceiptRemaining,
-        });
-      }
-
-      const paymentAmount = reviewData?.verifiedAmount || (typeof booking.paymentAmount === "number" ? booking.paymentAmount : total);
-      const newAmountPaid = currentAmountPaid + paymentAmount;
-
-      const fullVerified: Booking = {
-        ...booking,
-        status: "confirmed" as BookingStatus,
-        bookingStatus: "Confirmed",
-        isSlotSecured: true,
-        paymentStatus: newAmountPaid >= total ? ("paid" as PaymentStatus) : ("partial" as PaymentStatus),
-        amountPaid: newAmountPaid,
-        lastPaymentAmount: paymentAmount,
-        downpaymentPaid: 0,
-        downpaymentRemaining: 0,
-        remainingBalance: Math.max(total - newAmountPaid, 0),
-        remainingBalancePaid: newAmountPaid >= total,
-        hasActivePaymentSubmission: false,
-        paymentVerifiedAt: new Date().toISOString(),
-        paymentVerifiedBy: reviewData?.adminName || "Administrator",
-        paymentVerifiedAmount: paymentAmount,
-        verifiedByAdmin: true,
-        verifiedAt: new Date().toISOString(),
-        contractSigningRequired: true,
-        contractSigned: booking.contractSigned || false,
-        contractStatus: booking.contractSigned ? "Signed" : "Pending Signature",
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        adminLogs: makeAdminLog(
-          booking,
-          "VERIFY_PAYMENT",
-          `${newAmountPaid >= total
-            ? "Admin verified full payment and confirmed booking."
-            : `Admin verified payment of ₱${paymentAmount.toLocaleString()}.`}${reviewData?.adminNote ? ` Note: ${reviewData.adminNote}` : ""} Contract signing is still required.`,
-        ),
-      };
-      // Verification updates THIS payment's own transaction receipt in place.
-      // The receipt remainingBalance must reflect the canonical booking
-      // remaining AFTER this payment is verified — accounting for any money
-      // already credited from other payments (e.g. incomplete amounts).
-      const fullReceiptRemaining = computeReceiptRemaining(
-        getSafePrice(booking.totalPrice),
-        paymentRecords,
-        receiptPaymentId,
-        { amount: paymentAmount, amountPaid: paymentAmount, status: "Verified" },
-        booking.id,
-      );
-      return upsertVerifiedReceipt(fullVerified, receiptPaymentId, {
-        amountPaid: paymentAmount,
-        remainingBalance: fullReceiptRemaining,
-      });
-    });
-
-    saveBookings(updatedBookings);
-    // Keep the individual payment submission record in sync so the admin
-    // payment history shows this submission as VERIFIED.
-    markPaymentRecordReviewed(id, reviewData?.paymentRecordId, {
-      verificationStatus: "Verified",
-      status: "Verified",
-      reviewedBy: reviewData?.adminName || "Administrator",
-      reviewedAt: new Date().toISOString(),
-      adminNote: reviewData?.adminNote || "",
-    });
-    const verifiedRecord = reviewData?.paymentRecordId
-      ? paymentRecords.find((record) => record.id === reviewData?.paymentRecordId)
-      : undefined;
-    console.log("[PAYMENT] ADMIN VERIFIED PAYMENT", {
-      paymentId: verifiedRecord?.id ?? reviewData?.paymentRecordId ?? id,
-      bookingId: id,
-      amount: reviewData?.verifiedAmount ?? verifiedRecord?.amount ?? verifiedRecord?.amountPaid,
-      previousStatus: verifiedRecord
-        ? (verifiedRecord.status || verifiedRecord.verificationStatus || "unknown")
-        : "unknown",
-      newStatus: "Verified",
-    });
-    const verifiedBooking = bookings.find((b) => b.id === id);
-    if (verifiedBooking) {
-      createNotification({
-        type: "payment_approved",
-        title: "Payment Approved",
-        message: `Your payment for Booking ${verifiedBooking.id} has been approved.`,
-        bookingId: verifiedBooking.id,
-        userId: verifiedBooking.userId,
-        link: `/portal/payments?highlight=${verifiedBooking.id}`,
-      })
+  const reviewPayment = async (
+    id: string,
+    reviewData?: { verifiedAmount?: number; adminNote?: string; adminName?: string; paymentRecordId?: string },
+  ): Promise<{ booking: Booking; payment: PaymentRecord }> => {
+    const response = await fetch("/api/payments/review", {
+      method: "POST",
+      headers: await getAuthHeaders(true),
+      body: JSON.stringify({
+        action: "verify",
+        bookingId: id,
+        paymentRecordId: reviewData?.paymentRecordId,
+        verifiedAmount: reviewData?.verifiedAmount,
+        adminNote: reviewData?.adminNote || "",
+      }),
+    })
+    const responseBody = await response.json().catch(() => null) as {
+      error?: unknown
+      booking?: unknown
+      payment?: unknown
+    } | null
+    if (!response.ok) {
+      throw new Error(
+        responseBody && typeof responseBody.error === "string"
+          ? responseBody.error
+          : "Unable to verify the payment.",
+      )
     }
-  };
+
+    const updatedBooking = responseBody?.booking as Booking | undefined
+    const paymentRecord = responseBody?.payment as PaymentRecord | undefined
+    if (!updatedBooking || !paymentRecord) {
+      throw new Error("The payment server returned an invalid verification response.")
+    }
+
+    setBookings((current) => current.map((booking) => (
+      booking.id === id ? updatedBooking : booking
+    )))
+    setPaymentRecords((current) => (
+      current.some((payment) => payment.id === paymentRecord.id)
+        ? current.map((payment) => payment.id === paymentRecord.id ? paymentRecord : payment)
+        : [...current, paymentRecord]
+    ))
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("oneestela_payments_updated"))
+    }
+    return { booking: updatedBooking, payment: paymentRecord }
+  }
 
   const rejectPayment = (id: string, reason?: string, adminName?: string, paymentRecordId?: string) => {
     // Same record resolution as markPaymentRecordReviewed below.
@@ -3925,7 +3722,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       const total = getSafePrice(booking.totalPrice);
       // An INCOMPLETE payment is NOT accepted money: it contributes ₱0 to the
       // booking ledger. Only admin-VERIFIED payments are banked into
-      // amountPaid / downpaymentPaid (verifyPayment / settleRemainingBalance),
+      // amountPaid / downpaymentPaid (reviewPayment / settleRemainingBalance),
       // so those fields are left untouched here — banking the "amount received"
       // figure would inflate the accepted total and could push the overall
       // status to PARTIAL/FULLY PAID on money admin never verified.
@@ -5018,7 +4815,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         verifyCashPayment,
         settleRemainingBalance,
         manualRecordOnsitePayment,
-        verifyPayment,
+        reviewPayment,
         rejectPayment,
         markIncompletePayment,
         toggleMaintenanceDate,

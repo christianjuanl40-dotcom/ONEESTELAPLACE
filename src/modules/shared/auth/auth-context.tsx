@@ -12,6 +12,9 @@ import {
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  reload,
   signOut,
   onAuthStateChanged,
 } from "firebase/auth"
@@ -21,11 +24,17 @@ import { perfMark } from "@/src/modules/shared/lib/perf-trace"
 import type { StaffPermissions } from "@/src/modules/shared/types/permissions"
 import { DEFAULT_STAFF_PERMISSIONS } from "@/src/modules/shared/types/permissions"
 import { uploadToCloudinary, deleteFromCloudinary, extractPublicId } from "@/src/modules/shared/lib/cloudinary"
+import { formatDisplayName, getStructuredName } from "@/src/modules/shared/lib/name-utils"
+import { getAuthHeaders } from "@/src/modules/shared/lib/auth-token"
+import { normalizeProfileContactUpdate } from "@/src/modules/shared/lib/profile-utils"
 
 export interface AppUser {
   id: string
   fullName: string
   name: string
+  firstName?: string
+  middleName?: string
+  lastName?: string
   email: string
   role: "admin" | "client" | "staff"
   profilePicture: string
@@ -49,6 +58,12 @@ export interface SignupInput {
   profilePicture?: string
 }
 
+export interface ProfileContactUpdateInput {
+  email: string
+  phone: string
+  currentPassword?: string
+}
+
 export interface AuthContextValue {
   user: AppUser | null
   isLoading: boolean
@@ -58,6 +73,7 @@ export interface AuthContextValue {
   logout: () => void
   updateProfilePicture: (dataUrl: string) => Promise<void>
   removeProfilePicture: () => Promise<void>
+  updateProfileDetails: (input: ProfileContactUpdateInput) => Promise<{ email: string; phone: string }>
   refreshUser: () => void
 }
 
@@ -82,6 +98,25 @@ function getFirebaseErrorMessage(error: any): string {
       return "Network error. Please check your connection."
     default:
       return error?.message || "An unexpected error occurred."
+  }
+}
+
+function getProfileUpdateErrorMessage(error: unknown): string {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: unknown }).code || "")
+    : ""
+
+  switch (code) {
+    case "auth/wrong-password":
+    case "auth/invalid-credential":
+      return "The current password is incorrect."
+    case "auth/requires-recent-login":
+    case "auth/user-token-expired":
+      return "For security, sign in again before changing your email address."
+    case "auth/too-many-requests":
+      return "Too many attempts. Please try again later."
+    default:
+      return error instanceof Error ? error.message : "Unable to update your profile. Please try again."
   }
 }
 
@@ -113,6 +148,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               setUser(null)
             } else {
               const validRole = rawRole as AppUser["role"]
+              const nameParts = getStructuredName(data)
+              const fullName = formatDisplayName({ ...nameParts, fullName: data.fullName, name: data.name })
               const permissions: StaffPermissions | undefined =
                 validRole === "staff"
                   ? { ...DEFAULT_STAFF_PERMISSIONS, ...(data.permissions || {}) }
@@ -122,8 +159,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   prev &&
                   prev.id === firebaseUser.uid &&
                   prev.role === validRole &&
-                  prev.fullName === (data.fullName || "") &&
-                  prev.email === (data.email || firebaseUser.email || "") &&
+                  prev.fullName === fullName &&
+                  prev.firstName === nameParts.firstName &&
+                  prev.middleName === nameParts.middleName &&
+                  prev.lastName === nameParts.lastName &&
+                  prev.email === (firebaseUser.email || data.email || "") &&
                   prev.profilePicture === (data.profilePicture || "") &&
                   prev.status === (data.status || "active") &&
                   prev.phone === (data.phone || "") &&
@@ -133,9 +173,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 }
                 return {
                   id: firebaseUser.uid,
-                  fullName: data.fullName || "",
-                  name: data.fullName || "",
-                  email: data.email || firebaseUser.email || "",
+                  fullName,
+                  name: fullName,
+                  firstName: nameParts.firstName,
+                  middleName: nameParts.middleName,
+                  lastName: nameParts.lastName,
+                  email: firebaseUser.email || data.email || "",
                   role: validRole,
                   profilePicture: data.profilePicture || "",
                   createdAt: data.createdAt || new Date().toISOString(),
@@ -196,6 +239,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           id: credential.user.uid,
           fullName: recoveredData.fullName,
           name: recoveredData.fullName,
+          firstName: "",
+          middleName: "",
+          lastName: "",
           email: recoveredData.email,
           role: "client",
           profilePicture: "",
@@ -219,24 +265,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const role = rawRole as AppUser["role"]
+      const nameParts = getStructuredName(data)
+      const fullName = formatDisplayName({ ...nameParts, fullName: data.fullName, name: data.name })
       const permissions: StaffPermissions | undefined =
         role === "staff"
           ? { ...DEFAULT_STAFF_PERMISSIONS, ...(data.permissions || {}) }
           : undefined
 
-        setUser({
-          id: credential.user.uid,
-          fullName: data.fullName || "",
-          name: data.fullName || "",
-          email: data.email || credential.user.email || email,
-          role,
-          profilePicture: data.profilePicture || "",
-          createdAt: data.createdAt || new Date().toISOString(),
-          status: data.status || "active",
-          phone: data.phone || "",
-          position: data.position || "",
-          permissions,
-        })
+      setUser({
+        id: credential.user.uid,
+        fullName,
+        name: fullName,
+        firstName: nameParts.firstName,
+        middleName: nameParts.middleName,
+        lastName: nameParts.lastName,
+        email: credential.user.email || data.email || email,
+        role,
+        profilePicture: data.profilePicture || "",
+        createdAt: data.createdAt || new Date().toISOString(),
+        status: data.status || "active",
+        phone: data.phone || "",
+        position: data.position || "",
+        permissions,
+      })
 
       return { success: true, role }
     } catch (error: any) {
@@ -251,10 +302,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const credential = await createUserWithEmailAndPassword(auth, input.email, input.password)
       uid = credential.user.uid
 
-      const fullName = [input.firstName, input.middleName, input.lastName]
-        .filter(Boolean)
-        .join(" ")
-        .trim()
+      const firstName = input.firstName.trim()
+      const middleName = input.middleName?.trim() || ""
+      const lastName = input.lastName.trim()
+      const fullName = formatDisplayName({ firstName, middleName, lastName })
       const role = "client"
       const createdAt = new Date().toISOString()
       const userDocRef = doc(db, "users", uid)
@@ -263,9 +314,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         uid,
         email: input.email.toLowerCase().trim(),
         fullName,
-        firstName: input.firstName,
-        middleName: input.middleName || "",
-        lastName: input.lastName,
+        firstName,
+        middleName,
+        lastName,
         phone: input.phone || "",
         role,
         profilePicture: "",
@@ -289,6 +340,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         id: uid,
         fullName,
         name: fullName,
+        firstName,
+        middleName,
+        lastName,
         email: input.email.toLowerCase().trim(),
         role: role as AppUser["role"],
         profilePicture: "",
@@ -365,6 +419,87 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [user])
 
+  const updateProfileDetails = useCallback(async (input: ProfileContactUpdateInput) => {
+    const currentUser = auth.currentUser
+    if (!currentUser) throw new Error("Authentication is required.")
+
+    let contactUpdate
+    try {
+      contactUpdate = normalizeProfileContactUpdate(input)
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : "Invalid profile details.")
+    }
+
+    const currentAuthEmail = (currentUser.email || "").trim().toLowerCase()
+    const emailChanged = contactUpdate.email !== currentAuthEmail
+
+    if (emailChanged) {
+      if (!input.currentPassword?.trim()) {
+        throw new Error("Enter your current password to change your email address.")
+      }
+      if (!currentAuthEmail) {
+        throw new Error("This account does not have a password sign-in method for email changes.")
+      }
+      if (!currentUser.providerData.some((provider) => provider.providerId === "password")) {
+        throw new Error("Email changes require a recent password sign-in for this account.")
+      }
+
+      try {
+        const credential = EmailAuthProvider.credential(currentAuthEmail, input.currentPassword)
+        await reauthenticateWithCredential(currentUser, credential)
+      } catch (error) {
+        throw new Error(getProfileUpdateErrorMessage(error))
+      }
+    }
+
+    let response: Response
+    try {
+      response = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: await getAuthHeaders(true, emailChanged),
+        body: JSON.stringify(contactUpdate),
+      })
+    } catch (error) {
+      throw new Error(getProfileUpdateErrorMessage(error))
+    }
+
+    const responseBody = await response.json().catch(() => null) as {
+      error?: unknown
+      profile?: unknown
+    } | null
+    if (!response.ok) {
+      throw new Error(
+        responseBody && typeof responseBody.error === "string"
+          ? responseBody.error
+          : "Unable to update your profile. Please try again.",
+      )
+    }
+
+    let persistedProfile
+    try {
+      persistedProfile = normalizeProfileContactUpdate(
+        responseBody?.profile && typeof responseBody.profile === "object"
+          ? responseBody.profile as Record<string, unknown>
+          : {},
+      )
+    } catch {
+      throw new Error("The profile server returned an invalid update response.")
+    }
+
+    try {
+      await reload(currentUser)
+    } catch (error) {
+      console.warn("[Auth] Profile updated, but the local Auth session could not be reloaded:", error)
+    }
+
+    setUser((prev) => (
+      prev
+        ? { ...prev, email: persistedProfile.email, phone: persistedProfile.phone }
+        : prev
+    ))
+    return persistedProfile
+  }, [])
+
   const refreshUser = useCallback(async () => {
     if (!auth.currentUser) {
       setUser(null)
@@ -382,15 +517,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return
         }
         const refreshedRole = rawRole as AppUser["role"]
+        const nameParts = getStructuredName(data)
+        const fullName = formatDisplayName({ ...nameParts, fullName: data.fullName, name: data.name })
         const refreshedPermissions: StaffPermissions | undefined =
           refreshedRole === "staff"
             ? { ...DEFAULT_STAFF_PERMISSIONS, ...(data.permissions || {}) }
             : undefined
         setUser({
           id: auth.currentUser.uid,
-          fullName: data.fullName || "",
-          name: data.fullName || "",
-          email: data.email || auth.currentUser.email || "",
+          fullName,
+          name: fullName,
+          firstName: nameParts.firstName,
+          middleName: nameParts.middleName,
+          lastName: nameParts.lastName,
+          email: auth.currentUser.email || data.email || "",
           role: refreshedRole,
           profilePicture: data.profilePicture || "",
           createdAt: data.createdAt || new Date().toISOString(),
@@ -415,9 +555,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout,
       updateProfilePicture,
       removeProfilePicture,
+      updateProfileDetails,
       refreshUser,
     }),
-    [user, isLoading, login, signup, logout, updateProfilePicture, removeProfilePicture, refreshUser]
+    [user, isLoading, login, signup, logout, updateProfilePicture, removeProfilePicture, updateProfileDetails, refreshUser]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
