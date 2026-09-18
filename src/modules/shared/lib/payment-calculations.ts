@@ -108,6 +108,11 @@ export interface PaymentSummary {
   // Officially ACCEPTED money (admin-VERIFIED records only). Incomplete,
   // rejected, and pending payments never count here.
   acceptedVerifiedTotal: number
+  // Officially ACCEPTED down-payment money only. This intentionally excludes
+  // incomplete money because it is used for the DP detail breakdown, not the
+  // client balance/stage ledger below.
+  verifiedDownpaymentPaid: number
+  remainingVerifiedDownpayment: number
   // ALL valid money actually held: verified + received amounts of INCOMPLETE
   // payments. This drives balances, downpayment completion and stage flow.
   moneyReceivedTotal: number
@@ -186,11 +191,18 @@ export function isPendingPaymentRecord(record: PaymentRecordLike | null | undefi
     status === "for review" ||
     status === "for_review" ||
     status === "for verification" ||
+    status === "for_verification" ||
     status === "awaiting onsite payment" ||
     status === "pending" ||
+    status === "pending verification" ||
+    status === "pending_verification" ||
     verificationStatus === "for review" ||
     verificationStatus === "for_review" ||
+    verificationStatus === "for verification" ||
+    verificationStatus === "for_verification" ||
     verificationStatus === "pending" ||
+    verificationStatus === "pending verification" ||
+    verificationStatus === "pending_verification" ||
     verificationStatus === "pending onsite verification"
   )
 }
@@ -243,6 +255,36 @@ export function isUnresolvedPaymentRecord(
 
 export function getPaymentRecordAmount(record: PaymentRecordLike | null | undefined): number {
   return toPaymentAmount(record?.amount ?? record?.amountPaid ?? 0)
+}
+
+type PaymentRecordType = "downpayment" | "full" | "remaining_balance" | "slot_reservation" | "unknown"
+
+function getPaymentRecordType(record: PaymentRecordLike | null | undefined): PaymentRecordType {
+  if (!record) return "unknown"
+  const term = normalizePaymentStatusValue(record.term)
+
+  if (term.includes("down payment") || term.includes("downpayment")) return "downpayment"
+  if (term.includes("remaining") || term.includes("balance") || term.includes("settle")) {
+    return "remaining_balance"
+  }
+  if (term.includes("full")) return "full"
+  if (term.includes("slot") || term.includes("reservation")) return "slot_reservation"
+  return "unknown"
+}
+
+// A missing term is common on older payment records. For those records, the
+// booking type is the only available indication that the payment belonged to
+// the down-payment stage. Explicit balance/full/slot terms always win.
+export function isDownpaymentPaymentRecord(
+  record: PaymentRecordLike | null | undefined,
+  booking?: BookingLike,
+): boolean {
+  if (!record) return false
+  if (record.isRemainingDownPayment === true) return true
+
+  const recordType = getPaymentRecordType(record)
+  if (recordType !== "unknown") return recordType === "downpayment"
+  return normalizePaymentStatusValue(booking?.paymentType) === "downpayment"
 }
 
 // Money CREDITED toward completing the downpayment by this single record:
@@ -372,11 +414,16 @@ export function calculatePaymentSummary(
     else legacyStatus = "for_review"
 
     const creditTarget = requiredDownpayment > 0 ? requiredDownpayment : bookingTotal
+    const verifiedDownpaymentPaid = requiredDownpayment > 0
+      ? Math.min(Math.max(downpaymentPaid, amountPaid), requiredDownpayment)
+      : 0
 
     return {
       bookingTotal,
       requiredDownpayment,
       acceptedVerifiedTotal: amountPaid,
+      verifiedDownpaymentPaid,
+      remainingVerifiedDownpayment: Math.max(requiredDownpayment - verifiedDownpaymentPaid, 0),
       moneyReceivedTotal,
       remainingBalance,
       downpaymentComplete,
@@ -397,6 +444,16 @@ export function calculatePaymentSummary(
     0,
   )
   const acceptedVerifiedTotal = recordAcceptedTotal
+  const verifiedDownpaymentPaid = requiredDownpayment > 0
+    ? records.reduce(
+        (sum, record) =>
+          sum +
+          (isAcceptedPaymentRecord(record) && isDownpaymentPaymentRecord(record, base)
+            ? getPaymentRecordAmount(record)
+            : 0),
+        0,
+      )
+    : 0
   // DOWNPAYMENT CREDIT — money actually RECEIVED toward the downpayment:
   // every verified payment plus the received amount of short (incomplete)
   // payments. Rejected/pending records credit nothing. An INCOMPLETE record
@@ -478,6 +535,8 @@ export function calculatePaymentSummary(
     bookingTotal,
     requiredDownpayment,
     acceptedVerifiedTotal,
+    verifiedDownpaymentPaid,
+    remainingVerifiedDownpayment: Math.max(requiredDownpayment - verifiedDownpaymentPaid, 0),
     remainingBalance,
     downpaymentComplete,
     fullyPaid,

@@ -84,7 +84,37 @@ export function hasActiveCancellationRequest(booking: Record<string, unknown>): 
 }
 
 export function hasActiveModificationRequest(booking: Record<string, unknown>): boolean {
-  return normalizeStatus(booking.modificationStatus) === "under review"
+  const bookingStatus = normalizeStatus(booking.bookingStatus)
+  const status = normalizeStatus(booking.status)
+  const modificationStatus = normalizeStatus(booking.modificationStatus)
+  const modifyRequestStatus = normalizeStatus(booking.modifyRequestStatus)
+  const canonicalReviewStatus =
+    status === "modification_under_review" ||
+    status === "modification under review" ||
+    bookingStatus === "modification_under_review" ||
+    bookingStatus === "modification under review"
+
+  if (canonicalReviewStatus) return true
+
+  // `status`/`bookingStatus` are the canonical lifecycle fields. If either
+  // field is present and has already left review, older request aliases are
+  // stale and must not keep a resolved booking locked.
+  if (status || bookingStatus) return false
+
+  // These fields were introduced at different points in the modification
+  // flow. Treat all active representations as blocking a second request,
+  // while an explicit admin decision makes stale legacy flags harmless.
+  if (["approved", "declined"].includes(modificationStatus)) return false
+
+  return (
+    modificationStatus === "under review" ||
+    modificationStatus === "modification_under_review" ||
+    booking.modificationRequested === true ||
+    booking.modificationUnderReview === true ||
+    modifyRequestStatus === "pending" ||
+    modifyRequestStatus === "under review" ||
+    modifyRequestStatus === "modification under review"
+  )
 }
 
 export function isForVerificationStatus(booking: Record<string, unknown>): boolean {
@@ -189,7 +219,7 @@ export function isCancellationRequested(booking: Record<string, unknown>): boole
 }
 
 export function isModificationUnderReview(booking: Record<string, unknown>): boolean {
-  return normalizeStatus(booking.modificationStatus) === "modification_under_review"
+  return hasActiveModificationRequest(booking)
 }
 
 const ACTIVE_BOOKING_STATUSES = [

@@ -1754,7 +1754,7 @@ function BookingDetailsModal({
                     <Button
                       onClick={() => onSendReminder(booking.id)}
                       variant="outline"
-                      className="h-11 rounded-xl border-blue-200 px-4 text-sm font-black text-blue-700 hover:bg-blue-50"
+                      className="h-11 w-full rounded-xl border-blue-200 px-4 text-sm font-black text-blue-700 hover:bg-blue-50 sm:w-auto"
                     >
                       <Bell className="mr-1.5 h-3.5 w-3.5" />
                       Send Balance Reminder
@@ -1763,7 +1763,7 @@ function BookingDetailsModal({
                   {canRecord && (
                     <Button
                       onClick={() => onRecordOnsitePayment(booking.id)}
-                      className="h-11 rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700"
+                      className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700 sm:w-auto"
                     >
                       <DollarSign className="mr-1.5 h-3.5 w-3.5" />
                       Record Onsite Payment
@@ -1805,7 +1805,7 @@ function BookingDetailsModal({
                 <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
                   <Button
                     onClick={() => onRecordOnsitePayment(booking.id)}
-                    className="h-11 rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700"
+                    className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700 sm:w-auto"
                   >
                     <DollarSign className="mr-1.5 h-3.5 w-3.5" />
                     Record Onsite Payment
@@ -1825,7 +1825,7 @@ function BookingDetailsModal({
                       <Button
                         onClick={() => onSendReminder(booking.id)}
                         variant="outline"
-                        className="h-11 rounded-xl border-blue-200 px-4 text-sm font-black text-blue-700 hover:bg-blue-50"
+                        className="h-11 w-full rounded-xl border-blue-200 px-4 text-sm font-black text-blue-700 hover:bg-blue-50 sm:w-auto"
                       >
                         <Bell className="mr-1.5 h-3.5 w-3.5" />
                         Send Balance Reminder
@@ -1834,7 +1834,7 @@ function BookingDetailsModal({
                     {canDoRecordOnsite && onRecordOnsitePayment && (
                       <Button
                         onClick={() => onRecordOnsitePayment(booking.id)}
-                        className="h-11 rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700"
+                        className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700 sm:w-auto"
                       >
                         <DollarSign className="mr-1.5 h-3.5 w-3.5" />
                         Record Onsite Payment

@@ -67,7 +67,11 @@ import {
   type ReceiptPaperData,
 } from "@/src/modules/shared/components/receipt-paper"
 import { cn } from "@/src/modules/shared/lib/utils"
-import { getCurrentBooking, isActiveBooking } from "@/src/modules/shared/lib/booking-helpers"
+import {
+  getCurrentBooking,
+  hasActiveModificationRequest as bookingHasActiveModificationRequest,
+  isActiveBooking,
+} from "@/src/modules/shared/lib/booking-helpers"
 import { getRemainingDurationFromDates } from "@/src/modules/shared/lib/date-utils"
 import { useCMS } from "@/src/modules/admin/contexts/cms-context"
 import { getPublicSpacesFromData } from "@/src/modules/client/lib/venue-data"
@@ -830,12 +834,9 @@ function BookingDetailsModal({
     normalizeStatus((booking as any).cancelRequestStatus) === "pending" ||
     booking.status === "cancellation_requested"
 
-  const hasActiveModificationRequest =
-    normalizeStatus(booking.modificationStatus) === "under review" ||
-    normalizeStatus(booking.bookingStatus) === "modification under review" ||
-    booking.status === "modification_under_review" ||
-    (booking as any).modificationUnderReview === true ||
-    normalizeStatus((booking as any).modifyRequestStatus) === "pending"
+  const hasActiveModificationRequest = bookingHasActiveModificationRequest(
+    booking as unknown as Record<string, unknown>,
+  )
 
   const hasCancellationHistory =
     !!booking.cancellationStatus &&
@@ -850,6 +851,7 @@ function BookingDetailsModal({
 
   const showModify =
     !["cancelled", "declined", "completed", "rental_expired"].includes(String(booking.status || "").toLowerCase()) &&
+    !hasActiveCancellationRequest &&
     booking.cancellationStatus !== "Approved" &&
     !hasCancellationHistory
 

@@ -7,6 +7,7 @@ import {
   type PaymentRecordLike,
   type PaymentSummary,
 } from "./payment-calculations"
+import { normalizeStatus } from "./booking-helpers"
 
 export interface VerifiedPaymentTransition {
   booking: Record<string, unknown>
@@ -115,6 +116,20 @@ export function buildVerifiedPaymentTransition(
         ? "Complete Downpayment"
         : "Initial Payment"
 
+  // Payment verification must not resolve or hide a separate modification
+  // request. The admin still needs to review that request before the booking
+  // can return to its previous status.
+  const modificationUnderReview =
+    normalizeStatus(booking.status) === "modification_under_review" ||
+    normalizeStatus(booking.status) === "modification under review" ||
+    normalizeStatus(booking.bookingStatus) === "modification under review"
+  const nextStatus = modificationUnderReview
+    ? String(booking.status || "modification_under_review")
+    : status
+  const nextBookingStatus = modificationUnderReview
+    ? String(booking.bookingStatus || "Modification Under Review")
+    : bookingStatus
+
   const message = summary.fullyPaid
     ? "Admin verified payment. The booking is fully paid."
     : summary.downpaymentComplete
@@ -123,8 +138,8 @@ export function buildVerifiedPaymentTransition(
 
   const updatedBooking: Record<string, unknown> = {
     ...booking,
-    status,
-    bookingStatus,
+    status: nextStatus,
+    bookingStatus: nextBookingStatus,
     paymentStatus,
     paymentStage,
     balanceStatus: summary.fullyPaid ? "Settled" : "With Remaining Balance",

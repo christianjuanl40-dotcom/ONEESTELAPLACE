@@ -258,6 +258,8 @@ export interface Booking {
 
   modificationRequested?: boolean;
   modificationStatus?: ModificationStatus;
+  modificationUnderReview?: boolean;
+  modifyRequestStatus?: string;
   modificationReason?: string;
   modificationRequestedAt?: string;
   modificationReviewedAt?: string;
@@ -2717,6 +2719,8 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         status: restored.status,
         bookingStatus: restored.bookingStatus,
         modificationRequested: false,
+        modificationUnderReview: false,
+        modifyRequestStatus: "Approved",
         modificationStatus: "Approved" as ModificationStatus,
         modificationReviewedAt: new Date().toISOString(),
         modificationPreviousStatus: null,
@@ -2768,6 +2772,8 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         status: restored.status,
         bookingStatus: restored.bookingStatus,
         modificationRequested: false,
+        modificationUnderReview: false,
+        modifyRequestStatus: "Declined",
         modificationStatus: "Declined" as ModificationStatus,
         modificationDeclineReason: reason.trim(),
         modificationReviewedAt: new Date().toISOString(),

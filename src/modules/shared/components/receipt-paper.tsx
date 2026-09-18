@@ -14,6 +14,17 @@ function formatMoney(value?: number | string | null): string {
   }).format(num)
 }
 
+function formatMoneyIncludingZero(value?: number | string | null): string {
+  if (value === null || value === undefined || value === "") return "—"
+  const num = typeof value === "string" ? Number.parseFloat(value) : value
+  if (Number.isNaN(num)) return "—"
+  return new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency: "PHP",
+    minimumFractionDigits: 2,
+  }).format(num)
+}
+
 function formatReceiptDate(value?: string | null): string {
   if (!value) return "—"
   const d = new Date(value)
@@ -95,6 +106,12 @@ export interface ReceiptPaperData {
   isVerified: boolean
   isOfficeRental?: boolean
   contractTerm?: string | null
+  downpaymentBreakdown?: {
+    totalAmount: number
+    totalPaid: number
+    paymentUnderReview?: number | null
+    remainingBalance: number
+  }
 }
 
 export function ReceiptPaper({
@@ -118,6 +135,7 @@ export function ReceiptPaper({
   isVerified,
   isOfficeRental,
   contractTerm,
+  downpaymentBreakdown,
 }: ReceiptPaperData) {
   return (
     <div className="receipt-print mx-auto max-w-[680px]">
@@ -201,18 +219,44 @@ export function ReceiptPaper({
               label="Payment Type"
               value={paymentTypeLabel || "—"}
             />
-            <ReceiptPaperLine
-              label="Amount Paid"
-              value={amountPaid != null ? formatMoney(amountPaid) : "—"}
-              highlight
-            />
-            {!isOfficeRental && (
-              <ReceiptPaperLine
-                label="Remaining Balance"
-                value={
-                  remainingBalance != null ? formatMoney(remainingBalance) : "—"
-                }
-              />
+            {downpaymentBreakdown ? (
+              <>
+                <ReceiptPaperLine
+                  label="Total DP Amount"
+                  value={formatMoneyIncludingZero(downpaymentBreakdown.totalAmount)}
+                />
+                <ReceiptPaperLine
+                  label="Total DP Paid"
+                  value={formatMoneyIncludingZero(downpaymentBreakdown.totalPaid)}
+                />
+                {downpaymentBreakdown.paymentUnderReview != null && (
+                  <ReceiptPaperLine
+                    label="Payment Under Review"
+                    value={formatMoneyIncludingZero(downpaymentBreakdown.paymentUnderReview)}
+                    highlight
+                  />
+                )}
+                <ReceiptPaperLine
+                  label="Remaining DP Balance"
+                  value={formatMoneyIncludingZero(downpaymentBreakdown.remainingBalance)}
+                />
+              </>
+            ) : (
+              <>
+                <ReceiptPaperLine
+                  label="Amount Paid"
+                  value={amountPaid != null ? formatMoney(amountPaid) : "—"}
+                  highlight
+                />
+                {!isOfficeRental && (
+                  <ReceiptPaperLine
+                    label="Remaining Balance"
+                    value={
+                      remainingBalance != null ? formatMoney(remainingBalance) : "—"
+                    }
+                  />
+                )}
+              </>
             )}
           </ReceiptPaperSection>
 

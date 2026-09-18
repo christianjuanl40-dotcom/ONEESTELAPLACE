@@ -433,6 +433,63 @@ describe("TEST 8 — Multiple payments: ₱5,500 verified + ₱2,000 verified + 
   })
 })
 
+describe("Downpayment detail ledger", () => {
+  it("does not count a pending downpayment or reduce its remaining balance", () => {
+    const summary = calculatePaymentSummary(makeBooking(), [
+      makeRecord({ status: "For Verification", term: "Down Payment", amount: 2000 }),
+    ])
+
+    expect(summary.verifiedDownpaymentPaid).toBe(0)
+    expect(summary.remainingVerifiedDownpayment).toBe(7500)
+  })
+
+  it("counts a verified downpayment and reduces its remaining balance", () => {
+    const summary = calculatePaymentSummary(makeBooking(), [
+      makeRecord({ status: "Verified", term: "Down Payment", amount: 2000 }),
+    ])
+
+    expect(summary.verifiedDownpaymentPaid).toBe(2000)
+    expect(summary.remainingVerifiedDownpayment).toBe(5500)
+  })
+
+  it("does not count an incomplete payment toward Total DP Paid", () => {
+    const summary = calculatePaymentSummary(makeBooking(), [
+      makeRecord({
+        status: "Incomplete",
+        term: "Down Payment",
+        amount: 7500,
+        amountPaid: 5500,
+        amountReceived: 5500,
+      }),
+    ])
+
+    expect(summary.verifiedDownpaymentPaid).toBe(0)
+    expect(summary.remainingVerifiedDownpayment).toBe(7500)
+    expect(summary.downpaymentCreditedTotal).toBe(5500)
+  })
+
+  it("does not count a rejected payment toward Total DP Paid", () => {
+    const summary = calculatePaymentSummary(makeBooking(), [
+      makeRecord({ status: "Rejected", term: "Down Payment", amount: 2000 }),
+    ])
+
+    expect(summary.verifiedDownpaymentPaid).toBe(0)
+    expect(summary.remainingVerifiedDownpayment).toBe(7500)
+  })
+
+  it("sums multiple verified downpayments without counting a later balance payment", () => {
+    const summary = calculatePaymentSummary(makeBooking(), [
+      makeRecord({ id: "DP001", status: "Verified", term: "Down Payment", amount: 3000 }),
+      makeRecord({ id: "DP002", status: "Verified", term: "Down Payment", amount: 2000 }),
+      makeRecord({ id: "BAL001", status: "Verified", term: "Full Payment", amount: 7500 }),
+    ])
+
+    expect(summary.verifiedDownpaymentPaid).toBe(5000)
+    expect(summary.remainingVerifiedDownpayment).toBe(2500)
+    expect(summary.acceptedVerifiedTotal).toBe(12500)
+  })
+})
+
 describe("Edge cases", () => {
   it("for_review record has ₱0 credit and is pending", () => {
     const record = makeRecord({ status: "for_review", amount: 7500 })

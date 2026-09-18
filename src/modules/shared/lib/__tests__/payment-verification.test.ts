@@ -90,4 +90,26 @@ describe("authoritative payment verification transition", () => {
     expect(result.booking.paymentStatus).toBe("paid")
     expect(result.booking.paymentStage).toBe("Fully Paid")
   })
+
+  it("keeps an active modification request visible while verifying payment", () => {
+    const result = buildVerifiedPaymentTransition(
+      {
+        ...makeBooking(),
+        status: "modification_under_review",
+        bookingStatus: "Modification Under Review",
+        modificationRequested: true,
+        modificationStatus: "Under Review",
+      },
+      [makeRecord()],
+      makeRecord(),
+      {
+        verifiedAmount: 7500,
+        adminName: "Administrator",
+      },
+    )
+
+    expect(result.booking.status).toBe("modification_under_review")
+    expect(result.booking.bookingStatus).toBe("Modification Under Review")
+    expect(result.booking.paymentStatus).toBe("partial")
+  })
 })

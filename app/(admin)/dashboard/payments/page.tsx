@@ -1075,21 +1075,34 @@ function PaymentReviewModal({
   }, [payment.paymentReceipts, payment.receipt, storedReceipts])
 
   const totalAmount = getSafePrice(payment.totalPrice)
+  const selectedPaymentType = selected
+    ? mapPaymentTerm(selected.term, payment.paymentType)
+    : payment.paymentType
+  // A selected older Down Payment can belong to a booking whose newest
+  // submission is a balance/full payment. Keep the shared helper aware of the
+  // booking's DP requirement while still showing the selected record's type.
+  const summaryBase =
+    selectedPaymentType === "downpayment" && payment.paymentType !== "downpayment"
+      ? { ...payment, paymentType: "downpayment" }
+      : payment
   // Canonical money ledger / remaining balance — derived from the booking's
   // complete payment history, never from the stored booking fields, so Admin
   // and Client always agree. amountPaid shows ALL valid money received
   // (verified payments + received amounts of incomplete payments).
-  const paymentSummary = calculatePaymentSummary(payment, submissions)
-  const amountPaid = paymentSummary.moneyReceivedTotal
+  const paymentSummary = calculatePaymentSummary(summaryBase, submissions)
   const selectedAmount = selected
     ? getPaymentRecordAmount(selected)
-    : getSafePrice(payment.pendingPaymentAmount || payment.paymentAmount || amountPaid)
+    : getSafePrice(payment.pendingPaymentAmount || payment.paymentAmount || paymentSummary.moneyReceivedTotal)
+  const paymentUnderReviewAmount = selected
+    ? selectedAmount
+    : getSafePrice(payment.pendingPaymentAmount || payment.paymentAmount || 0)
   const remainingBalance = paymentSummary.remainingBalance
-  const dpTarget = paymentSummary.requiredDownpayment
-  const acceptedDPPaid = paymentSummary.downpaymentCreditedTotal
-  const thisSubmission = selectedAmount
   const submissionStatusLabel = selected ? getPaymentRecordStatusLabel(selected, receiptPool) : getPaymentStatusText(payment)
   const submittedAt = selected?.submittedAt || payment.paymentSubmittedAt || ""
+  const isDownpaymentPayment = selectedPaymentType === "downpayment"
+  const isPaymentUnderReview = selected
+    ? isPendingPaymentRecord(selected)
+    : isForReviewPayment(payment)
   const isActionable = selected
     ? isPendingPaymentRecord(selected)
     : isForReviewPayment(payment)
@@ -1170,6 +1183,7 @@ function PaymentReviewModal({
     )
     return exact || null
   }, [receiptPool, selected, payment.receipt])
+  const receiptHasDownpaymentBreakdown = isDownpaymentPayment && Boolean(matchedReceipt || !selected)
 
   const paperData: ReceiptPaperData = {
     fullName:
@@ -1214,7 +1228,7 @@ function PaymentReviewModal({
       ? "Slot Reservation Only"
       : matchedReceipt?.paymentPurpose ||
         matchedReceipt?.paymentType ||
-        getPaymentTypeLabel(payment.paymentType),
+        getPaymentTypeLabel(selectedPaymentType),
     totalAmount,
     amountPaid: getSafePrice(
       matchedReceipt?.amountPaid ??
@@ -1224,6 +1238,14 @@ function PaymentReviewModal({
     remainingBalance: getSafePrice(
       matchedReceipt?.remainingBalance ?? remainingBalance,
     ),
+    downpaymentBreakdown: isDownpaymentPayment
+      ? {
+          totalAmount: paymentSummary.requiredDownpayment,
+          totalPaid: paymentSummary.verifiedDownpaymentPaid,
+          paymentUnderReview: isPaymentUnderReview ? paymentUnderReviewAmount : null,
+          remainingBalance: paymentSummary.remainingVerifiedDownpayment,
+        }
+      : undefined,
     paymentStatus: matchedReceipt?.paymentStatus || submissionStatusLabel,
     isVerified: matchedReceipt
       ? [
@@ -1513,79 +1535,50 @@ function PaymentReviewModal({
                 </div>
               </ModalSection>
 
-              <ModalSection title="Amount Summary">
-                <div className="rounded-2xl border border-orange-100 bg-orange-50 p-5">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">
-                    {displayLabel}
-                  </p>
-
-                  <p className="mt-1 text-3xl font-black tracking-tight text-orange-600">
-                    {formatCurrency(displayAmount)}
-                  </p>
-
-                  <p className="mt-2 text-xs font-semibold text-orange-700/70">
-                    {getPaymentTypeLabel(payment.paymentType)}
-                  </p>
-                </div>
-              </ModalSection>
-
-              {payment.paymentType === "downpayment" && (acceptedDPPaid > 0 || thisSubmission > 0) ? (
-                <div className="rounded-2xl bg-slate-950 p-4 text-white">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
-                    Downpayment Summary
-                  </p>
-                  <div className="space-y-1.5 text-xs">
-                    <div className="flex justify-between gap-2">
-                      <span className="font-semibold text-slate-400 shrink-0">DP Target</span>
-                      <span className="font-bold text-white">₱{dpTarget.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between gap-2">
-                      <span className="font-semibold text-slate-400 shrink-0">Accepted DP Paid</span>
-                      <span className="font-bold text-white">₱{acceptedDPPaid.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between gap-2">
-                      <span className="font-semibold text-slate-400 shrink-0">{isIncompletePayment ? "This Payment Received" : "This Submission"}</span>
-                      <span className="font-bold text-amber-300">₱{(isIncompletePayment ? displayAmount : thisSubmission).toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between gap-2 border-t border-white/10 pt-1.5">
-                      <span className="font-semibold text-slate-400 shrink-0">{isIncompletePayment ? "Remaining DP" : "Remaining DP After Verification"}</span>
-                      <span className="font-bold text-emerald-400">₱{(isIncompletePayment ? paymentSummary.remainingDownpayment : Math.max(dpTarget - (acceptedDPPaid + thisSubmission), 0)).toLocaleString()}</span>
-                    </div>
-                  </div>
-                </div>
-              ) : payment.paymentType === "downpayment" ? (
-                <div className="rounded-2xl bg-slate-950 p-4 text-white">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-amber-300">
-                      <AlertCircle className="h-5 w-5" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-                        {paymentSummary.remainingDownpayment > 0
-                          ? "Downpayment Remaining"
-                          : acceptedDPPaid === 0 ? "Downpayment Target" : "Remaining Balance"}
-                      </p>
-                      <p className="mt-1 text-xl font-black">
-                        {formatCurrency(acceptedDPPaid === 0 ? dpTarget : remainingBalance)}
-                      </p>
-                    </div>
-                  </div>
-                  {paymentSummary.remainingDownpayment > 0 && (
-                    <p className="mt-2 text-[10px] font-semibold text-amber-300">
-                      Downpayment remaining: {formatCurrency(paymentSummary.remainingDownpayment)}
+              {!isDownpaymentPayment && (
+                <ModalSection title="Amount Summary">
+                  <div className="rounded-2xl border border-orange-100 bg-orange-50 p-5">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">
+                      {displayLabel}
                     </p>
-                  )}
-                </div>
-              ) : null}
+
+                    <p className="mt-1 text-3xl font-black tracking-tight text-orange-600">
+                      {formatCurrency(displayAmount)}
+                    </p>
+
+                    <p className="mt-2 text-xs font-semibold text-orange-700/70">
+                      {getPaymentTypeLabel(selectedPaymentType)}
+                    </p>
+                  </div>
+                </ModalSection>
+              )}
 
               <ModalSection title="Payment Details">
                 <div className="space-y-3 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                  <InfoLine label="Method" value={getPaymentMethodLabel(selectedMethod)} />
+                  <InfoLine label="Payment Method" value={getPaymentMethodLabel(selectedMethod)} />
                   {selectedMethod === "bank" && (
                     <InfoLine label="Bank Reference No." value={String(selectedBankReference || "No reference number")} />
                   )}
-                  <InfoLine label="Type" value={getPaymentTypeLabel(payment.paymentType)} />
-                  <InfoLine label="Total Booking" value={formatCurrency(totalAmount)} />
+                  <InfoLine label="Payment Type" value={getPaymentTypeLabel(selectedPaymentType)} />
+                  {isDownpaymentPayment && !receiptHasDownpaymentBreakdown ? (
+                    <>
+                      <InfoLine label="Total DP Amount" value={formatCurrency(paymentSummary.requiredDownpayment)} />
+                      <InfoLine label="Total DP Paid" value={formatCurrency(paymentSummary.verifiedDownpaymentPaid)} />
+                      {isPaymentUnderReview && (
+                        <InfoLine
+                          label="Payment Under Review"
+                          value={formatCurrency(paymentUnderReviewAmount)}
+                          valueClassName="text-orange-600"
+                        />
+                      )}
+                      <InfoLine
+                        label="Remaining DP Balance"
+                        value={formatCurrency(paymentSummary.remainingVerifiedDownpayment)}
+                      />
+                    </>
+                  ) : !isDownpaymentPayment ? (
+                    <InfoLine label="Total Booking" value={formatCurrency(totalAmount)} />
+                  ) : null}
                   <InfoLine label="Status" value={submissionStatusLabel} />
                   {submittedAt && (
                     <InfoLine label="Submitted" value={formatSubmittedAt(submittedAt)} />
@@ -1797,11 +1790,19 @@ function PaymentRecordBadge({ record }: { record: PaymentRecord }) {
   return <span className={`${baseClass} border-amber-100 bg-amber-50 text-amber-700`}><ShieldCheck className="h-3 w-3" />{label}</span>
 }
 
-function InfoLine({ label, value }: { label: string; value: string }) {
+function InfoLine({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: string
+  value: string
+  valueClassName?: string
+}) {
   return (
     <div className="flex items-start justify-between gap-4 border-b border-slate-200/70 pb-3 last:border-b-0 last:pb-0">
       <p className="text-xs font-bold text-slate-500 shrink-0">{label}</p>
-      <p className="text-right text-xs font-black text-slate-900 break-words min-w-0">{value}</p>
+      <p className={cn("text-right text-xs font-black text-slate-900 break-words min-w-0", valueClassName)}>{value}</p>
     </div>
   )
 }
@@ -1895,7 +1896,8 @@ function getBankReferenceNumber(payment: BookingRecord) {
 
 function getPaymentTypeLabel(type?: string) {
   if (type === "full") return "Full Payment"
-  if (type === "downpayment") return "Downpayment"
+  if (type === "downpayment") return "Down Payment"
+  if (type === "remaining_balance") return "Remaining Balance"
   if (type === "slot_reservation") return "Slot Reservation Only"
   return "Payment Type"
 }
@@ -1923,6 +1925,7 @@ function getPaymentTime(value?: string | number | Date | null) {
 function mapPaymentTerm(term?: string, fallback?: string) {
   const normalized = String(term || "").toLowerCase()
   if (normalized.includes("down payment") || normalized.includes("downpayment")) return "downpayment"
+  if (normalized.includes("remaining") || normalized.includes("balance") || normalized.includes("settle")) return "remaining_balance"
   if (normalized.includes("full")) return "full"
   if (normalized.includes("slot")) return "slot_reservation"
   return fallback || "full"
