@@ -22,7 +22,7 @@ interface TransactionsDialogProps {
 export function TransactionsDialog({ open, onOpenChange }: TransactionsDialogProps) {
   const { user } = useAuth()
   // PHASE 4.2: Kinuha natin yung 'bookings' (ALL) at 'updateBookingStatus' para makapag-approve si Admin
-  const { bookings, cancelBooking, modifyBooking, updateBookingStatus, paymentRecords } = useBookingData({ bookings: true, payments: true })
+  const { bookings, approveCancellation, modifyBooking, updateBookingStatus, paymentRecords } = useBookingData({ bookings: true, payments: true })
   const { getPaymentProofByBooking } = usePaymentProof()
   const { toast } = useToast()
   
@@ -42,8 +42,9 @@ export function TransactionsDialog({ open, onOpenChange }: TransactionsDialogPro
   }
 
   // PHASE 4.2: Admin Approve Action
-  const handleApproveBooking = (id: string) => {
-    updateBookingStatus(id, "confirmed");
+  const handleApproveBooking = async (id: string) => {
+    const updated = await updateBookingStatus(id, "confirmed");
+    if (!updated) return
     toast({
       title: "Booking Approved",
       description: "Status is now Awaiting Physical Signing. Client has been updated.",
@@ -82,24 +83,41 @@ export function TransactionsDialog({ open, onOpenChange }: TransactionsDialogPro
     setShowPaymentUpload(true)
   }
 
-  const confirmCancellation = () => {
+  const confirmCancellation = async () => {
     if (selectedBooking) {
-      cancelBooking(selectedBooking.id)
+      try {
+        await approveCancellation(selectedBooking.id)
+      } catch (error) {
+        toast({
+          title: "Cancellation approval failed",
+          description: error instanceof Error ? error.message : "Unable to approve the cancellation.",
+          variant: "destructive",
+        })
+        return
+      }
       toast({
-        title: "Booking cancelled",
-        description: "Your booking has been successfully cancelled.",
+        title: "Cancellation approved",
+        description: "The pending cancellation request has been approved.",
       })
       setShowCancellationDialog(false)
     }
   }
 
-  const saveModifiedBooking = (updatedBooking: Booking) => {
-    modifyBooking(updatedBooking.id, updatedBooking)
-    toast({
-      title: "Booking updated",
-      description: "Your booking has been successfully updated.",
-    })
-    setShowModifyDialog(false)
+  const saveModifiedBooking = async (updatedBooking: Booking) => {
+    try {
+      await modifyBooking(updatedBooking.id, updatedBooking)
+      toast({
+        title: "Booking updated",
+        description: "Your booking has been successfully updated.",
+      })
+      setShowModifyDialog(false)
+    } catch (error) {
+      toast({
+        title: "Booking update failed",
+        description: error instanceof Error ? error.message : "Unable to update the booking.",
+        variant: "destructive",
+      })
+    }
   }
 
   const getPaymentStatus = (booking: Booking) => {
@@ -219,9 +237,14 @@ export function TransactionsDialog({ open, onOpenChange }: TransactionsDialogPro
                     </Button>
                   )}
 
-                  {(booking.status === "confirmed" || booking.status === "pending") && (
+                  {(
+                    (booking.status === "confirmed" || booking.status === "pending") &&
+                    (booking.cancellationRequested === true || ["under review", "pending", "requested"].includes(
+                      String(booking.cancellationStatus || "").trim().toLowerCase(),
+                    ))
+                  ) && (
                       <Button variant="destructive" size="sm" onClick={() => handleCancelBooking(booking)}>
-                        Decline/Cancel
+                        Approve Cancellation
                       </Button>
                   )}
                 </div>

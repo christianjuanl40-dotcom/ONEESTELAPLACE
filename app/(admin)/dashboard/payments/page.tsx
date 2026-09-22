@@ -50,7 +50,7 @@ import { cn } from "@/src/modules/shared/lib/utils"
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
 import type { NotificationType } from "@/src/modules/shared/lib/notifications"
 import { db } from "@/lib/firebase"
-import { collection, query, orderBy, where, getDocs, addDoc } from "firebase/firestore"
+import { collection, query, orderBy, where, getDocs } from "firebase/firestore"
 import {
   isAcceptedPaymentRecord,
   isIncompletePaymentRecord,
@@ -440,15 +440,34 @@ const openActionModal = (payment: BookingRecord, type: PaymentAction, submission
           ),
         }
       } else if (type === "reject") {
-        bookingCtx.rejectPayment(bookingId, note, reviewerName, paymentRecordId)
-        updatedBooking = buildRejectedPaymentBooking(payment, note)
+        const result = await bookingCtx.rejectPayment(bookingId, note, reviewerName, paymentRecordId)
+        updatedBooking = {
+          ...payment,
+          ...result.booking,
+          paymentRecordId: result.payment.id,
+          incomingPayments: (payment.incomingPayments || []).map((record: PaymentRecord) =>
+            record.id === result.payment.id ? result.payment : record,
+          ),
+        }
       } else if (type === "incomplete") {
         // verifiedAmount = the money actually received on this attempt (the
         // record's submitted amount when no other figure was captured). It
         // must NEVER be 0 — an INCOMPLETE payment keeps its real amount and
         // stays credited toward completing the required downpayment.
-        bookingCtx.markIncompletePayment(bookingId, { verifiedAmount: amount || getPaymentRecordAmount(paymentSubmissionById(paymentRecordId)), adminNote: note, adminName: reviewerName, paymentRecordId })
-        updatedBooking = buildIncompletePaymentBooking(payment, note, 0)
+        const result = await bookingCtx.markIncompletePayment(bookingId, {
+          verifiedAmount: amount || getPaymentRecordAmount(paymentSubmissionById(paymentRecordId)),
+          adminNote: note,
+          adminName: reviewerName,
+          paymentRecordId,
+        })
+        updatedBooking = {
+          ...payment,
+          ...result.booking,
+          paymentRecordId: result.payment.id,
+          incomingPayments: (payment.incomingPayments || []).map((record: PaymentRecord) =>
+            record.id === result.payment.id ? result.payment : record,
+          ),
+        }
       }
 
       if (updatedBooking && !updatedBooking.proofUrl) {
@@ -458,14 +477,6 @@ const openActionModal = (payment: BookingRecord, type: PaymentAction, submission
         }
       }
       setSelectedPayment(updatedBooking)
-      // Receipts are PER PAYMENT and only ever produced by a VERIFICATION.
-      // Incomplete/rejected payments must never receive an e-receipt — the
-      // BookingContext verify flow already generated one for verified records,
-      // so the legacy fallback here runs ONLY for the verify action.
-      if (type === "verify") {
-        ensureReceiptForVerifiedBooking(updatedBooking, amount, paymentRecordId)
-      }
-
       toast({
         title: getActionSuccessTitle(type),
         description: getActionSuccessDescription(type, bookingId),
@@ -553,16 +564,16 @@ const openActionModal = (payment: BookingRecord, type: PaymentAction, submission
           booking={incompletePaymentTarget}
           paymentRecords={incompletePaymentTarget ? getRecordsForBooking(bookingCtx.paymentRecords || [], incompletePaymentTarget.id) : []}
           onClose={() => setIncompletePaymentTarget(null)}
-          onConfirm={(updatedBooking) => {
-            // Use BookingContext markIncompletePayment as single source of truth
-            const paymentRecordId = (updatedBooking as BookingRecord).paymentRecordId
-            bookingCtx.markIncompletePayment(updatedBooking.id, {
-              verifiedAmount: updatedBooking.lastPaymentAmount || updatedBooking.paymentVerifiedAmount || 0,
-              adminNote: updatedBooking.incompletePaymentNote || updatedBooking.incompletePaymentReason || "",
-              adminName: user?.name || "Administrator",
-              paymentRecordId,
-            })
-            let updated = updatedBooking
+           onConfirm={async (updatedBooking) => {
+             // Use BookingContext markIncompletePayment as single source of truth
+             const paymentRecordId = (updatedBooking as BookingRecord).paymentRecordId
+             const result = await bookingCtx.markIncompletePayment(updatedBooking.id, {
+               verifiedAmount: updatedBooking.lastPaymentAmount || updatedBooking.paymentVerifiedAmount || 0,
+               adminNote: updatedBooking.incompletePaymentNote || updatedBooking.incompletePaymentReason || "",
+               adminName: user?.name || "Administrator",
+               paymentRecordId,
+             })
+             let updated = { ...updatedBooking, ...result.booking, paymentRecordId: result.payment.id }
             if (!updated.proofUrl && updatedBooking.submissionAmount) {
               const matchingPayment = paymentSubmissionById(paymentRecordId)
               if (matchingPayment?.proofUrl) {
@@ -1118,6 +1129,14 @@ function PaymentReviewModal({
   const displayLabel = isIncompletePayment ? "Amount Received" : "Amount Submitted"
   const selectedMethod = selected?.paymentMethod || payment.paymentMethod
   const selectedBankReference = selected?.referenceNo || payment.bankReferenceNumber || payment.referenceNumber || payment.transactionReferenceNumber
+  const reviewNote = String(
+    selected?.adminNote ||
+    selected?.rejectionReason ||
+    payment.incompletePaymentNote ||
+    payment.incompletePaymentReason ||
+    payment.paymentRejectedReason ||
+    "",
+  ).trim()
 
   const effectiveProof = selected?.proofUrl || payment.proofUrl || payment.paymentProof || payment.proofOfPayment || payment.proofImage || payment.receiptImage
   const hasImageProof = isImageProof(effectiveProof)
@@ -1604,6 +1623,15 @@ function PaymentReviewModal({
                   )}
                 </div>
               </ModalSection>
+              {reviewNote && (
+                <ModalSection title="Review Note">
+                  <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+                    <p className="whitespace-pre-wrap break-words text-sm font-semibold leading-6 text-amber-950">
+                      {reviewNote}
+                    </p>
+                  </div>
+                </ModalSection>
+              )}
             </div>
           </div>
       </div>
@@ -2064,7 +2092,10 @@ function buildPaymentBookingEntry(
     latestPaymentAmount: amount,
     latestPaymentMethod: latest.method,
     latestPaymentSubmittedAt: latest.submittedAt,
-    totalPrice: base.totalPrice || latest.amount || 0,
+     // A payment record is not a booking-price source. If the booking document
+     // is unavailable, show an unknown total rather than turning the submitted
+     // amount into a fabricated booking total.
+     totalPrice: base.totalPrice || base.totalAmount || 0,
     createdAt: base.createdAt || latest.submittedAt,
     updatedAt: latest.updatedAt || base.updatedAt,
     paymentReceipts: base.paymentReceipts,
@@ -2436,57 +2467,6 @@ function buildIncompletePaymentBooking(booking: BookingRecord, note: string, _ve
     updatedAt: new Date().toISOString(),
     adminLogs: appendAdminLog(booking, "PAYMENT_INCOMPLETE", `Admin marked payment as incomplete. Note: ${note}${_verifiedAmount ? `. Verified amount received: ₱${_verifiedAmount.toLocaleString()}.` : ""}`),
   }
-}
-
-function ensureReceiptForVerifiedBooking(
-  booking: BookingRecord,
-  paymentAmount?: number,
-  paymentRecordId?: string,
-) {
-  // The BookingContext already generates and persists a receipt per verified
-  // payment (paymentReceipts / receipts collection). Only fall back to the
-  // legacy single-receipt flow when the booking has no receipt history yet.
-  if (
-    (Array.isArray(booking.paymentReceipts) && booking.paymentReceipts.length > 0) ||
-    booking.receipt
-  ) {
-    return
-  }
-  readStoredReceipts(booking.id).then((receipts) => {
-    const existingReceipt = receipts.find((receipt) => receipt.bookingId === booking.id)
-    if (existingReceipt || booking.receipt) return
-
-    const office = isOfficeRental(booking)
-    const receiptAmount = getSafePrice(
-      paymentAmount ??
-        booking.paymentVerifiedAmount ??
-        booking.lastPaymentAmount ??
-        booking.paymentAmount ??
-        booking.pendingPaymentAmount ??
-        getAmountPaid(booking),
-    )
-    const receiptData = {
-      receiptNumber: `ER-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`,
-      bookingId: booking.id,
-      paymentId: paymentRecordId || booking.paymentRecordId || undefined,
-      fullName: booking.userInfo?.name || "Client",
-      bookingDate: booking.createdAt || new Date().toISOString(),
-      startDate: booking.date,
-      endDate: office ? booking.endDate || booking.contractEndDate || booking.date : booking.date,
-      rentalType: office ? "Office Space Rental" : "Event Venue Booking",
-      contractTerm: office ? (booking.contractTerm || booking.rentalTerm || "N/A") : null,
-      paymentPurpose: office ? "Slot Reservation Only" : getPaymentTypeLabel(booking.paymentType),
-      paymentMethod: getPaymentMethodLabel(booking.paymentMethod),
-      amountPaid: formatCurrency(receiptAmount),
-      paymentAmount: formatCurrency(receiptAmount),
-      paymentStatus: office ? "Reservation Secured" : "Payment Verified",
-      dateGenerated: new Date().toISOString(),
-    }
-
-    addDoc(collection(db, "receipts"), receiptData).then(() => {
-      window.dispatchEvent(new Event("oneestela_receipts_updated"))
-    })
-  })
 }
 
 function IncompletePaymentModal({

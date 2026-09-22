@@ -222,24 +222,63 @@ export function isModificationUnderReview(booking: Record<string, unknown>): boo
   return hasActiveModificationRequest(booking)
 }
 
-const ACTIVE_BOOKING_STATUSES = [
+export const AVAILABILITY_BLOCKING_BOOKING_STATUSES = [
   "pending",
+  "pending_verification",
   "verifying",
   "approved",
   "confirmed",
+  "slot_secured",
   "contract_signing_required",
   "reservation_secured",
   "active_rental",
   "modification_under_review",
   "cancellation_requested",
+  "cancellation_under_review",
 ]
+
+const AVAILABILITY_TERMINAL_BOOKING_STATUSES = new Set([
+  "cancelled",
+  "completed",
+  "declined",
+  "expired",
+  "rental_expired",
+])
+
+function normalizeAvailabilityLifecycleStatus(value: unknown): string {
+  return normalizeStatus(value).replace(/[\s-]+/g, "_")
+}
+
+/**
+ * These are the lifecycle states that reserve a space. In particular, a
+ * confirmed booking remains blocking while a later payment or modification
+ * request is being reviewed.
+ */
+export function isAvailabilityBlockingBooking(booking: Record<string, unknown>): boolean {
+  const status = normalizeAvailabilityLifecycleStatus(booking.status)
+  const bookingStatus = normalizeAvailabilityLifecycleStatus(booking.bookingStatus)
+
+  if (AVAILABILITY_TERMINAL_BOOKING_STATUSES.has(status)) return false
+  if (AVAILABILITY_BLOCKING_BOOKING_STATUSES.includes(status as typeof AVAILABILITY_BLOCKING_BOOKING_STATUSES[number])) {
+    return true
+  }
+  if (AVAILABILITY_TERMINAL_BOOKING_STATUSES.has(bookingStatus)) return false
+  if (AVAILABILITY_BLOCKING_BOOKING_STATUSES.includes(bookingStatus as typeof AVAILABILITY_BLOCKING_BOOKING_STATUSES[number])) {
+    return true
+  }
+
+  // Some older records did not retain a canonical lifecycle status after a
+  // verified payment. Keep those reservations blocked unless they are known
+  // terminal records.
+  return isFullyPaid(booking)
+}
 
 export function isActiveBooking(booking: {
   status?: string
   bookingStatus?: string
 }): boolean {
-  const status = normalizeStatus(String(booking.status || booking.bookingStatus || ""))
-  return (ACTIVE_BOOKING_STATUSES as readonly string[]).includes(status)
+  const status = normalizeAvailabilityLifecycleStatus(booking.status || booking.bookingStatus)
+  return (AVAILABILITY_BLOCKING_BOOKING_STATUSES as readonly string[]).includes(status)
 }
 
 export function getCurrentBooking<T extends {

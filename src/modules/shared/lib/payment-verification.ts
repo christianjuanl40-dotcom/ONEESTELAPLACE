@@ -35,8 +35,9 @@ function isOfficeBooking(booking: Record<string, unknown>): boolean {
 
 function appendAdminLog(
   booking: Record<string, unknown>,
-  message: string,
-  now: string,
+  actionOrMessage: string,
+  messageOrNow: string,
+  actionNow?: string,
 ): Array<Record<string, string>> {
   const existing = Array.isArray(booking.adminLogs)
     ? booking.adminLogs.filter((entry): entry is Record<string, string> => Boolean(entry && typeof entry === "object"))
@@ -44,7 +45,11 @@ function appendAdminLog(
 
   return [
     ...existing,
-    { action: "VERIFY_PAYMENT", message, createdAt: now },
+    {
+      action: actionNow ? actionOrMessage : "VERIFY_PAYMENT",
+      message: actionNow ? messageOrNow : actionOrMessage,
+      createdAt: actionNow || messageOrNow,
+    },
   ]
 }
 
@@ -52,7 +57,104 @@ function getPaymentStatus(summary: PaymentSummary): string {
   if (summary.fullyPaid) return "paid"
   if (summary.downpaymentComplete) return "partial"
   if (summary.moneyReceivedTotal > 0) return "incomplete"
-  return summary.overallStatus === "for_review" ? "for_review" : "incomplete"
+  if (summary.overallStatus === "for_review") return "for_review"
+  if (summary.overallStatus === "rejected") return "rejected"
+  return "incomplete"
+}
+
+function isModificationUnderReview(booking: Record<string, unknown>): boolean {
+  return [booking.status, booking.bookingStatus].some((value) => {
+    const normalized = normalizeStatus(value)
+    return normalized === "modification_under_review" || normalized === "modification under review"
+  })
+}
+
+function isPreviouslySecured(booking: Record<string, unknown>): boolean {
+  return booking.isSlotSecured === true || [
+    booking.status,
+    booking.bookingStatus,
+  ].some((value) => [
+    "confirmed",
+    "reservation_secured",
+    "slot secured",
+    "contract_signing_required",
+    "contract signing required",
+    "active_rental",
+  ].includes(normalizeStatus(value)))
+}
+
+function buildDecisionBookingFields(
+  booking: Record<string, unknown>,
+  summary: PaymentSummary,
+  now: string,
+  lastPaymentAmount: number,
+  message: string,
+  adminName: string,
+): Record<string, unknown> {
+  const officeBooking = isOfficeBooking(booking)
+  const paymentStatus = getPaymentStatus(summary)
+  const paymentSecured = officeBooking ? summary.fullyPaid : summary.downpaymentComplete
+  const previouslySecured = isPreviouslySecured(booking)
+  const modificationUnderReview = isModificationUnderReview(booking)
+  const slotSecured = paymentSecured || previouslySecured
+  const selectedDownpaymentAmount = toPaymentAmount(booking.selectedDownpaymentAmount) || summary.requiredDownpayment
+  const downpaymentPaid = summary.requiredDownpayment > 0
+    ? Math.min(summary.verifiedDownpaymentPaid, selectedDownpaymentAmount)
+    : 0
+
+  const status = modificationUnderReview
+    ? String(booking.status || "modification_under_review")
+    : officeBooking
+      ? paymentSecured ? "reservation_secured" : "verifying"
+      : slotSecured ? "confirmed" : "verifying"
+  const bookingStatus = modificationUnderReview
+    ? String(booking.bookingStatus || "Modification Under Review")
+    : officeBooking
+      ? paymentSecured ? "Slot Secured" : "Pending Verification"
+      : slotSecured ? "Confirmed" : "Pending Verification"
+  const paymentStage = summary.fullyPaid
+    ? "Fully Paid"
+    : summary.downpaymentComplete
+      ? "Settle Remaining Balance"
+      : summary.moneyReceivedTotal > 0
+        ? "Complete Downpayment"
+        : "Initial Payment"
+  const contractSigned = booking.contractSigned === true || booking.contractStatus === "Signed"
+
+  return {
+    status,
+    bookingStatus,
+    paymentStatus,
+    paymentStage,
+    balanceStatus: summary.fullyPaid ? "Settled" : "With Remaining Balance",
+    isSlotSecured: slotSecured,
+    amountPaid: summary.acceptedVerifiedTotal,
+    lastPaymentAmount,
+    downpaymentPaid,
+    downpaymentRemaining: summary.remainingDownpayment,
+    selectedDownpaymentAmount: selectedDownpaymentAmount || booking.selectedDownpaymentAmount || 0,
+    remainingBalance: summary.remainingBalance,
+    remainingBalancePaid: summary.fullyPaid,
+    hasActivePaymentSubmission: summary.hasPendingSubmission,
+    paymentAmount: lastPaymentAmount,
+    pendingPaymentAmount: summary.hasPendingSubmission ? booking.pendingPaymentAmount || 0 : 0,
+    contractSigningRequired: Boolean(booking.contractSigningRequired || summary.acceptedVerifiedTotal > 0),
+    contractStatus: contractSigned
+      ? "Signed"
+      : summary.acceptedVerifiedTotal > 0
+        ? "Pending Signature"
+        : booking.contractStatus || "Not Available",
+    contractSigned,
+    officeReservationStatus: officeBooking
+      ? paymentSecured ? "reservation_secured" : "pending_verification"
+      : booking.officeReservationStatus,
+    officeContractSigningRequired: officeBooking ? paymentSecured : booking.officeContractSigningRequired,
+    paymentReviewedAt: now,
+    paymentReviewedBy: adminName,
+    lastActivityAt: now,
+    updatedAt: now,
+    adminLogs: appendAdminLog(booking, "REVIEW_PAYMENT", message, now),
+  }
 }
 
 export function buildVerifiedPaymentTransition(
@@ -100,7 +202,7 @@ export function buildVerifiedPaymentTransition(
     booking.selectedDownpaymentAmount,
   ) || summary.requiredDownpayment
   const downpaymentPaid = summary.requiredDownpayment > 0
-    ? Math.min(summary.downpaymentCreditedTotal, selectedDownpaymentAmount)
+    ? Math.min(summary.verifiedDownpaymentPaid, selectedDownpaymentAmount)
     : 0
   const bookingStatus = officeBooking
     ? summary.fullyPaid ? "Slot Secured" : "Pending Verification"
@@ -182,5 +284,84 @@ export function buildVerifiedPaymentTransition(
     summary,
     verifiedAmount,
     alreadyVerified,
+  }
+}
+
+export type PaymentDecisionAction = "reject" | "incomplete"
+
+export interface PaymentDecisionOptions {
+  verifiedAmount?: number
+  adminName: string
+  adminNote?: string
+  now?: string
+}
+
+export function buildPaymentDecisionTransition(
+  bookingInput: BookingLike & Record<string, unknown>,
+  records: PaymentRecordLike[],
+  targetInput: PaymentRecordLike,
+  action: PaymentDecisionAction,
+  options: PaymentDecisionOptions,
+): VerifiedPaymentTransition {
+  const booking = { ...bookingInput }
+  const target = { ...targetInput }
+  const submittedAmount = getPaymentRecordAmount(target)
+  const now = options.now || new Date().toISOString()
+  const note = options.adminNote?.trim() || ""
+  const receivedAmount = action === "incomplete"
+    ? options.verifiedAmount || submittedAmount
+    : submittedAmount
+  const payment: PaymentRecordLike = {
+    ...target,
+    ...(action === "incomplete"
+      ? {
+          amount: receivedAmount,
+          amountPaid: receivedAmount,
+          amountReceived: receivedAmount,
+          requestedAmount: target.requestedAmount || submittedAmount,
+        }
+      : {}),
+    status: action === "incomplete" ? "Incomplete" : "Rejected",
+    verificationStatus: action === "incomplete" ? "Incomplete" : "Rejected",
+    reviewedBy: options.adminName,
+    reviewedAt: now,
+    updatedAt: now,
+    adminNote: note,
+    ...(action === "reject" ? { rejectionReason: note } : {}),
+  }
+  const updatedRecords = records.map((record) => (
+    String(record.id || "") === String(target.id || "") ? payment : record
+  ))
+  const summary = calculatePaymentSummary(booking, updatedRecords)
+  const message = action === "incomplete"
+    ? `Admin recorded an incomplete payment. Amount received: ${receivedAmount.toLocaleString()}. ${note}`
+    : `Admin rejected the payment. ${note}`
+  const updatedBooking: Record<string, unknown> = {
+    ...booking,
+    ...buildDecisionBookingFields(booking, summary, now, receivedAmount, message, options.adminName),
+    ...(action === "incomplete"
+      ? {
+          incompletePaymentNote: note,
+          incompletePaymentReason: note,
+          paymentVerifiedAmount: receivedAmount,
+          paymentVerifiedAt: now,
+          paymentVerifiedBy: options.adminName,
+          verifiedByAdmin: true,
+          verifiedAt: now,
+        }
+      : {
+          paymentRejectedReason: note,
+          paymentRejectionReason: note,
+          paymentRejectedAt: now,
+        }),
+  }
+
+  return {
+    booking: updatedBooking,
+    payment,
+    records: updatedRecords,
+    summary,
+    verifiedAmount: receivedAmount,
+    alreadyVerified: false,
   }
 }

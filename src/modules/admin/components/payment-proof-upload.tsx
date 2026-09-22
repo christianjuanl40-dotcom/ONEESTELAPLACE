@@ -34,7 +34,7 @@ interface PaymentProofUploadProps {
 export function PaymentProofUpload({ open, onOpenChange, bookingId }: PaymentProofUploadProps) {
   const { toast } = useToast()
   const { uploadPaymentProof, getPaymentProofByBooking } = usePaymentProof()
-  const { getBookingById, submitPayment, modifyBooking } = useBookingData({ bookings: true })
+  const { getBookingById, submitPayment } = useBookingData({ bookings: true })
   const [isUploading, setIsUploading] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [dragActive, setDragActive] = useState(false)

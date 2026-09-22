@@ -9,6 +9,7 @@ import {
   requireBackofficeUser,
 } from "@/lib/server-auth"
 import {
+  buildPaymentDecisionTransition,
   buildVerifiedPaymentTransition,
 } from "@/src/modules/shared/lib/payment-verification"
 import {
@@ -109,6 +110,7 @@ function buildVerifiedReceipt(
   history: DataRecord[],
   remainingBalance: number,
   now: string,
+  paymentStatus = "Verified",
 ): { history: DataRecord[]; receipt: DataRecord } {
   const existingIndex = history.findIndex((receipt) => (
     String(receipt.paymentId || "") === String(payment.id || "") ||
@@ -143,7 +145,7 @@ function buildVerifiedReceipt(
     amountPaid: getPaymentRecordAmount(payment),
     paymentAmount: getPaymentRecordAmount(payment),
     remainingBalance,
-    paymentStatus: "Verified",
+    paymentStatus,
     dateGenerated: String(existing?.dateGenerated || submittedAt),
     dateIssued: String(existing?.dateIssued || submittedAt),
     paymentSubmittedAt: submittedAt,
@@ -163,7 +165,7 @@ function errorResponse(error: unknown) {
     "[POST /api/payments/review]",
     error instanceof Error ? error.message : "Unknown error",
   )
-  return NextResponse.json({ error: "Unable to verify the payment. Please try again." }, { status: 500 })
+  return NextResponse.json({ error: "Unable to review the payment. Please try again." }, { status: 500 })
 }
 
 export async function POST(request: NextRequest) {
@@ -183,7 +185,9 @@ export async function POST(request: NextRequest) {
     if (!isRecord(body)) throw new ApiAuthError(400, "Invalid payment review request.")
 
     const action = String(body.action || "verify").trim().toLowerCase()
-    if (action !== "verify") throw new ApiAuthError(400, "Unsupported payment review action.")
+    if (action !== "verify" && action !== "reject" && action !== "incomplete") {
+      throw new ApiAuthError(400, "Unsupported payment review action.")
+    }
 
     const bookingId = String(body.bookingId || "").trim()
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(bookingId)) {
@@ -196,6 +200,9 @@ export async function POST(request: NextRequest) {
 
     const noteValue = body.adminNote == null ? "" : String(body.adminNote).trim()
     if (noteValue.length > 2000) throw new ApiAuthError(400, "The admin note is too long.")
+    if ((action === "reject" || action === "incomplete") && !noteValue) {
+      throw new ApiAuthError(400, action === "reject" ? "A rejection reason is required." : "An incomplete-payment note is required.")
+    }
 
     let requestedAmount: number | undefined
     if (body.verifiedAmount !== undefined && body.verifiedAmount !== null && body.verifiedAmount !== "") {
@@ -257,7 +264,10 @@ export async function POST(request: NextRequest) {
       if (!belongsToBooking(target, bookingId, bookingCode)) {
         throw new ApiAuthError(403, "This payment does not belong to the booking.")
       }
-      if (!isVerifiedPaymentRecord(target) && !isUnresolvedPaymentRecord(target)) {
+      if (action !== "verify" && !isUnresolvedPaymentRecord(target)) {
+        throw new ApiAuthError(409, "This payment has already been resolved.")
+      }
+      if (action === "verify" && !isVerifiedPaymentRecord(target) && !isUnresolvedPaymentRecord(target)) {
         throw new ApiAuthError(409, "This payment has already been resolved.")
       }
 
@@ -266,21 +276,51 @@ export async function POST(request: NextRequest) {
       const verifiedAmount = isVerifiedPaymentRecord(target)
         ? submittedAmount
         : requestedAmount || fallbackAmount
-      if (verifiedAmount <= 0) throw new ApiAuthError(400, "The payment has no valid amount to verify.")
-      if (!isVerifiedPaymentRecord(target) && submittedAmount > 0 && verifiedAmount > submittedAmount + 0.01) {
-        throw new ApiAuthError(400, "The verified amount cannot exceed the submitted amount.")
+      let transition
+      if (action === "verify") {
+        if (verifiedAmount <= 0) throw new ApiAuthError(400, "The payment has no valid amount to verify.")
+        if (!isVerifiedPaymentRecord(target) && submittedAmount > 0 && verifiedAmount > submittedAmount + 0.01) {
+          throw new ApiAuthError(400, "The verified amount cannot exceed the submitted amount.")
+        }
+        transition = buildVerifiedPaymentTransition(
+          bookingData,
+          allRecords,
+          target,
+          {
+            verifiedAmount,
+            adminName: user.fullName || "Administrator",
+            adminNote: noteValue,
+          },
+        )
+      } else if (action === "incomplete") {
+        const receivedAmount = requestedAmount || submittedAmount
+        if (receivedAmount <= 0) throw new ApiAuthError(400, "The payment has no valid received amount.")
+        if (submittedAmount > 0 && receivedAmount >= submittedAmount - 0.01) {
+          throw new ApiAuthError(400, "An incomplete payment must be less than the submitted amount.")
+        }
+        transition = buildPaymentDecisionTransition(
+          bookingData,
+          allRecords,
+          target,
+          "incomplete",
+          {
+            verifiedAmount: receivedAmount,
+            adminName: user.fullName || "Administrator",
+            adminNote: noteValue,
+          },
+        )
+      } else {
+        transition = buildPaymentDecisionTransition(
+          bookingData,
+          allRecords,
+          target,
+          "reject",
+          {
+            adminName: user.fullName || "Administrator",
+            adminNote: noteValue,
+          },
+        )
       }
-
-      const transition = buildVerifiedPaymentTransition(
-        bookingData,
-        allRecords,
-        target,
-        {
-          verifiedAmount,
-          adminName: user.fullName || "Administrator",
-          adminNote: noteValue,
-        },
-      )
       const receiptRemainingBalance = getReceiptRemainingBalance(
         transition.summary.bookingTotal,
         transition.records,
@@ -292,6 +332,7 @@ export async function POST(request: NextRequest) {
         getReceiptHistory(bookingData),
         receiptRemainingBalance,
         new Date().toISOString(),
+        action === "verify" ? "Verified" : action === "incomplete" ? "Incomplete" : "Rejected",
       )
       const bookingWithReceipt: DataRecord = {
         ...transition.booking,
@@ -329,6 +370,7 @@ export async function POST(request: NextRequest) {
         payment: { ...paymentWithReceipt, id: target.id },
         summary: transition.summary,
         alreadyVerified: transition.alreadyVerified,
+        action,
         userId: String(bookingData.userId || ""),
         customerName: String(
           (isRecord(bookingData.userInfo) && bookingData.userInfo.name) || target.customerName || "Client",
@@ -338,10 +380,24 @@ export async function POST(request: NextRequest) {
 
     if (!result.alreadyVerified && result.userId) {
       try {
+        const notificationType = result.action === "reject"
+          ? "payment_rejected"
+          : result.action === "incomplete"
+            ? "payment_incomplete"
+            : "payment_approved"
+        const notificationTitle = result.action === "reject"
+          ? "Payment Rejected"
+          : result.action === "incomplete"
+            ? "Payment Requires Correction"
+            : "Payment Approved"
         await firestore.collection("notifications").add({
-          type: "payment_approved",
-          title: "Payment Approved",
-          message: `Your payment for Booking ${bookingId} has been approved.`,
+          type: notificationType,
+          title: notificationTitle,
+          message: result.action === "reject"
+            ? `Your payment for Booking ${bookingId} has been rejected.`
+            : result.action === "incomplete"
+              ? `Your payment for Booking ${bookingId} needs correction or additional information.`
+              : `Your payment for Booking ${bookingId} has been approved.`,
           bookingId,
           userId: result.userId,
           relatedUserName: result.customerName,

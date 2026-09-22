@@ -11,9 +11,6 @@ import {
   collection,
   doc,
   getDocs,
-  setDoc,
-  updateDoc,
-  deleteDoc,
   writeBatch,
   query,
   orderBy,
@@ -21,7 +18,6 @@ import {
   limit,
   onSnapshot,
   runTransaction,
-  increment,
 } from "firebase/firestore"
 
 export type BookingStatus =
@@ -174,7 +170,7 @@ export interface BookingReceipt {
 }
 
 /**
- * Individual payment submission record. The client writes one document per
+ * Individual payment submission record. The server writes one document per
  * submission into the Firestore `payments` collection, so a single booking
  * can have multiple PaymentRecords (Payment 1, Payment 2, ...).
  */
@@ -221,6 +217,8 @@ export interface Booking {
   id: string;
   userId: string;
   venueId?: string;
+  officeId?: string;
+  spaceId?: string;
   venue?: string;
   eventName: string;
   eventType: string;
@@ -416,39 +414,35 @@ interface BookingContextType {
   _registerDataNeed: (key: BookingDataKey, now: boolean) => void;
 
   addBooking: (booking: Omit<Booking, "id" | "createdAt">) => Promise<string>;
-  updateBookingStatus: (id: string, status: BookingStatus) => void;
-  cancelBooking: (id: string) => void;
-  deleteBooking: (id: string) => void;
+  updateBookingStatus: (id: string, status: BookingStatus) => Promise<Booking | null>;
+  cancelBooking: (id: string) => Promise<Booking | null>;
   getUserBookings: (userId: string) => Booking[];
   getBookingById: (id: string) => Booking | undefined;
-  modifyBooking: (id: string, updates: Partial<Booking>) => void;
+  modifyBooking: (id: string, updates: Partial<Booking>) => Promise<Booking>;
 
   requestCancellation: (id: string, reason: string) => Promise<Booking>;
   approveCancellation: (id: string) => Promise<Booking>;
   declineCancellation: (id: string, reason: string) => Promise<Booking>;
   rejectCancellation: (id: string, reason?: string) => Promise<Booking>;
-  requestModification: (id: string, changes: Record<string, unknown>, reason: string) => void;
-  approveModification: (id: string) => void;
-  declineModification: (id: string, reason: string) => void;
-  markRefundReady: (id: string) => void;
-  markRefundClaimed: (id: string) => void;
-  requestRefund: (id: string) => void;
-  markAsRefunded: (id: string) => void;
+  requestModification: (id: string, changes: Record<string, unknown>, reason: string) => Promise<Booking>;
+  approveModification: (id: string) => Promise<Booking>;
+  declineModification: (id: string, reason: string) => Promise<Booking>;
+  requestRefund: (id: string) => Promise<void>;
+  markAsRefunded: (id: string) => Promise<void>;
 
-  markContractSigned: (id: string, signedBy?: string) => void;
-  issueReceipt: (id: string) => void;
+  markContractSigned: (id: string, signedBy?: string) => Promise<Booking>;
+  issueReceipt: (id: string) => Promise<Booking>;
+  sendBalanceReminder: (id: string) => Promise<Booking>;
 
-  verifyCashPayment: (id: string, paymentType?: "downpayment" | "full") => void;
-  settleRemainingBalance: (id: string, method?: "cash" | "bank") => void;
   manualRecordOnsitePayment: (id: string, paymentData: {
     paymentType: "downpayment" | "remaining_balance" | "full_payment";
     amountReceived: number;
     adminNote?: string;
     adminName?: string;
-  }) => Booking | null;
+  }) => Promise<Booking | null>;
   reviewPayment: (id: string, reviewData?: { verifiedAmount?: number; adminNote?: string; adminName?: string; paymentRecordId?: string }) => Promise<{ booking: Booking; payment: PaymentRecord }>;
-  rejectPayment: (id: string, reason?: string, adminName?: string, paymentRecordId?: string) => void;
-  markIncompletePayment: (id: string, data: { verifiedAmount: number; adminNote: string; adminName?: string; paymentRecordId?: string }) => void;
+  rejectPayment: (id: string, reason?: string, adminName?: string, paymentRecordId?: string) => Promise<{ booking: Booking; payment: PaymentRecord }>;
+  markIncompletePayment: (id: string, data: { verifiedAmount: number; adminNote: string; adminName?: string; paymentRecordId?: string }) => Promise<{ booking: Booking; payment: PaymentRecord }>;
   toggleMaintenanceDate: (date: string, venueId: string) => void;
   addMaintenanceRecord: (record: Omit<MaintenanceRecord, "id" | "createdAt" | "updatedAt">) => void;
   removeMaintenanceRecord: (id: string) => void;
@@ -462,21 +456,6 @@ interface BookingContextType {
       amount?: number;
     },
   ) => Promise<void>;
-
-  verifyOfficeReservationPayment: (id: string) => void;
-  addOfficeCheckPayment: (
-    bookingId: string,
-    paymentData: Omit<
-      OfficeCheckPayment,
-      "id" | "createdAt" | "updatedAt" | "paymentType"
-    >,
-  ) => void;
-  updateOfficeCheckPayment: (
-    bookingId: string,
-    paymentId: string,
-    paymentData: Partial<Omit<OfficeCheckPayment, "id" | "createdAt">>,
-  ) => void;
-  deleteOfficeCheckPayment: (bookingId: string, paymentId: string) => void;
 
   addOfficeRentalRequest: (
     rentalData: Omit<
@@ -534,7 +513,6 @@ const bookingsRef = collection(db, "bookings")
 const officeRentalsRef = collection(db, "officeRentals")
 const maintenanceRecordsRef = collection(db, "maintenanceRecords")
 const paymentsRef = collection(db, "payments")
-const receiptsRef = collection(db, "receipts")
 const cmsDocRef = doc(db, "cms", "data")
 
 function formatBookingNumber(num: number): string {
@@ -584,14 +562,6 @@ function stripUndefinedDeep(value: unknown): unknown {
     return result;
   }
   return value;
-}
-
-function createLocalId(prefix: string) {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return `${prefix}-${crypto.randomUUID()}`;
-  }
-
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function getSafePrice(value: unknown) {
@@ -697,25 +667,6 @@ export function canRequestCancellation(booking: Partial<Booking>): boolean {
   return daysBefore > CANCELLATION_CLOSED_DAYS;
 }
 
-export function getRestoredStatus(booking: Booking): { status: BookingStatus; bookingStatus: BookingStatusLabel } {
-  const prevStatus = booking.previousStatus || booking.modificationPreviousStatus
-  const prevBookingStatus = booking.previousBookingStatus || booking.modificationPreviousBookingStatus
-  const isUnpaidNotSecured = booking.paymentStatus === "unpaid" && !booking.isSlotSecured && !isBookingSlotSecured(booking)
-
-  if (prevStatus && prevBookingStatus) {
-    if (isUnpaidNotSecured) {
-      return { status: "pending", bookingStatus: "Pending Verification" }
-    }
-    return { status: prevStatus as BookingStatus, bookingStatus: prevBookingStatus as BookingStatusLabel }
-  }
-
-  if (isUnpaidNotSecured) {
-    return { status: "pending", bookingStatus: "Pending Verification" }
-  }
-
-  return { status: "confirmed", bookingStatus: "Confirmed" }
-}
-
 function getDisplayBookingStatus(booking: Partial<Booking>): BookingStatusLabel {
   if (booking.status === "completed") return "Completed"
   if (booking.status === "cancelled") return "Cancelled"
@@ -751,106 +702,6 @@ export function getRefundEligibilityNote(eventDate?: string) {
 }
 
 
-function getBookingEventDate(booking: Booking) {
-  return booking.date;
-}
-
-function getDownpaymentAmount(booking: Booking) {
-  const total = getSafePrice(booking.totalPrice);
-  const pct = typeof booking.downPaymentPercentage === "number" && booking.downPaymentPercentage > 0
-    ? booking.downPaymentPercentage
-    : 50;
-  return total * (pct / 100);
-}
-
-function getSelectedDownpaymentAmount(booking: Booking) {
-  if (typeof booking.selectedDownpaymentAmount === "number" && booking.selectedDownpaymentAmount > 0) {
-    return booking.selectedDownpaymentAmount;
-  }
-  return getDownpaymentAmount(booking);
-}
-
-function recalculatePaymentStage(booking: Booking): Booking {
-  if (isOfficeBooking(booking)) {
-    const total = getSafePrice(booking.totalPrice);
-    const amountPaid = typeof booking.amountPaid === "number" ? booking.amountPaid : 0;
-    if (amountPaid >= total) {
-      return {
-        ...booking,
-        paymentStage: "Fully Paid",
-        paymentStatus: "paid" as PaymentStatus,
-        balanceStatus: "Settled",
-        remainingBalance: 0,
-        remainingBalancePaid: true,
-      };
-    }
-    return booking;
-  }
-
-  const total = getSafePrice(booking.totalPrice);
-  const amountPaid = typeof booking.amountPaid === "number" ? booking.amountPaid : 0;
-  const downpaymentPaid = typeof booking.downpaymentPaid === "number" ? booking.downpaymentPaid : 0;
-  const selectedDP = getSelectedDownpaymentAmount(booking);
-
-  if (amountPaid >= total) {
-    return {
-      ...booking,
-      paymentStage: "Fully Paid",
-      paymentStatus: "paid" as PaymentStatus,
-      balanceStatus: "Settled",
-      downpaymentRemaining: 0,
-      downpaymentPaid: downpaymentPaid,
-      remainingBalance: 0,
-      remainingBalancePaid: true,
-    };
-  }
-
-  if (amountPaid > 0) {
-    // Only downpayment bookings carry a required-downpayment stage. A
-    // verified payment that has NOT yet reached the required downpayment
-    // leaves the booking INCOMPLETE — the stored status must never read as
-    // "partial" (settleable) until the downpayment is complete.
-    const hasDownpaymentRequirement =
-      String(booking.paymentType || "").toLowerCase() === "downpayment";
-    const isDownpaymentComplete =
-      !hasDownpaymentRequirement || downpaymentPaid >= selectedDP;
-    return {
-      ...booking,
-      paymentStage: isDownpaymentComplete ? "Settle Remaining Balance" : "Complete Downpayment",
-      paymentStatus: (isDownpaymentComplete ? "partial" : "incomplete") as PaymentStatus,
-      balanceStatus: "With Remaining Balance",
-      downpaymentRemaining:
-        hasDownpaymentRequirement && !isDownpaymentComplete
-          ? Math.max(selectedDP - downpaymentPaid, 0)
-          : 0,
-      downpaymentPaid: downpaymentPaid,
-      remainingBalance: total - amountPaid,
-    };
-  }
-
-  return booking;
-}
-
-function getCurrentAmountPaid(booking: Booking) {
-  if (typeof booking.amountPaid === "number") return booking.amountPaid;
-
-  return 0;
-}
-
-function hasRemainingBalance(booking: Booking) {
-  const total = getSafePrice(booking.totalPrice);
-  const paid = getCurrentAmountPaid(booking);
-
-  return (
-    booking.status === "confirmed" &&
-    booking.paymentType === "downpayment" &&
-    paid < total &&
-    booking.paymentStatus !== "paid" &&
-    booking.paymentStatus !== "verified" &&
-    booking.remainingBalancePaid !== true
-  );
-}
-
 function makeAdminLog(
   booking: { adminLogs?: AdminLog[] },
   action: string,
@@ -876,37 +727,6 @@ function isOfficeBooking(booking: Partial<Booking>) {
   );
 }
 
-function isUnresolvedPaymentRecord(record: PaymentRecord) {
-  const status = String(record?.status || "").toLowerCase();
-  const verificationStatus = String(record?.verificationStatus || "").toLowerCase();
-  const isResolved =
-    status === "verified" ||
-    status === "rejected" ||
-    status === "incomplete" ||
-    verificationStatus === "verified" ||
-    verificationStatus === "rejected" ||
-    verificationStatus === "incomplete";
-  return !isResolved;
-}
-
-function isPaymentRecordForBooking(record: PaymentRecord, bookingId: string) {
-  const target = String(bookingId || "").trim().toLowerCase()
-  return Boolean(target) && (
-    String(record.bookingId || "").trim().toLowerCase() === target ||
-    String(record.bookingCode || "").trim().toLowerCase() === target
-  )
-}
-
-function getOfficeReservationFee(booking: Partial<Booking>) {
-  return getSafePrice(
-    booking.officeReservationFee || booking.totalPrice || DEFAULT_TOTAL_PRICE,
-  );
-}
-
-function createOfficePaymentId() {
-  return createLocalId("CHECK");
-}
-
 function getRequiredChequeCount(term: OfficeRentalTerm) {
   if (term === "6_months") return 6;
   if (term === "1_year") return 12;
@@ -917,133 +737,6 @@ function getRentalTermLabel(term: OfficeRentalTerm) {
   if (term === "6_months") return "6 months";
   if (term === "1_year") return "1 year";
   return "2 years";
-}
-
-async function loadReceipts(bookingId?: string): Promise<BookingReceipt[]> {
-  try {
-    const constraints: any[] = bookingId
-      ? [where("bookingId", "==", bookingId)]
-      : [];
-    if (constraints.length === 0) constraints.push(orderBy("dateGenerated", "desc"));
-    const snapshot = await getDocs(query(receiptsRef, ...constraints))
-    const result: BookingReceipt[] = []
-    snapshot.forEach((docSnap) => {
-      const d = docSnap.data()
-      result.push({
-        receiptNumber: d.receiptNumber || "",
-        bookingId: d.bookingId || "",
-        paymentId: d.paymentId || undefined,
-        fullName: d.fullName || "",
-        bookingDate: d.bookingDate || "",
-        startDate: d.startDate || "",
-        endDate: d.endDate || "",
-        rentalType: d.rentalType || "",
-        bookingType: d.bookingType || "",
-        contractTerm: d.contractTerm || "",
-        paymentPurpose: d.paymentPurpose || "",
-        paymentMethod: d.paymentMethod || "",
-        amountPaid: d.amountPaid || 0,
-        paymentAmount: d.paymentAmount || 0,
-        remainingBalance: typeof d.remainingBalance === "number" ? d.remainingBalance : undefined,
-        paymentStatus: d.paymentStatus || "",
-        dateGenerated: d.dateGenerated || "",
-        dateIssued: d.dateIssued || "",
-        paymentSubmittedAt: d.paymentSubmittedAt || "",
-      })
-    })
-    return result
-  } catch {
-    return []
-  }
-}
-
-async function saveStoredReceipt(receipt: BookingReceipt) {
-  await setDoc(doc(receiptsRef, receipt.receiptNumber), {
-    receiptNumber: receipt.receiptNumber,
-    bookingId: receipt.bookingId,
-    paymentId: receipt.paymentId || "",
-    fullName: receipt.fullName,
-    bookingDate: receipt.bookingDate,
-    startDate: receipt.startDate,
-    endDate: receipt.endDate,
-    rentalType: receipt.rentalType,
-    bookingType: receipt.bookingType,
-    contractTerm: receipt.contractTerm || "",
-    paymentPurpose: receipt.paymentPurpose,
-    paymentMethod: receipt.paymentMethod,
-    amountPaid: receipt.amountPaid,
-    paymentAmount: receipt.paymentAmount,
-    remainingBalance: typeof receipt.remainingBalance === "number" ? receipt.remainingBalance : 0,
-    paymentStatus: receipt.paymentStatus,
-    dateGenerated: receipt.dateGenerated,
-    dateIssued: receipt.dateIssued,
-    paymentSubmittedAt: receipt.paymentSubmittedAt || "",
-  })
-}
-
-async function getStoredReceiptByBookingId(bookingId: string): Promise<BookingReceipt | undefined> {
-  try {
-    const snapshot = await getDocs(
-      query(receiptsRef, where("bookingId", "==", bookingId), limit(1)),
-    )
-    let found: BookingReceipt | undefined
-    snapshot.forEach((docSnap) => {
-      const d = docSnap.data()
-      if (d.bookingId === bookingId) {
-        found = {
-          receiptNumber: d.receiptNumber || "",
-          bookingId: d.bookingId || "",
-          paymentId: d.paymentId || undefined,
-          fullName: d.fullName || "",
-          bookingDate: d.bookingDate || "",
-          startDate: d.startDate || "",
-          endDate: d.endDate || "",
-          rentalType: d.rentalType || "",
-          bookingType: d.bookingType || "",
-          contractTerm: d.contractTerm || "",
-          paymentPurpose: d.paymentPurpose || "",
-          paymentMethod: d.paymentMethod || "",
-          amountPaid: d.amountPaid || 0,
-          paymentAmount: d.paymentAmount || 0,
-          remainingBalance: typeof d.remainingBalance === "number" ? d.remainingBalance : undefined,
-          paymentStatus: d.paymentStatus || "",
-          dateGenerated: d.dateGenerated || "",
-          dateIssued: d.dateIssued || "",
-          paymentSubmittedAt: d.paymentSubmittedAt || "",
-        }
-      }
-    })
-    return found
-  } catch {
-    return undefined
-  }
-}
-
-function formatOfficeContractTerm(term?: OfficeRentalTerm) {
-  if (term === "6_months") return "6 Months";
-  if (term === "1_year") return "1 Year";
-  if (term === "2_years") return "2 Years";
-  return undefined;
-}
-
-function addMonthsToDate(dateValue?: string, months = 0) {
-  const start = parseLocalDate(dateValue);
-  if (!start || months <= 0) return dateValue || "Not set";
-
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + months);
-
-  const y = end.getFullYear();
-  const m = String(end.getMonth() + 1).padStart(2, "0");
-  const d = String(end.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function getOfficeTermMonths(term?: OfficeRentalTerm) {
-  if (term === "6_months") return 6;
-  if (term === "1_year") return 12;
-  if (term === "2_years") return 24;
-  return 0;
 }
 
 export function calculateOfficeEndDate(startDate: string, term?: OfficeRentalTerm) {
@@ -1063,455 +756,6 @@ export function calculateOfficeEndDate(startDate: string, term?: OfficeRentalTer
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
-}
-
-function getReceiptPaymentMethodLabel(method?: Booking["paymentMethod"]) {
-  if (method === "cash") return "Pay at the Office";
-  if (method === "bank") return "Bank Transfer";
-  return "Not specified";
-}
-
-function getReceiptPaymentPurpose(booking: Booking) {
-  if (isOfficeBooking(booking)) {
-    return "Slot Reservation Only - not full payment, not monthly rental payment, and not cheque payment.";
-  }
-
-  if (booking.paymentType === "downpayment") return "Event Venue Down Payment";
-  if (booking.paymentType === "full") return "Event Venue Full Payment";
-  return "Event Venue Payment";
-}
-
-function getReceiptPaymentAmount(booking: Booking) {
-  const lastPayment = Number(booking.lastPaymentAmount);
-  if (Number.isFinite(lastPayment) && lastPayment > 0) return lastPayment;
-  const verifiedAmount = Number((booking as any).paymentVerifiedAmount);
-  if (Number.isFinite(verifiedAmount) && verifiedAmount > 0) return verifiedAmount;
-  const submittedAmount = Number(booking.paymentAmount);
-  if (Number.isFinite(submittedAmount) && submittedAmount > 0) return submittedAmount;
-  const paid = Number(booking.amountPaid);
-  if (Number.isFinite(paid) && paid > 0) {
-    if (isOfficeBooking(booking)) return getOfficeReservationFee(booking);
-    return paid;
-  }
-  return getSafePrice(booking.totalPrice);
-}
-
-function getReceiptRemainingBalance(booking: Booking, totalAmount: number) {
-  if (
-    typeof booking.remainingBalance === "number" &&
-    Number.isFinite(booking.remainingBalance)
-  ) {
-    return Math.max(booking.remainingBalance, 0);
-  }
-  const paid = Number(booking.amountPaid ?? 0);
-  return Math.max(totalAmount - paid, 0);
-}
-
-function generateUniqueReceiptNumber(existingReceipts?: BookingReceipt[]): string {
-  const year = new Date().getFullYear();
-  const used = new Set(
-    (existingReceipts || [])
-      .map((r) => r.receiptNumber)
-      .filter((n): n is string => Boolean(n)),
-  );
-  let receiptNumber = "";
-  do {
-    const seq = Math.floor(100000 + Math.random() * 900000);
-    receiptNumber = `ER-${year}-${seq}`;
-  } while (used.has(receiptNumber));
-  return receiptNumber;
-}
-
-function buildAutoReceipt(
-  booking: Booking,
-  generatedAt = new Date().toISOString(),
-  existingReceipts?: BookingReceipt[],
-  paymentId?: string,
-) {
-  const officeBooking = isOfficeBooking(booking);
-  const officeTerm = officeBooking ? booking.officeRentalTerm || "6_months" : "";
-  const contractTerm = officeBooking ? formatOfficeContractTerm(officeTerm as OfficeRentalTerm) : "";
-  const totalAmount = getSafePrice(booking.totalPrice);
-  const amountPaid = getReceiptPaymentAmount(booking);
-
-  const receipt: BookingReceipt = {
-    receiptNumber: generateUniqueReceiptNumber(existingReceipts),
-    bookingId: booking.id,
-    // Reliable per-payment reference — this receipt belongs to THIS verified
-    // payment record only (payments collection doc id), never to the booking
-    // as a whole and never to another payment.
-    paymentId: paymentId || undefined,
-    fullName: booking.userInfo?.name || "Client",
-    bookingDate: booking.createdAt || generatedAt,
-    startDate: booking.date || "Not set",
-    endDate: officeBooking
-      ? addMonthsToDate(booking.date, getOfficeTermMonths(officeTerm as OfficeRentalTerm))
-      : booking.date || "Not set",
-    rentalType: officeBooking ? "Office Space Rental" : "Event Venue Booking",
-    bookingType: officeBooking ? "Office Space Rental" : booking.eventType || "Event Venue Booking",
-    contractTerm: contractTerm || "",
-    paymentPurpose: getReceiptPaymentPurpose(booking),
-    paymentMethod: getReceiptPaymentMethodLabel(booking.paymentMethod),
-    amountPaid,
-    paymentAmount: amountPaid,
-    remainingBalance: officeBooking ? 0 : getReceiptRemainingBalance(booking, totalAmount),
-    paymentStatus: officeBooking ? "Reservation Secured" : booking.paymentStatus || "paid",
-    dateGenerated: generatedAt,
-    dateIssued: generatedAt,
-    paymentSubmittedAt: booking.paymentSubmittedAt || generatedAt,
-  };
-
-  return receipt;
-}
-
-function getReceiptHistory(booking: Booking): BookingReceipt[] {
-  if (Array.isArray(booking.paymentReceipts) && booking.paymentReceipts.length > 0) {
-    return booking.paymentReceipts;
-  }
-  if (booking.receipt) return [booking.receipt];
-  return [];
-}
-
-function attachAutoReceipt(booking: Booking, paymentId?: string) {
-  const generatedAt = new Date().toISOString();
-  const history = getReceiptHistory(booking);
-  const receipt = buildAutoReceipt(booking, generatedAt, history, paymentId);
-
-  const last = history[history.length - 1];
-  const duplicated =
-    last != null &&
-    Number(last.paymentAmount) === Number(receipt.paymentAmount) &&
-    Number(last.remainingBalance ?? -1) === Number(receipt.remainingBalance ?? -1) &&
-    String(last.paymentMethod || "") === String(receipt.paymentMethod || "") &&
-    Boolean(last.dateGenerated) &&
-    Math.abs(new Date(generatedAt).getTime() - new Date(last.dateGenerated).getTime()) < 60000;
-
-  if (duplicated) {
-    return booking;
-  }
-
-  const nextHistory = [...history, receipt];
-
-  saveStoredReceipt(receipt).catch(() => {});
-
-  return {
-    ...booking,
-    paymentReceipts: nextHistory,
-    receiptIssued: true,
-    receiptNumber: receipt.receiptNumber,
-    receiptIssuedAt: receipt.dateGenerated,
-    receipt,
-    adminLogs: booking.receiptIssued
-      ? booking.adminLogs
-      : makeAdminLog(
-          booking,
-          "AUTO_GENERATE_E_RECEIPT",
-          `System automatically generated e-receipt ${receipt.receiptNumber} after admin payment verification.`,
-        ),
-  } as Booking;
-}
-
-/**
- * HISTORICAL RECEIPT REMAINING BALANCE
- * =====================================
- * For each individual payment receipt, the "Remaining Balance" means:
- *   THE BOOKING BALANCE IMMEDIATELY AFTER THAT SPECIFIC PAYMENT.
- *
- * It is a CUMULATIVE historical snapshot, NOT the current booking balance.
- * Once written, it must never change when future payments are made.
- *
- * Calculation:
- *   1. Sort all payment records for this booking chronologically (oldest first).
- *   2. Sum the "credited amount" of every record from #1 through the target.
- *   3. remainingBalance = max(0, bookingTotal - cumulativePaid)
- *
- * Credited amount per record status:
- *   - VERIFIED     → the full amount (accepted money).
- *   - INCOMPLETE   → amountReceived (actual received, not the submitted request).
- *   - REJECTED     → ₱0.
- *   - FOR REVIEW / PENDING / AWAITING → the submitted amount (it exists on the
- *     receipt as a real transaction even though admin hasn't decided yet).
- */
-function computeReceiptRemaining(
-  bookingTotal: number,
-  allRecords: PaymentRecord[],
-  targetRecordId: string | undefined,
-  targetRecordOverrides?: {
-    amount?: number;
-    amountPaid?: number;
-    amountReceived?: number;
-    status?: string;
-  },
-  bookingId?: string,
-): number {
-  // Filter records belonging to this booking
-  const matched = bookingId
-    ? allRecords.filter((record) => {
-        const target = String(bookingId || "").trim().toLowerCase()
-        const byId = String(record.bookingId || "").trim().toLowerCase()
-        const byCode = String(record.bookingCode || "").trim().toLowerCase()
-        return byId === target || byCode === target
-      })
-    : allRecords
-
-  // Sort chronologically — oldest first (ascending by submittedAt)
-  const sorted = [...matched].sort((a, b) => {
-    const aTime = new Date(a.submittedAt || a.updatedAt || 0).getTime()
-    const bTime = new Date(b.submittedAt || b.updatedAt || 0).getTime()
-    return aTime - bTime
-  })
-
-  // Apply overrides to the target record if present, then take records up to
-  // and including the target to compute cumulative paid through that payment.
-  let recordsUpToTarget: PaymentRecord[]
-
-  const targetIndex = sorted.findIndex((r) => r.id === targetRecordId)
-  if (targetIndex >= 0) {
-    recordsUpToTarget = sorted.slice(0, targetIndex + 1).map((record, i) => {
-      if (i !== targetIndex || !targetRecordOverrides) return record
-      return {
-        ...record,
-        ...(typeof targetRecordOverrides.amount === "number"
-          ? { amount: targetRecordOverrides.amount }
-          : {}),
-        ...(typeof targetRecordOverrides.amountPaid === "number"
-          ? { amountPaid: targetRecordOverrides.amountPaid }
-          : {}),
-        ...(typeof targetRecordOverrides.amountReceived === "number"
-          ? { amountReceived: targetRecordOverrides.amountReceived }
-          : {}),
-        ...(typeof targetRecordOverrides.status === "string"
-          ? { status: targetRecordOverrides.status, verificationStatus: targetRecordOverrides.status }
-          : {}),
-      }
-    })
-  } else {
-    // Target record not yet in the array (new payment at submission time).
-    // Append a synthetic record with the overrides so it's included in the
-    // cumulative sum.
-    const synthetic: PaymentRecord = {
-      id: targetRecordId || `_pending_${Date.now()}`,
-      bookingId: bookingId || "",
-      amount: targetRecordOverrides?.amount || 0,
-      amountPaid: targetRecordOverrides?.amountPaid || 0,
-      amountReceived: targetRecordOverrides?.amountReceived || 0,
-      status: targetRecordOverrides?.status || "For Verification",
-      verificationStatus: targetRecordOverrides?.status || "For Verification",
-      submittedAt: new Date().toISOString(),
-    } as PaymentRecord
-    recordsUpToTarget = [...sorted, synthetic]
-  }
-
-  // Sum the credited amount of every record up to and including the target
-  let cumulativePaid = 0
-  for (const record of recordsUpToTarget) {
-    cumulativePaid += receiptCreditedAmount(record)
-  }
-
-  return Math.max(0, bookingTotal - cumulativePaid)
-}
-
-/** Credited amount for a single receipt snapshot. */
-function receiptCreditedAmount(record: PaymentRecord): number {
-  const status = String(record?.status || record?.verificationStatus || "").toLowerCase()
-  if (status === "verified") {
-    return Number(record?.amount ?? record?.amountPaid ?? 0)
-  }
-  if (status === "incomplete") {
-    const received = Number(record?.amountReceived || 0)
-    // Incomplete always credits the ACTUAL money received.
-    // Fall back to submitted amount when amountReceived was never set.
-    return received > 0 ? received : Number(record?.amount ?? record?.amountPaid ?? 0)
-  }
-  if (status === "rejected") {
-    return 0
-  }
-  // For Review / Pending / Awaiting — NOT yet accepted money. The receipt
-  // remaining balance must reflect only verified/accepted payments, so
-  // unresolved records credit ₱0 here.
-  return 0
-}
-
-function getReceiptPaymentStatusLabel(status: string): string {
-  const normalized = String(status || "").toLowerCase();
-  if (normalized === "verified") return "Verified";
-  if (normalized === "rejected") return "Rejected";
-  if (normalized === "incomplete") return "Incomplete";
-  if (normalized === "awaiting onsite payment") return "Awaiting Onsite Payment";
-  return "For Verification";
-}
-
-/**
- * TRANSACTION RECEIPT — created at PAYMENT SUBMISSION time for EVERY payment
- * attempt, regardless of outcome. A receipt is a transaction RECORD; it is
- * NOT proof of acceptance. Only admin VERIFICATION marks a payment accepted.
- * The receipt carries the exact paymentId so it can never be shared with or
- * inherited by another payment.
- */
-function buildTransactionReceipt(
-  booking: Booking,
-  payment: {
-    id: string;
-    amount: number;
-    methodLabel?: string;
-    term?: string;
-    status: string;
-    submittedAt?: string;
-    referenceNo?: string;
-  },
-  existingReceipts?: BookingReceipt[],
-  remainingOverride?: number,
-): BookingReceipt {
-  const submittedAt = payment.submittedAt || new Date().toISOString();
-  const officeBooking = isOfficeBooking(booking);
-  const officeTerm = officeBooking ? booking.officeRentalTerm || "6_months" : "";
-  const totalAmount = getSafePrice(booking.totalPrice);
-  const amount = Number(payment.amount || 0);
-
-  return {
-    receiptNumber: generateUniqueReceiptNumber(existingReceipts),
-    bookingId: booking.id,
-    paymentId: payment.id,
-    fullName: booking.userInfo?.name || "Client",
-    bookingDate: booking.createdAt || submittedAt,
-    startDate: booking.date || "Not set",
-    endDate:
-      officeBooking
-        ? addMonthsToDate(booking.date, getOfficeTermMonths(officeTerm as OfficeRentalTerm))
-        : booking.date || "Not set",
-    rentalType: officeBooking ? "Office Space Rental" : "Event Venue Booking",
-    bookingType: officeBooking ? "Office Space Rental" : booking.eventType || "Event Venue Booking",
-    contractTerm: officeBooking ? formatOfficeContractTerm(officeTerm as OfficeRentalTerm) : "",
-    paymentPurpose: payment.term || getReceiptPaymentPurpose(booking),
-    paymentMethod: payment.methodLabel || getReceiptPaymentMethodLabel(booking.paymentMethod),
-    amountPaid: amount,
-    paymentAmount: amount,
-    // Use the canonical remaining when provided; fall back to the legacy
-    // total − stored-amountPaid calculation for backward compatibility.
-    remainingBalance:
-      typeof remainingOverride === "number"
-        ? remainingOverride
-        : Math.max(totalAmount - getSafePrice(booking.amountPaid), 0),
-    // Transaction state at submission — NEVER implies acceptance.
-    paymentStatus: getReceiptPaymentStatusLabel(payment.status),
-    dateGenerated: submittedAt,
-    dateIssued: submittedAt,
-    paymentSubmittedAt: submittedAt,
-  };
-}
-
-/** Appends the transaction receipt to the booking doc's receipt history. */
-function attachTransactionReceipt(booking: Booking, receipt: BookingReceipt): Booking {
-  const history = getReceiptHistory(booking);
-  return {
-    ...booking,
-    paymentReceipts: [...history, receipt],
-    receiptIssued: true,
-    receiptNumber: receipt.receiptNumber,
-    receiptIssuedAt: receipt.dateGenerated,
-  } as Booking;
-}
-
-/** Finds THIS payment's own transaction receipt in the booking's history. */
-function findPaymentReceipt(
-  booking: Booking,
-  paymentId?: string,
-  submittedAt?: string,
-): { receipt: BookingReceipt; index: number; history: BookingReceipt[] } | null {
-  const history = getReceiptHistory(booking);
-  if (paymentId) {
-    const index = history.findIndex(
-      (receiptEntry) =>
-        String(receiptEntry.paymentId || "") &&
-        String(receiptEntry.paymentId) === String(paymentId),
-    );
-    if (index >= 0) return { receipt: history[index], index, history };
-  }
-  // Legacy fallback ONLY: receipts created before paymentId existed are tied
-  // by the pinned exact submission timestamp — never nearest/latest.
-  if (submittedAt) {
-    const index = history.findIndex(
-      (receiptEntry) =>
-        String(receiptEntry.paymentSubmittedAt || "") &&
-        !receiptEntry.paymentId &&
-        String(receiptEntry.paymentSubmittedAt) === String(submittedAt),
-    );
-    if (index >= 0) return { receipt: history[index], index, history };
-  }
-  return null;
-}
-
-/**
- * ADMIN VERIFY — updates THIS payment's existing transaction receipt IN PLACE
- * (same paymentId, same receipt number). Creates a receipt only when the
- * payment genuinely has none (legacy submissions from before transaction
- * receipts existed). Verification is what marks the receipt ACCEPTED.
- */
-function upsertVerifiedReceipt(
-  booking: Booking,
-  paymentId: string | undefined,
-  verified: { amountPaid: number; remainingBalance: number },
-): Booking {
-  const existing = findPaymentReceipt(booking, paymentId, booking.paymentSubmittedAt);
-
-  if (existing) {
-    const nextHistory = [...existing.history];
-    nextHistory[existing.index] = {
-      ...existing.receipt,
-      amountPaid: verified.amountPaid,
-      paymentAmount: verified.amountPaid,
-      remainingBalance: verified.remainingBalance,
-      paymentStatus: "Verified",
-    };
-    saveStoredReceipt(nextHistory[existing.index]).catch(() => {});
-    return {
-      ...booking,
-      paymentReceipts: nextHistory,
-      receipt: nextHistory[nextHistory.length - 1],
-      receiptNumber: nextHistory[existing.index].receiptNumber,
-    } as Booking;
-  }
-
-  // Legacy fallback: no transaction receipt was ever created for this payment
-  // (submissions from before transaction receipts existed) — create one now,
-  // tied to THIS payment only.
-  return attachAutoReceipt({ ...booking }, paymentId);
-}
-
-/**
- * ADMIN REJECT / INCOMPLETE — updates THIS payment's transaction receipt
- * status in place (same paymentId). The receipt stays visible with its own
- * transaction state and never implies acceptance.
- */
-function patchPaymentReceiptStatus(
-  booking: Booking,
-  paymentId: string | undefined,
-  status: "Rejected" | "Incomplete",
-  extras?: { remainingBalance?: number; amountPaid?: number },
-): Booking {
-  const existing = findPaymentReceipt(booking, paymentId, booking.paymentSubmittedAt);
-  if (!existing) return booking;
-  const nextHistory = [...existing.history];
-  nextHistory[existing.index] = {
-    ...existing.receipt,
-    // The receipt amount must reflect the ACTUAL money of THIS payment —
-    // e.g. ₱5,500 received on a ₱7,500 requested downpayment marked
-    // INCOMPLETE. Only the calling action provides it; other actions leave
-    // the payment's own amount untouched.
-    ...(extras && typeof extras.amountPaid === "number" && extras.amountPaid > 0
-      ? { amountPaid: extras.amountPaid, paymentAmount: extras.amountPaid }
-      : {}),
-    ...(extras && typeof extras.remainingBalance === "number"
-      ? { remainingBalance: extras.remainingBalance }
-      : {}),
-    paymentStatus: status,
-  };
-  saveStoredReceipt(nextHistory[existing.index]).catch(() => {});
-  return {
-    ...booking,
-    paymentReceipts: nextHistory,
-    receipt: nextHistory[nextHistory.length - 1],
-  } as Booking;
 }
 
 function normalizeBookingForNewFields(booking: Booking): Booking {
@@ -1755,6 +999,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       (
         canViewDashboard
         || canManageBookings
+        || canManagePayments
         || canViewReports
       )
     );
@@ -2086,59 +1331,6 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     activeKey,
   ]);
 
-  const saveBookings = async (newBookings: Booking[]) => {
-    const normalizedBookings = newBookings.map(normalizeBookingForNewFields);
-    const prevMap = new Map(bookings.map(b => [b.id, b]))
-    const nextMap = new Map(normalizedBookings.map(b => [b.id, b]))
-
-    const batch = writeBatch(db)
-    let writeCount = 0
-    let deleteCount = 0
-
-    function stripUndefined(obj: Record<string, unknown>): Record<string, unknown> {
-      const cleaned: Record<string, unknown> = {}
-      for (const [key, value] of Object.entries(obj)) {
-        if (value === undefined) {
-          console.error("[stripUndefined] Removed undefined field:", key)
-          continue
-        }
-        if (value && typeof value === "object" && !Array.isArray(value)) {
-          cleaned[key] = stripUndefined(value as Record<string, unknown>)
-        } else {
-          cleaned[key] = value
-        }
-      }
-      return cleaned
-    }
-
-    try {
-      for (const [id, next] of nextMap) {
-        const prev = prevMap.get(id)
-        if (!prev || JSON.stringify(prev) !== JSON.stringify(next)) {
-          const { id: _id, ...data } = next
-          const sanitized = stripUndefined(data as Record<string, unknown>)
-          const docRef = doc(bookingsRef, id)
-          writeCount++
-          batch.set(docRef, { ...sanitized, updatedAt: new Date().toISOString() }, { merge: true })
-        }
-      }
-      for (const id of prevMap.keys()) {
-        if (!nextMap.has(id)) {
-          const docRef = doc(bookingsRef, id)
-          deleteCount++
-          batch.delete(docRef)
-        }
-      }
-
-      await batch.commit()
-
-      setBookings(normalizedBookings);
-    } catch (err: any) {
-      console.error("[Booking:saveBookings] Firestore write FAILED:", err?.code || err?.message || err)
-      throw err
-    }
-  };
-
   const saveOfficeRentals = (newOfficeRentals: OfficeRental[]) => {
     const prevMap = new Map(officeRentals.map(r => [r.id, r]))
     const nextMap = new Map(newOfficeRentals.map(r => [r.id, r]))
@@ -2222,329 +1414,148 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     return newId;
   };
 
-  const updateBookingStatus = (id: string, status: BookingStatus) => {
-    const targetBooking = bookings.find((booking) => booking.id === id);
-
-    if (
-      status === "completed" &&
-      targetBooking &&
-      hasRemainingBalance(targetBooking)
-    ) {
-      toast({
-        title: "Remaining Balance Required",
-        description: "This booking still has an unpaid remaining balance.",
-        variant: "destructive",
-      });
-      return;
+  const callLifecycleApi = async (
+    id: string,
+    action: "complete" | "status" | "contract_signed" | "balance_reminder" | "issue_receipt" | "expire",
+    extra: Record<string, string> = {},
+  ): Promise<Booking> => {
+    const response = await fetch("/api/bookings/lifecycle", {
+      method: "POST",
+      headers: await getAuthHeaders(true),
+      body: JSON.stringify({ bookingId: id, action, ...extra }),
+    })
+    const responseBody = await response.json().catch(() => null) as {
+      error?: unknown
+      booking?: unknown
+    } | null
+    if (!response.ok) {
+      throw new Error(
+        responseBody && typeof responseBody.error === "string"
+          ? responseBody.error
+          : "Unable to update the booking.",
+      )
     }
-
-    const updatedBookings = bookings.map((booking) => {
-      if (booking.id !== id) return booking;
-
-      if (isOfficeBooking(booking) && status === "reservation_secured") {
-        const reservationFee = getOfficeReservationFee(booking);
-
-        return attachAutoReceipt({
-          ...booking,
-          status: "contract_signing_required" as BookingStatus,
-          bookingStatus: "Contract Signing Required",
-          isSlotSecured: true,
-          paymentStatus: "slot_verified" as PaymentStatus,
-          paymentType: "slot_reservation" as const,
-          amountPaid: reservationFee,
-          remainingBalance: 0,
-          remainingBalancePaid: true,
-          contractSigningRequired: true,
-          officeReservationStatus:
-            "reservation_secured" as OfficeReservationStatus,
-          officeContractSigningRequired: true,
-          officePaymentInstructions:
-            "Reservation slot is secured. Please visit One Estela Place to sign the contract. Succeeding office rental payments are settled onsite via check and recorded by admin.",
-          verifiedByAdmin: true,
-          verifiedAt: new Date().toISOString(),
-          paymentVerifiedAt: new Date().toISOString(),
-          lastActivityAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-  
-          adminLogs: makeAdminLog(
-            booking,
-            "OFFICE_SLOT_SECURED",
-            "Admin verified office reservation payment. Slot is now secured. Contract signing required. Future payments will be tracked manually via onsite checks.",
-          ),
-        });
-      }
-
-      const shouldVerifyPayment =
-        status === "confirmed" &&
-        (booking.status === "verifying" ||
-          booking.paymentStatus === "for_review");
-
-      const total = getSafePrice(booking.totalPrice);
-      const downpayment = getDownpaymentAmount(booking);
-      const isDownpayment = booking.paymentType === "downpayment";
-
-      let verifiedBooking = {
-        ...booking,
-        status,
-        bookingStatus: status === "confirmed" ? "Confirmed" : getDisplayBookingStatus({ ...booking, status }),
-        isSlotSecured: shouldVerifyPayment || booking.isSlotSecured || status === "confirmed" || status === "reservation_secured",
-        verifiedByAdmin: shouldVerifyPayment ? true : booking.verifiedByAdmin,
-        verifiedAt: shouldVerifyPayment
-          ? new Date().toISOString()
-          : booking.verifiedAt,
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      } as Booking;
-
-      if (shouldVerifyPayment) {
-        if (isDownpayment) {
-          const currentDownpaymentPaid = typeof booking.downpaymentPaid === "number" ? booking.downpaymentPaid : 0;
-          const paymentAmount = typeof booking.paymentAmount === "number" ? booking.paymentAmount : downpayment;
-          const newDownpaymentPaid = currentDownpaymentPaid + paymentAmount;
-          const newAmountPaid = (typeof booking.amountPaid === "number" ? booking.amountPaid : 0) + paymentAmount;
-          const selectedDP = typeof booking.selectedDownpaymentAmount === "number" && booking.selectedDownpaymentAmount > 0
-            ? booking.selectedDownpaymentAmount
-            : downpayment;
-
-          verifiedBooking = {
-            ...verifiedBooking,
-            amountPaid: newAmountPaid,
-            downpaymentPaid: newDownpaymentPaid,
-            selectedDownpaymentAmount: selectedDP,
-          };
-
-          verifiedBooking = recalculatePaymentStage(verifiedBooking);
-          const dpComplete = newDownpaymentPaid >= selectedDP;
-          verifiedBooking = {
-            ...verifiedBooking,
-            status: (dpComplete ? "confirmed" : "verifying") as BookingStatus,
-            bookingStatus: dpComplete ? "Confirmed" : "Pending Verification",
-            isSlotSecured: dpComplete,
-            adminLogs: makeAdminLog(
-              booking,
-              "VERIFY_PAYMENT",
-              newDownpaymentPaid < selectedDP
-                ? `Admin verified downpayment of ₱${paymentAmount.toLocaleString()}. Downpayment remaining: ₱${(selectedDP - newDownpaymentPaid).toLocaleString()}.`
-                : newAmountPaid < total
-                  ? `Admin verified payment of ₱${paymentAmount.toLocaleString()}. Remaining balance: ₱${(total - newAmountPaid).toLocaleString()}.`
-                  : "Admin verified full payment and confirmed booking.",
-            ),
-          };
-        } else {
-          const paymentAmount = typeof booking.paymentAmount === "number" ? booking.paymentAmount : total;
-          const newAmountPaid = (typeof booking.amountPaid === "number" ? booking.amountPaid : 0) + paymentAmount;
-
-          verifiedBooking = {
-            ...verifiedBooking,
-            paymentStatus: "paid" as PaymentStatus,
-            amountPaid: newAmountPaid,
-            downpaymentPaid: 0,
-            downpaymentRemaining: 0,
-            remainingBalance: Math.max(total - newAmountPaid, 0),
-            remainingBalancePaid: newAmountPaid >= total,
-            adminLogs: makeAdminLog(
-              booking,
-              "VERIFY_PAYMENT",
-              newAmountPaid >= total
-                ? "Admin verified full payment and confirmed booking."
-                : `Admin verified payment of ₱${paymentAmount.toLocaleString()}.`,
-            ),
-          };
-        }
-      }
-
-      return shouldVerifyPayment ? attachAutoReceipt(verifiedBooking) : verifiedBooking;
-    });
-
-    saveBookings(updatedBookings);
-  };
-
-  const cancelBooking = (id: string) => {
-    const updatedBookings = bookings.map((booking) => {
-      if (booking.id !== id) return booking;
-
-      // Client-side expiry is limited to the unpaid booking window. It must
-      // not use the admin cancellation fields or masquerade as an approved
-      // cancellation request.
-      if (user?.role === "client") {
-        return {
-          ...booking,
-          status: "cancelled" as BookingStatus,
-          bookingStatus: "Cancelled",
-          paymentStatus: "cancelled" as PaymentStatus,
-          lastActivityAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-      }
-
-      const eventDate = getBookingEventDate(booking);
-      const daysBefore = calculateDaysBeforeEvent(eventDate);
-      const eligible = daysBefore >= REFUND_ELIGIBLE_DAYS;
-      const paidStatuses = ["verified", "paid", "partial"];
-      const hasVerifiedPayment = paidStatuses.includes(booking.paymentStatus || "");
-      const isEligible = eligible && hasVerifiedPayment;
-
-      return {
-        ...booking,
-        status: "cancelled" as BookingStatus,
-        bookingStatus: "Cancelled",
-        cancellationStatus: "Approved" as const,
-        cancellationReviewedAt: new Date().toISOString(),
-        cancellationStatusLabel: "Cancellation Approved",
-        paymentStatus:
-          booking.paymentStatus === "for_review" ||
-          booking.paymentStatus === "verified" ||
-          booking.paymentStatus === "paid" ||
-          booking.paymentStatus === "partial"
-            ? booking.paymentStatus
-            : "cancelled",
-        refundEligible: isEligible,
-        refundStatus: isEligible ? ("eligible" as RefundStatus) : ("not_eligible" as RefundStatus),
-        refundAmount: isEligible ? getSafePrice(booking.totalPrice) : 0,
-        daysBeforeEventAtCancellation: daysBefore,
-
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-    });
-
-    saveBookings(updatedBookings as Booking[]);
-  };
-
-  function getRoomKey(booking: Partial<Booking>): string {
-    if (!isOfficeBooking(booking)) return "";
-    const venue = String(booking.venue || "");
-    const roomMatch = venue.match(/Room\s+(\d+)/i);
-    return roomMatch ? `${booking.venueId || ""}|${roomMatch[1]}` : "";
+    const currentBooking = bookings.find((booking) => booking.id === id)
+    const serverBooking = responseBody?.booking as Partial<Booking> | undefined
+    if (!currentBooking || !serverBooking) {
+      throw new Error("The booking server returned an invalid lifecycle response.")
+    }
+    const updatedBooking = normalizeBookingForNewFields({
+      ...currentBooking,
+      ...serverBooking,
+      id,
+    })
+    setBookings((current) => current.map((booking) => (
+      booking.id === id ? updatedBooking : booking
+    )))
+    return updatedBooking
   }
 
-  function isActiveCompetingBooking(booking: Partial<Booking>): boolean {
-    if (!isOfficeBooking(booking)) return false;
-    const s = String(booking.status || "").toLowerCase();
-    return !["cancelled", "declined", "completed", "rental_expired"].includes(s);
+  const updateBookingStatus = async (id: string, status: BookingStatus): Promise<Booking | null> => {
+    if (!(status === "completed" || status === "confirmed" || status === "reservation_secured")) {
+      throw new Error("This booking status must be updated through its dedicated workflow.")
+    }
+    try {
+      return await callLifecycleApi(
+        id,
+        status === "completed" ? "complete" : "status",
+        status === "completed" ? {} : { status },
+      )
+    } catch (error) {
+      toast({
+        title: "Booking Status Update Failed",
+        description: error instanceof Error ? error.message : "Unable to update the booking status.",
+        variant: "destructive",
+      })
+      return null
+    }
   }
 
-  function cancelCompetingBookings(
-    bookingsList: Booking[],
-    winningId: string,
-    roomKey: string,
-  ): Booking[] {
-    if (!roomKey) return bookingsList;
-    return bookingsList.map((b) => {
-      if (b.id === winningId) return b;
-      if (!isActiveCompetingBooking(b)) return b;
-      if (getRoomKey(b) !== roomKey) return b;
-
-      return {
-        ...b,
-        status: "cancelled" as BookingStatus,
-        bookingStatus: "Cancelled",
-        cancellationStatus: "Approved" as const,
-        cancellationReviewedAt: new Date().toISOString(),
-        cancellationStatusLabel: "Cancellation Approved",
-        adminCancelDecision: "Auto-cancelled",
-        adminCancelReason:
-          "Another customer completed payment for this office room before your payment was verified. Please choose another available room.",
-        cancellationReason:
-          "Another customer completed payment for this office room before your payment was verified.",
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        adminLogs: makeAdminLog(
-          b,
-          "AUTO_CANCELLED_COMPETING_BOOKING",
-          "This booking was automatically cancelled because another customer's payment for the same office room was verified first.",
-        ),
-      } as Booking;
-    });
+  const cancelBooking = async (id: string): Promise<Booking | null> => {
+    try {
+      return await callLifecycleApi(id, "expire")
+    } catch (error) {
+      console.error("[Booking:cancelBooking] automatic expiry failed:", error)
+      return null
+    }
   }
 
-  const deleteBooking = (id: string) => {
-    saveBookings(bookings.filter((booking) => booking.id !== id));
-  };
+  const applyRefundResponse = (id: string, responseBody: unknown): Booking => {
+    const targetBooking = bookings.find((booking) => booking.id === id)
+    if (!targetBooking) throw new Error("Booking not found.")
+    const serverBooking = (
+      responseBody &&
+      typeof responseBody === "object" &&
+      "booking" in responseBody &&
+      responseBody.booking &&
+      typeof responseBody.booking === "object"
+        ? responseBody.booking
+        : null
+    ) as Partial<Booking> | null
+    if (!serverBooking) throw new Error("The refund server returned an invalid response.")
 
-  const requestRefund = (id: string) => {
-    const booking = bookings.find((b) => b.id === id);
-    if (!booking) return;
+    const updatedBooking = normalizeBookingForNewFields({
+      ...targetBooking,
+      ...serverBooking,
+      id,
+    })
+    setBookings((current) => current.map((booking) => (
+      booking.id === id ? updatedBooking : booking
+    )))
+    return updatedBooking
+  }
 
-    if (booking.refundStatus !== "eligible") {
-      toast({
-        title: "Not Eligible",
-        description: "This booking is not eligible for a refund.",
-        variant: "destructive",
-      });
-      return;
+  const callRefundApi = async (id: string, action: "request" | "complete"): Promise<Booking> => {
+    const response = await fetch("/api/bookings/refund", {
+      method: "POST",
+      headers: await getAuthHeaders(true),
+      body: JSON.stringify({ bookingId: id, action }),
+    })
+    const responseBody = await response.json().catch(() => null) as {
+      error?: unknown
+      booking?: unknown
+    } | null
+    if (!response.ok) {
+      throw new Error(
+        responseBody && typeof responseBody.error === "string"
+          ? responseBody.error
+          : "Unable to update the refund.",
+      )
     }
+    return applyRefundResponse(id, responseBody)
+  }
 
-    const updatedBookings = bookings.map((b) => {
-      if (b.id !== id) return b;
-      return {
-        ...b,
-        refundStatus: "requested" as RefundStatus,
-        refundRequestedAt: new Date().toISOString(),
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        adminLogs: makeAdminLog(
-          b,
-          "REFUND_REQUESTED",
-          "Customer requested refund. Please visit the office with valid ID and payment receipt within 7 days.",
-        ),
-      };
-    });
-
-    saveBookings(updatedBookings as Booking[]);
-    toast({
-      title: "Refund Requested",
-      description: "Please visit the One Estela Place Management Office within 7 days with your Official Receipt and Valid Government-issued ID to claim your refund.",
-    });
-  };
-
-  const markAsRefunded = (id: string) => {
-    const booking = bookings.find((b) => b.id === id);
-    if (!booking) return;
-
-    if (booking.refundStatus !== "requested") {
+  const requestRefund = async (id: string): Promise<void> => {
+    try {
+      await callRefundApi(id, "request")
       toast({
-        title: "Invalid Status",
-        description: "This booking's refund has not been requested yet.",
+        title: "Refund Requested",
+        description: "Please visit the One Estela Place Management Office within 7 days with your Official Receipt and Valid Government-issued ID to claim your refund.",
+      })
+    } catch (error) {
+      toast({
+        title: "Refund Request Failed",
+        description: error instanceof Error ? error.message : "Unable to request the refund.",
         variant: "destructive",
-      });
-      return;
-    }
-
-    const updatedBookings = bookings.map((b) => {
-      if (b.id !== id) return b;
-      return {
-        ...b,
-        refundStatus: "refunded" as RefundStatus,
-        refundedAt: new Date().toISOString(),
-
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        adminLogs: makeAdminLog(
-          b,
-          "REFUND_COMPLETED",
-          "Admin marked refund as completed. Cash refund has been claimed by the customer.",
-        ),
-      };
-    });
-
-    saveBookings(updatedBookings as Booking[]);
-    const refundedBooking = bookings.find((b) => b.id === id);
-    if (refundedBooking) {
-      createNotification({
-        type: "refund_completed",
-        title: "Refund Completed",
-        message: `Your refund for Booking ${refundedBooking.id} has been completed.`,
-        bookingId: refundedBooking.id,
-        userId: refundedBooking.userId,
-        link: `/portal/payments?highlight=${refundedBooking.id}`,
       })
     }
-    toast({
-      title: "Refund Completed",
-      description: `Booking ${id} has been marked as refunded.`,
-    });
-  };
+  }
+
+  const markAsRefunded = async (id: string): Promise<void> => {
+    try {
+      await callRefundApi(id, "complete")
+      toast({
+        title: "Refund Completed",
+        description: `Booking ${id} has been marked as refunded.`,
+      })
+    } catch (error) {
+      toast({
+        title: "Refund Completion Failed",
+        description: error instanceof Error ? error.message : "Unable to complete the refund.",
+        variant: "destructive",
+      })
+    }
+  }
 
   const getUserBookings = useCallback((userId: string) => {
     return bookings.filter((booking) => booking.userId === userId);
@@ -2553,12 +1564,6 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
   const getBookingById = useCallback((id: string) => {
     return bookings.find((booking) => booking.id === id);
   }, [bookings]);
-
-  const modifyBooking = (id: string, updates: Partial<Booking>) => {
-    saveBookings(
-      bookings.map((booking) => (booking.id === id ? { ...booking, ...updates, lastActivityAt: new Date().toISOString(), updatedAt: new Date().toISOString() } : booking))
-    );
-  };
 
   const applyCancellationResponse = (id: string, responseBody: unknown): Booking => {
     const targetBooking = bookings.find((booking) => booking.id === id)
@@ -2632,512 +1637,116 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     return declineCancellation(id, reason || "")
   }
 
-  const requestModification = (id: string, changes: Record<string, unknown>, reason: string) => {
-    const targetBooking = bookings.find((booking) => booking.id === id);
-    if (!targetBooking) return;
-
-    const updatedBookings = bookings.map((booking) => {
-      if (booking.id !== id) return booking;
-
-      return {
-        ...booking,
-        modificationPreviousStatus: booking.status,
-        modificationPreviousBookingStatus: booking.bookingStatus,
-        status: "modification_under_review" as BookingStatus,
-        bookingStatus: "Modification Under Review",
-        modificationRequested: true,
-        modificationUnderReview: true,
-        modifyRequestStatus: "Pending",
-        modificationStatus: "Under Review" as ModificationStatus,
-        modificationReason: reason.trim(),
-        modificationRequestedAt: new Date().toISOString(),
-        requestedChanges: changes,
-        originalBookingSnapshot: {
-          eventName: booking.eventName,
-          eventType: booking.eventType,
-          guestCount: booking.guestCount,
-          date: booking.date,
-          startTime: booking.startTime,
-          endTime: booking.endTime,
-          time: booking.time,
-          venue: booking.venue,
-          venueId: booking.venueId,
-          specialRequests: booking.specialRequests,
-        },
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        adminLogs: makeAdminLog(
-          booking,
-          "REQUEST_MODIFICATION",
-          `Client requested modification. Reason: ${reason.trim()}. Changes requested: ${JSON.stringify(changes)}`,
-        ),
-      };
-    });
-
-    saveBookings(updatedBookings as Booking[]);
-    const clientName = targetBooking.userInfo?.name || targetBooking.eventName || "A client"
-    const modVenue = targetBooking.venue || targetBooking.eventName || "a venue"
-    createNotification({
-      type: "modification_requested",
-      title: "Modification Requested",
-      message: `A modification has been requested for ${modVenue}.`,
-      bookingId: targetBooking.id,
-      userId: "admin",
-      relatedUserId: targetBooking.userId,
-      relatedUserName: clientName,
-      link: `/dashboard/bookings?highlight=${targetBooking.id}`,
+  const applyModificationResponse = (id: string, responseBody: unknown): Booking => {
+    const targetBooking = bookings.find((booking) => booking.id === id)
+    if (!targetBooking) throw new Error("Booking not found.")
+    const serverBooking = (
+      responseBody &&
+      typeof responseBody === "object" &&
+      "booking" in responseBody &&
+      responseBody.booking &&
+      typeof responseBody.booking === "object"
+        ? responseBody.booking
+        : null
+    ) as Partial<Booking> | null
+    if (!serverBooking) throw new Error("The modification server returned an invalid response.")
+    const updatedBooking = normalizeBookingForNewFields({
+      ...targetBooking,
+      ...serverBooking,
+      id,
     })
-  };
+    setBookings((current) => current.map((booking) => (
+      booking.id === id ? updatedBooking : booking
+    )))
+    return updatedBooking
+  }
 
-  const approveModification = (id: string) => {
-    const updatedBookings = bookings.map((booking) => {
-      if (booking.id !== id) return booking;
-
-      const changes = booking.requestedChanges as Record<string, unknown> | undefined;
-      if (!changes) return booking;
-
-      const restored = getRestoredStatus(booking);
-
-      const merged = {
-        ...booking,
-        ...changes,
-      };
-
-      if (isOfficeBooking(merged)) {
-        const officeTerm =
-          (merged as any).officeRentalTerm ||
-          (merged as any).rentalTerm ||
-          (merged as any).contractTerm;
-        const startDate = merged.date;
-        if (officeTerm && startDate && ((changes as any).officeRentalTerm || changes.date)) {
-          merged.endDate = calculateOfficeEndDate(startDate, officeTerm as OfficeRentalTerm);
-        }
-      }
-
-      return {
-        ...merged,
-        status: restored.status,
-        bookingStatus: restored.bookingStatus,
-        modificationRequested: false,
-        modificationUnderReview: false,
-        modifyRequestStatus: "Approved",
-        modificationStatus: "Approved" as ModificationStatus,
-        modificationReviewedAt: new Date().toISOString(),
-        modificationPreviousStatus: null,
-        modificationPreviousBookingStatus: null,
-        requestedChanges: null,
-        originalBookingSnapshot: null,
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-
-        adminLogs: makeAdminLog(
-          booking,
-          "APPROVE_MODIFICATION",
-          "Admin approved modification request. Changes have been applied.",
-        ),
-      };
-    });
-
-    saveBookings(updatedBookings as Booking[]);
-    const approvedMod = updatedBookings.find((b) => b.id === id);
-    if (approvedMod) {
-      createNotification({
-        type: "modification_approved",
-        title: "Modification Approved",
-        message: `Your modification request for Booking ${approvedMod.id} has been approved.`,
-        bookingId: approvedMod.id,
-        userId: approvedMod.userId,
-        link: `/portal/bookings?highlight=${approvedMod.id}`,
-      })
+  const callModificationApi = async (
+    id: string,
+    action: "request" | "approve" | "decline" | "admin_update",
+    changes?: Record<string, unknown>,
+    reason?: string,
+  ): Promise<Booking> => {
+    const response = await fetch("/api/bookings/modification", {
+      method: "POST",
+      headers: await getAuthHeaders(true),
+      body: JSON.stringify({ bookingId: id, action, changes, reason }),
+    })
+    const responseBody = await response.json().catch(() => null) as {
+      error?: unknown
+      booking?: unknown
+    } | null
+    if (!response.ok) {
+      throw new Error(
+        responseBody && typeof responseBody.error === "string"
+          ? responseBody.error
+          : "Unable to update the modification request.",
+      )
     }
-  };
+    return applyModificationResponse(id, responseBody)
+  }
 
-  const declineModification = (id: string, reason: string) => {
+  const requestModification = async (
+    id: string,
+    changes: Record<string, unknown>,
+    reason: string,
+  ): Promise<Booking> => callModificationApi(id, "request", changes, reason)
+
+  const modifyBooking = async (id: string, updates: Partial<Booking>): Promise<Booking> => {
+    const updateRecord = updates as Record<string, unknown>
+    const allowedKeys = [
+      "date",
+      "eventName",
+      "eventType",
+      "guestCount",
+      "specialRequests",
+      "time",
+      "startTime",
+      "endTime",
+      "companyName",
+      "natureOfBusiness",
+      "bookingType",
+      "bookingCategory",
+      "isOfficeRental",
+      "rentalTerm",
+      "contractTerm",
+      "officeRentalTerm",
+    ] as const
+    const changes = Object.fromEntries(
+      allowedKeys
+        .filter((key) => updateRecord[key] !== undefined)
+        .map((key) => [key, updateRecord[key]]),
+    )
+    return callModificationApi(id, "admin_update", changes, "Admin updated the booking.")
+  }
+
+  const approveModification = async (id: string): Promise<Booking> => callModificationApi(id, "approve")
+
+  const declineModification = async (id: string, reason: string): Promise<Booking> => {
     if (!reason.trim()) {
       toast({
         title: "Decline Reason Required",
         description: "Please provide a reason before declining the modification request.",
         variant: "destructive",
-      });
-      return;
-    }
-
-    const updatedBookings = bookings.map((booking) => {
-      if (booking.id !== id) return booking;
-
-      const restored = getRestoredStatus(booking);
-
-      return {
-        ...booking,
-        status: restored.status,
-        bookingStatus: restored.bookingStatus,
-        modificationRequested: false,
-        modificationUnderReview: false,
-        modifyRequestStatus: "Declined",
-        modificationStatus: "Declined" as ModificationStatus,
-        modificationDeclineReason: reason.trim(),
-        modificationReviewedAt: new Date().toISOString(),
-        modificationPreviousStatus: null,
-        modificationPreviousBookingStatus: null,
-        requestedChanges: null,
-        originalBookingSnapshot: null,
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-
-        adminLogs: makeAdminLog(
-          booking,
-          "DECLINE_MODIFICATION_REQUEST",
-          `Modification request declined. Reason: ${reason.trim()}`,
-        ),
-      };
-    });
-
-    saveBookings(updatedBookings as Booking[]);
-    const declinedMod = updatedBookings.find((b) => b.id === id);
-    if (declinedMod) {
-      createNotification({
-        type: "modification_declined",
-        title: "Modification Declined",
-        message: `Your modification request for Booking ${declinedMod.id} has been declined.`,
-        bookingId: declinedMod.id,
-        userId: declinedMod.userId,
-        link: `/portal/bookings?highlight=${declinedMod.id}`,
       })
+      throw new Error("A decline reason is required.")
     }
-  };
+    return callModificationApi(id, "decline", undefined, reason.trim())
+  }
 
-  const markRefundReady = (id: string) => {
-    const targetBooking = bookings.find((booking) => booking.id === id);
+  const markContractSigned = async (id: string, signedBy?: string): Promise<Booking> => (
+    callLifecycleApi(id, "contract_signed", signedBy ? { signedBy } : {})
+  )
 
-    if (!targetBooking || targetBooking.refundStatus !== "Refund Pending") {
-      toast({
-        title: "Refund Not Pending",
-        description:
-          "Only pending refunds can be marked as ready for claiming.",
-        variant: "destructive",
-      });
-      return;
-    }
+  const issueReceipt = async (id: string): Promise<Booking> => {
+    return callLifecycleApi(id, "issue_receipt")
+  }
 
-    const updatedBookings = bookings.map((booking) => {
-      if (booking.id !== id) return booking;
+  const sendBalanceReminder = async (id: string): Promise<Booking> => (
+    callLifecycleApi(id, "balance_reminder")
+  )
 
-      return {
-        ...booking,
-        refundStatus: "Refund Ready for Claiming" as RefundStatus,
-        refundReadyDate: booking.refundReadyDate || new Date().toISOString(),
-        refundInstructions:
-          "Your cash refund is ready. Please claim it at the One Estela Place office.",
-
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        adminLogs: makeAdminLog(
-          booking,
-          "MARK_REFUND_READY",
-          "Admin marked cash refund as ready for claiming.",
-        ),
-      };
-    });
-
-    saveBookings(updatedBookings);
-  };
-
-  const markRefundClaimed = (id: string) => {
-    const targetBooking = bookings.find((booking) => booking.id === id);
-
-    if (
-      !targetBooking ||
-      targetBooking.refundStatus !== "Refund Ready for Claiming"
-    ) {
-      toast({
-        title: "Refund Not Ready",
-        description:
-          "Refund can only be marked as claimed when it is ready for claiming.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const updatedBookings = bookings.map((booking) => {
-      if (booking.id !== id) return booking;
-
-      return {
-        ...booking,
-        refundStatus: "Refund Claimed" as RefundStatus,
-        refundClaimedDate: new Date().toISOString(),
-
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        adminLogs: makeAdminLog(
-          booking,
-          "MARK_REFUND_CLAIMED",
-          "Admin marked cash refund as claimed at the office.",
-        ),
-      };
-    });
-
-    saveBookings(updatedBookings);
-  };
-
-  const markContractSigned = (id: string, signedBy?: string) => {
-    const updatedBookings = bookings.map((booking) => {
-      if (booking.id !== id) return booking;
-
-      const newStatus = isOfficeBooking(booking)
-        ? ("active_rental" as BookingStatus)
-        : booking.status;
-
-      return {
-        ...booking,
-        contractSigningRequired: true,
-        contractSigned: true,
-        contractSignedAt: new Date().toISOString(),
-        contractSignedDate: new Date().toISOString(),
-        contractSignedBy: signedBy || "Administrator",
-        contractSigningMethod: "Face-to-face",
-        contractStatus: "Signed" as ContractStatus,
-        status: newStatus,
-        bookingStatus: getDisplayBookingStatus({
-          ...booking,
-          status: newStatus,
-        }),
-
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        adminLogs: makeAdminLog(
-          booking,
-          "MARK_CONTRACT_SIGNED",
-          isOfficeBooking(booking)
-            ? `Admin marked office rental contract as signed. Rental is now active. Signed by: ${signedBy || "Administrator"}.`
-            : `Admin marked contract as signed at One Estela Place office. Signed by: ${signedBy || "Administrator"}. Method: Face-to-face.`,
-        ),
-      };
-    });
-
-    saveBookings(updatedBookings);
-    const signedBooking = bookings.find((b) => b.id === id);
-    if (signedBooking) {
-      createNotification({
-        type: "booking_approved",
-        title: "Contract Signed",
-        message: `Your contract for Booking ${signedBooking.id} has been signed.`,
-        bookingId: signedBooking.id,
-        userId: signedBooking.userId,
-        link: `/portal/bookings?highlight=${signedBooking.id}`,
-      })
-    }
-  };
-
-  const issueReceipt = (id: string) => {
-    const targetBooking = bookings.find((booking) => booking.id === id);
-
-    if (!targetBooking) return;
-
-    const hasPayment =
-      targetBooking.paymentStatus === "paid" ||
-      targetBooking.paymentStatus === "verified" ||
-      targetBooking.paymentStatus === "partial" ||
-      targetBooking.paymentStatus === "slot_verified" ||
-      getCurrentAmountPaid(targetBooking) > 0 ||
-      isOfficeBooking(targetBooking);
-
-    if (!hasPayment) {
-      toast({
-        title: "No Verified Payment Found",
-        description: "The system can only generate an e-receipt after admin payment verification.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const updatedBookings = bookings.map((booking) => {
-      if (booking.id !== id) return booking;
-      if (booking.receiptIssued || getReceiptHistory(booking).length > 0) return booking;
-      return attachAutoReceipt(booking);
-    });
-
-    saveBookings(updatedBookings);
-  };
-
-  const verifyCashPayment = (
-    id: string,
-    paymentType: "downpayment" | "full" = "full",
-  ) => {
-    const winningBooking = bookings.find((b) => b.id === id && isOfficeBooking(b));
-    const winningRoomKey = winningBooking ? getRoomKey(winningBooking) : "";
-
-    const updatedBookings = bookings.map((booking) => {
-      if (booking.id !== id) {
-        if (winningRoomKey && isActiveCompetingBooking(booking) && getRoomKey(booking) === winningRoomKey) {
-          return {
-            ...booking,
-            status: "cancelled" as BookingStatus,
-            bookingStatus: "Cancelled",
-            cancellationStatus: "Approved" as const,
-            cancellationReviewedAt: new Date().toISOString(),
-            cancellationStatusLabel: "Cancellation Approved",
-            adminCancelDecision: "Auto-cancelled",
-            adminCancelReason:
-              "Another customer completed payment for this office room before your payment was verified. Please choose another available room.",
-            cancellationReason:
-              "Another customer completed payment for this office room before your payment was verified.",
-            lastActivityAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            adminLogs: makeAdminLog(
-              booking,
-              "AUTO_CANCELLED_COMPETING_BOOKING",
-              "This booking was automatically cancelled because another customer's payment for the same office room was verified first.",
-            ),
-          } as Booking;
-        }
-        return booking;
-      }
-
-      if (isOfficeBooking(booking)) {
-        const total = getSafePrice(booking.totalPrice);
-        const currentAmountPaid = typeof booking.amountPaid === "number" ? booking.amountPaid : 0;
-        const paidAmount = total - currentAmountPaid;
-        const newAmountPaid = currentAmountPaid + paidAmount;
-        const isFullyPaid = newAmountPaid >= total;
-
-        return attachAutoReceipt({
-          ...booking,
-          status: isFullyPaid ? "reservation_secured" : ("verifying" as BookingStatus),
-          bookingStatus: isFullyPaid ? "Slot Secured" : "Pending Verification",
-          isSlotSecured: isFullyPaid,
-          paymentStatus: isFullyPaid ? ("paid" as PaymentStatus) : ("partial" as PaymentStatus),
-          paymentType: isFullyPaid ? "slot_reservation" as const : booking.paymentType,
-          paymentMethod: "cash" as const,
-          amountPaid: newAmountPaid,
-          remainingBalance: Math.max(total - newAmountPaid, 0),
-          remainingBalancePaid: isFullyPaid,
-          contractSigningRequired: isFullyPaid,
-          officeReservationStatus: isFullyPaid
-            ? "reservation_secured" as OfficeReservationStatus
-            : booking.officeReservationStatus || "pending_verification" as OfficeReservationStatus,
-          officeContractSigningRequired: isFullyPaid,
-          verifiedByAdmin: true,
-          verifiedAt: new Date().toISOString(),
-          paymentVerifiedAt: new Date().toISOString(),
-          lastActivityAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          adminLogs: makeAdminLog(
-            booking,
-            "VERIFY_OFFICE_CASH_PAYMENT",
-            isFullyPaid
-              ? "Admin verified full office cash payment. Reservation secured. Contract signing required. Future payments are onsite check payments tracked by admin."
-              : `Admin verified office cash payment of ₱${paidAmount.toLocaleString()}. Remaining reservation fee: ₱${Math.max(total - newAmountPaid, 0).toLocaleString()}.`,
-          ),
-        });
-      }
-
-      const total = getSafePrice(booking.totalPrice);
-      const downpayment = getDownpaymentAmount(booking);
-      const isDownpayment = paymentType === "downpayment";
-
-      const currentDownpaymentPaid = typeof booking.downpaymentPaid === "number" ? booking.downpaymentPaid : 0;
-      const currentAmountPaid = typeof booking.amountPaid === "number" ? booking.amountPaid : 0;
-
-      if (isDownpayment) {
-        const selectedDP = typeof booking.selectedDownpaymentAmount === "number" && booking.selectedDownpaymentAmount > 0
-          ? booking.selectedDownpaymentAmount
-          : downpayment;
-        const remainingDP = selectedDP - currentDownpaymentPaid;
-        const paidAmount = Math.min(remainingDP, total);
-        const newDownpaymentPaid = currentDownpaymentPaid + paidAmount;
-        const newAmountPaid = currentAmountPaid + paidAmount;
-
-        const updated = recalculatePaymentStage({
-          ...booking,
-          paymentType: "downpayment",
-          paymentMethod: "cash" as const,
-          amountPaid: newAmountPaid,
-          lastPaymentAmount: paidAmount,
-          downpaymentPaid: newDownpaymentPaid,
-          selectedDownpaymentAmount: selectedDP,
-          downpaymentRemaining: Math.max(selectedDP - newDownpaymentPaid, 0),
-          verifiedByAdmin: true,
-          verifiedAt: new Date().toISOString(),
-          contractSigningRequired: true,
-          contractSigned: booking.contractSigned || false,
-          contractStatus: booking.contractSigned ? "Signed" : "Pending Signature",
-          lastActivityAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-
-        const dpComplete = newDownpaymentPaid >= selectedDP;
-        return attachAutoReceipt({
-          ...updated,
-          status: (dpComplete ? "confirmed" : "verifying") as BookingStatus,
-          bookingStatus: dpComplete ? "Confirmed" : "Pending Verification",
-          isSlotSecured: dpComplete,
-          paymentMethod: "cash" as const,
-          verifiedByAdmin: true,
-          verifiedAt: new Date().toISOString(),
-          contractSigningRequired: true,
-          contractSigned: booking.contractSigned || false,
-          contractStatus: booking.contractSigned ? "Signed" : "Pending Signature",
-          lastActivityAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          adminLogs: makeAdminLog(
-            booking,
-            "VERIFY_CASH_DOWNPAYMENT",
-            newDownpaymentPaid < selectedDP
-              ? `Admin manually verified cash downpayment of ₱${paidAmount.toLocaleString()}. Downpayment remaining: ₱${(selectedDP - newDownpaymentPaid).toLocaleString()}.`
-              : `Admin manually verified cash downpayment of ₱${paidAmount.toLocaleString()}. Downpayment complete. Remaining balance: ₱${Math.max(total - newAmountPaid, 0).toLocaleString()}.`,
-          ),
-        });
-      }
-
-      const paidAmount = total - currentAmountPaid;
-      const newAmountPaid = currentAmountPaid + paidAmount;
-
-      return attachAutoReceipt({
-        ...booking,
-        status: "confirmed" as BookingStatus,
-        bookingStatus: "Confirmed",
-        isSlotSecured: true,
-        paymentStatus: "paid" as PaymentStatus,
-        paymentType,
-        paymentMethod: "cash" as const,
-        amountPaid: newAmountPaid,
-        lastPaymentAmount: paidAmount,
-        downpaymentPaid: currentDownpaymentPaid,
-        downpaymentRemaining: 0,
-        remainingBalance: Math.max(total - newAmountPaid, 0),
-        remainingBalancePaid: newAmountPaid >= total,
-        verifiedByAdmin: true,
-        verifiedAt: new Date().toISOString(),
-        contractSigningRequired: true,
-        contractSigned: booking.contractSigned || false,
-        contractStatus: booking.contractSigned ? "Signed" : "Pending Signature",
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        adminLogs: makeAdminLog(
-          booking,
-          "VERIFY_CASH_PAYMENT",
-          newAmountPaid >= total
-            ? "Admin manually verified full cash payment. Contract signing is still required."
-            : `Admin manually verified cash payment of ₱${paidAmount.toLocaleString()}.`,
-        ),
-      });
-    });
-
-    saveBookings(updatedBookings);
-    const cashVerifiedBooking = bookings.find((b) => b.id === id);
-    if (cashVerifiedBooking) {
-      createNotification({
-        type: "payment_approved",
-        title: "Payment Approved",
-        message: `Your cash payment for Booking ${cashVerifiedBooking.id} has been approved.`,
-        bookingId: cashVerifiedBooking.id,
-        userId: cashVerifiedBooking.userId,
-        link: `/portal/payments?highlight=${cashVerifiedBooking.id}`,
-      })
-    }
-  };
-
-  const manualRecordOnsitePayment = (
+  const manualRecordOnsitePayment = async (
     id: string,
     paymentData: {
       paymentType: "downpayment" | "remaining_balance" | "full_payment";
@@ -3145,7 +1754,55 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       adminNote?: string;
       adminName?: string;
     },
-  ): Booking | null => {
+  ): Promise<Booking | null> => {
+    const response = await fetch("/api/payments/onsite", {
+      method: "POST",
+      headers: await getAuthHeaders(true),
+      body: JSON.stringify({
+        bookingId: id,
+        paymentType: paymentData.paymentType,
+        amountReceived: paymentData.amountReceived,
+        adminNote: paymentData.adminNote || "",
+        adminName: paymentData.adminName || "",
+      }),
+    })
+    const responseBody = await response.json().catch(() => null) as {
+      error?: unknown
+      booking?: unknown
+      payment?: unknown
+    } | null
+    if (!response.ok) {
+      throw new Error(
+        responseBody && typeof responseBody.error === "string"
+          ? responseBody.error
+          : "Unable to record the onsite payment.",
+      )
+    }
+    const serverBooking = responseBody?.booking as Partial<Booking> | undefined
+    const paymentRecord = responseBody?.payment as PaymentRecord | undefined
+    const currentBooking = bookings.find((booking) => booking.id === id)
+    if (!serverBooking || !paymentRecord || !currentBooking) {
+      throw new Error("The onsite payment server returned an invalid response.")
+    }
+    const updatedBooking = normalizeBookingForNewFields({
+      ...currentBooking,
+      ...serverBooking,
+      id,
+    })
+    setBookings((current) => current.map((booking) => (
+      booking.id === id ? updatedBooking : booking
+    )))
+    setPaymentRecords((current) => (
+      current.some((payment) => payment.id === paymentRecord.id)
+        ? current.map((payment) => payment.id === paymentRecord.id ? paymentRecord : payment)
+        : [...current, paymentRecord]
+    ))
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("oneestela_payments_updated"))
+    }
+    return updatedBooking
+
+    /*
     let resultBooking: Booking | null = null;
     const updatedBookings = bookings.map((booking) => {
       if (booking.id !== id) return booking;
@@ -3326,8 +1983,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
               : payment)
             : [...current, onsitePaymentRecord]
         ));
-        setDoc(doc(paymentsRef, onsitePaymentId), onsitePaymentRecord).catch(console.error);
-        saveStoredReceipt(onsiteReceipt).catch(console.error);
+        void onsitePaymentRecord;
         window.dispatchEvent(new Event("oneestela_payments_updated"));
 
         console.log("[PAYMENT] ONSITE PAYMENT RECORDED", {
@@ -3356,165 +2012,10 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
 
     const matched = updatedBookings.find((b) => b.id === id) ?? null;
     resultBooking = matched;
-    saveBookings(updatedBookings);
+    void updatedBookings;
     return resultBooking;
+    */
   };
-
-  const settleRemainingBalance = (
-    id: string,
-    method: "cash" | "bank" = "cash",
-  ) => {
-    // The settlement receipt belongs to the payment record being settled —
-    // same resolution rule markPaymentRecordReviewed applies below.
-    const receiptPaymentId = resolveReceiptPaymentId(id, undefined)
-    const updatedBookings = bookings.map((booking) => {
-      if (booking.id !== id) return booking;
-
-      const total = getSafePrice(booking.totalPrice);
-      const currentAmountPaid = typeof booking.amountPaid === "number" ? booking.amountPaid : 0;
-      const balance = Math.max(total - currentAmountPaid, 0);
-      const newAmountPaid = currentAmountPaid + balance;
-
-      const updated = recalculatePaymentStage({
-        ...booking,
-        amountPaid: newAmountPaid,
-        lastPaymentAmount: balance,
-        paymentMethod: method,
-        remainingBalance: 0,
-        remainingBalancePaid: true,
-        verifiedByAdmin: true,
-        verifiedAt: new Date().toISOString(),
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-
-      const settledUpdated: Booking = {
-        ...updated,
-        status: "confirmed" as BookingStatus,
-        bookingStatus: "Confirmed",
-        isSlotSecured: true,
-        paymentMethod: method,
-        verifiedByAdmin: true,
-        verifiedAt: new Date().toISOString(),
-
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        adminLogs: makeAdminLog(
-          booking,
-          "SETTLE_REMAINING_BALANCE",
-          `Admin marked remaining balance of ₱${balance.toLocaleString()} as paid.`,
-        ),
-      };
-      // Settling verifies THIS payment's own transaction receipt in place.
-      return upsertVerifiedReceipt(settledUpdated, receiptPaymentId, {
-        amountPaid: balance,
-        remainingBalance: 0,
-      });
-    });
-
-    saveBookings(updatedBookings);
-    // The settled balance corresponds to the most recent pending submission.
-    markPaymentRecordReviewed(id, undefined, {
-      verificationStatus: "Verified",
-      status: "Verified",
-      reviewedBy: "Administrator",
-      reviewedAt: new Date().toISOString(),
-      adminNote: "Remaining balance settled by admin.",
-    });
-    const settledBooking = bookings.find((b) => b.id === id);
-    if (settledBooking) {
-      createNotification({
-        type: "remaining_balance_approved",
-        title: "Remaining Balance Settled",
-        message: `Your remaining balance for Booking ${settledBooking.id} has been settled.`,
-        bookingId: settledBooking.id,
-        userId: settledBooking.userId,
-        link: `/portal/payments?highlight=${settledBooking.id}`,
-      })
-    }
-  };
-
-  /**
-   * Updates the status of an individual payment submission record in the
-   * `payments` collection after an admin review action. Falls back to the
-   * most recent unresolved submission when no record id is provided.
-   */
-  const markPaymentRecordReviewed = (
-    bookingId: string,
-    recordId: string | undefined,
-    patch: Partial<PaymentRecord>,
-  ) => {
-    try {
-      let target = recordId
-        ? paymentRecords.find((record) => record.id === recordId)
-        : undefined
-      if (!target) {
-        target = paymentRecords
-          .filter((record) => isPaymentRecordForBooking(record, bookingId))
-          .sort((a, b) => {
-            const aT = a.submittedAt ? new Date(a.submittedAt).getTime() : 0
-            const bT = b.submittedAt ? new Date(b.submittedAt).getTime() : 0
-            return bT - aT
-          })
-          .find((record) => isUnresolvedPaymentRecord(record))
-      }
-      if (!target) return
-      const { id: _id, ...rawData } = { ...target, ...patch }
-      const data = stripUndefinedDeep(rawData) as Partial<PaymentRecord>
-      const previousStatus = String(target.status || target.verificationStatus || "").trim() || "for_review"
-      const nextStatus = String(data.status || data.verificationStatus || "").trim() || previousStatus
-      if (previousStatus !== nextStatus) {
-        console.log("[PAYMENT] UNEXPECTED STATUS CHANGE", {
-          paymentId: target.id,
-          bookingId,
-          previousStatus,
-          newStatus: nextStatus,
-          source: "markPaymentRecordReviewed",
-        })
-      }
-      // The received-amount figure may be corrected even when the status is
-      // unchanged (admin re-marks an INCOMPLETE payment with the actual
-      // amount received), so only skip the write when NOTHING changed.
-      const amountReceivedChanged =
-        typeof data.amountReceived === "number" &&
-        Number(data.amountReceived) !== Number((target as any).amountReceived ?? Number.NaN)
-      // The record already has the desired status — there is nothing to
-      // normalize. Skipping the write avoids a redundant Firestore update
-      // that would trigger another snapshot and re-process this unchanged
-      // payment (and would otherwise loop: write → snapshot → normalize).
-      if (previousStatus === nextStatus && !amountReceivedChanged) return
-      setPaymentRecords((current) => current.map((record) => (
-        record.id === target.id ? { ...record, ...patch } : record
-      )))
-      void updateDoc(doc(paymentsRef, target.id), data).catch((error) => {
-        console.error("[Booking:markPaymentRecordReviewed] update failed:", error?.code || error?.message || error)
-      })
-    } catch (error) {
-      console.error("[Booking:markPaymentRecordReviewed] error:", error)
-    }
-  }
-
-  /**
-   * Resolves the payment record a receipt should belong to. Uses the explicit
-   * record id from the admin review action when present, otherwise falls back
-   * to the booking's most recent unresolved submission — the same resolution
-   * rule markPaymentRecordReviewed applies. This is what ties each generated
-   * e-receipt to EXACTLY ONE verified payment.
-   */
-  const resolveReceiptPaymentId = (
-    bookingId: string,
-    recordId?: string,
-  ): string | undefined => {
-    if (recordId) return recordId
-    return paymentRecords
-      .filter((record) => isPaymentRecordForBooking(record, bookingId))
-      .sort((a, b) => {
-        const aT = a.submittedAt ? new Date(a.submittedAt).getTime() : 0
-        const bT = b.submittedAt ? new Date(b.submittedAt).getTime() : 0
-        return bT - aT
-      })
-      .find((record) => isUnresolvedPaymentRecord(record))?.id
-  }
 
   const reviewPayment = async (
     id: string,
@@ -3564,7 +2065,69 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     return { booking: updatedBooking, payment: paymentRecord }
   }
 
-  const rejectPayment = (id: string, reason?: string, adminName?: string, paymentRecordId?: string) => {
+  const reviewPaymentDecision = async (
+    id: string,
+    action: "reject" | "incomplete",
+    data: { verifiedAmount?: number; adminNote: string; adminName?: string; paymentRecordId?: string },
+  ): Promise<{ booking: Booking; payment: PaymentRecord }> => {
+    const response = await fetch("/api/payments/review", {
+      method: "POST",
+      headers: await getAuthHeaders(true),
+      body: JSON.stringify({
+        action,
+        bookingId: id,
+        paymentRecordId: data.paymentRecordId,
+        verifiedAmount: data.verifiedAmount,
+        adminNote: data.adminNote,
+      }),
+    })
+    const responseBody = await response.json().catch(() => null) as {
+      error?: unknown
+      booking?: unknown
+      payment?: unknown
+    } | null
+    if (!response.ok) {
+      throw new Error(
+        responseBody && typeof responseBody.error === "string"
+          ? responseBody.error
+          : "Unable to review the payment.",
+      )
+    }
+
+    const serverBooking = responseBody?.booking as Partial<Booking> | undefined
+    const paymentRecord = responseBody?.payment as PaymentRecord | undefined
+    const currentBooking = bookings.find((booking) => booking.id === id)
+    if (!serverBooking || !paymentRecord || !currentBooking) {
+      throw new Error("The payment server returned an invalid review response.")
+    }
+    const updatedBooking = normalizeBookingForNewFields({
+      ...currentBooking,
+      ...serverBooking,
+      id,
+    })
+    setBookings((current) => current.map((booking) => (
+      booking.id === id ? updatedBooking : booking
+    )))
+    setPaymentRecords((current) => (
+      current.some((payment) => payment.id === paymentRecord.id)
+        ? current.map((payment) => payment.id === paymentRecord.id ? paymentRecord : payment)
+        : [...current, paymentRecord]
+    ))
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("oneestela_payments_updated"))
+    }
+    return { booking: updatedBooking, payment: paymentRecord }
+  }
+
+  const rejectPayment = async (id: string, reason?: string, adminName?: string, paymentRecordId?: string) => {
+    return reviewPaymentDecision(id, "reject", {
+      adminNote: reason || "Payment rejected by admin.",
+      adminName,
+      paymentRecordId,
+    })
+    /*
+     * Historical client-only implementation below is unreachable after the
+     * server-authoritative return above.
     // Same record resolution as markPaymentRecordReviewed below.
     const rejectedReceiptPaymentId = resolveReceiptPaymentId(id, paymentRecordId)
     const updatedBookings = bookings.map((booking) => {
@@ -3673,7 +2236,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       });
     });
 
-    saveBookings(updatedBookings as Booking[]);
+     void updatedBookings;
     // Keep the individual payment submission record in sync so the admin
     // payment history shows this submission as REJECTED.
     markPaymentRecordReviewed(id, paymentRecordId, {
@@ -3698,9 +2261,14 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         link: `/portal/payments?highlight=${rejectedBooking.id}`,
       })
     }
+    */
   };
 
-  const markIncompletePayment = (id: string, data: { verifiedAmount: number; adminNote: string; adminName?: string; paymentRecordId?: string }) => {
+  const markIncompletePayment = async (id: string, data: { verifiedAmount: number; adminNote: string; adminName?: string; paymentRecordId?: string }) => {
+    return reviewPaymentDecision(id, "incomplete", data)
+    /*
+     * Historical client-only implementation below is unreachable after the
+     * server-authoritative return above.
     // Same record resolution as markPaymentRecordReviewed below, so the
     // receipt patched here belongs to EXACTLY the payment being marked.
     const incompleteReceiptPaymentId = resolveReceiptPaymentId(id, data.paymentRecordId)
@@ -3822,7 +2390,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       );
     });
 
-    saveBookings(updatedBookings);
+     void updatedBookings;
     // Keep the individual payment submission record in sync so the admin
     // payment history shows this submission as INCOMPLETE. The record's
     // amount fields now carry the ACTUAL money received (₱5,500 of a
@@ -3874,6 +2442,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         link: `/portal/payments?highlight=${incompleteBooking.id}`,
       })
     }
+    */
   };
 
   const addMaintenanceRecord = (record: Omit<MaintenanceRecord, "id" | "createdAt" | "updatedAt">) => {
@@ -3980,6 +2549,9 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
+    throw new Error("Only client accounts can submit payments.")
+
+    /*
     const updatedBookings = bookings.map((booking) => {
       if (booking.id !== id) return booking;
 
@@ -4304,7 +2876,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         const originalBooking = bookings.find(b => b.id === id)
         const submissionReceiptRemaining = originalBooking
           ? computeReceiptRemaining(
-              getSafePrice(originalBooking.totalPrice),
+               getSafePrice(originalBooking!.totalPrice),
               paymentRecords,
               paymentId,
               { amount: Number(paymentRecord.amount), amountPaid: Number(paymentRecord.amountPaid || 0), status: recordStatus },
@@ -4327,8 +2899,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         )
         paymentRecord.receiptNumber = transactionReceipt.receiptNumber
         submissionReceipt = transactionReceipt
-        setDoc(doc(paymentsRef, paymentId), paymentRecord).catch(console.error)
-        saveStoredReceipt(transactionReceipt).catch(console.error)
+        void paymentRecord
         console.log("[PAYMENT] NEW PAYMENT CREATED", {
           paymentId,
           bookingId: id,
@@ -4352,7 +2923,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           : booking,
       )
     }
-    saveBookings(bookingsToSave);
+    void bookingsToSave;
     if (updatedBooking) {
       window.dispatchEvent(new Event("oneestela_payments_updated"))
       const payName = updatedBooking.userInfo?.name || updatedBooking.eventName || "A client"
@@ -4368,6 +2939,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         link: `/dashboard/payments?highlight=${updatedBooking.id}`,
       })
     }
+    */
   };
 
   const addOfficeRentalRequest = async (
@@ -4684,110 +3256,6 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     saveOfficeRentals(updatedRentals);
   };
 
-  const verifyOfficeReservationPayment = (id: string) => {
-    updateBookingStatus(id, "reservation_secured" as BookingStatus);
-  };
-
-  const addOfficeCheckPayment = (
-    bookingId: string,
-    paymentData: Omit<
-      OfficeCheckPayment,
-      "id" | "createdAt" | "updatedAt" | "paymentType"
-    >,
-  ) => {
-    const now = new Date().toISOString();
-
-    const updatedBookings = bookings.map((booking) => {
-      if (booking.id !== bookingId) return booking;
-
-      const tracker = booking.officePaymentTracker || [];
-      const newPayment: OfficeCheckPayment = {
-        ...paymentData,
-        id: createOfficePaymentId(),
-        paymentType: "Check",
-        amountPaid: Number(paymentData.amountPaid || 0),
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      return {
-        ...booking,
-        officePaymentTracker: [...tracker, newPayment],
-        lastActivityAt: now,
-        updatedAt: now,
-        adminLogs: makeAdminLog(
-          booking,
-          "ADD_OFFICE_CHECK_PAYMENT",
-          `Admin added check payment record for ${paymentData.billingPeriod}.`,
-        ),
-      };
-    });
-
-    saveBookings(updatedBookings);
-  };
-
-  const updateOfficeCheckPayment = (
-    bookingId: string,
-    paymentId: string,
-    paymentData: Partial<Omit<OfficeCheckPayment, "id" | "createdAt">>,
-  ) => {
-    const now = new Date().toISOString();
-
-    const updatedBookings = bookings.map((booking) => {
-      if (booking.id !== bookingId) return booking;
-
-      return {
-        ...booking,
-        officePaymentTracker: (booking.officePaymentTracker || []).map(
-          (payment) =>
-            payment.id === paymentId
-              ? {
-                  ...payment,
-                  ...paymentData,
-                  amountPaid:
-                    typeof paymentData.amountPaid === "number"
-                      ? paymentData.amountPaid
-                      : payment.amountPaid,
-                  paymentType: "Check" as const,
-                  updatedAt: now,
-                }
-              : payment,
-        ),
-        lastActivityAt: now,
-        updatedAt: now,
-        adminLogs: makeAdminLog(
-          booking,
-          "UPDATE_OFFICE_CHECK_PAYMENT",
-          "Admin updated an office check payment record.",
-        ),
-      };
-    });
-
-    saveBookings(updatedBookings);
-  };
-
-  const deleteOfficeCheckPayment = (bookingId: string, paymentId: string) => {
-    const updatedBookings = bookings.map((booking) => {
-      if (booking.id !== bookingId) return booking;
-
-      return {
-        ...booking,
-        officePaymentTracker: (booking.officePaymentTracker || []).filter(
-          (payment) => payment.id !== paymentId,
-        ),
-        lastActivityAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        adminLogs: makeAdminLog(
-          booking,
-          "DELETE_OFFICE_CHECK_PAYMENT",
-          "Admin removed an office check payment record.",
-        ),
-      };
-    });
-
-    saveBookings(updatedBookings);
-  };
-
   return (
     <BookingContext.Provider
       value={{
@@ -4801,7 +3269,6 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         addBooking,
         updateBookingStatus,
         cancelBooking,
-        deleteBooking,
         getUserBookings,
         getBookingById,
         modifyBooking,
@@ -4812,14 +3279,11 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         requestModification,
         approveModification,
         declineModification,
-        markRefundReady,
-        markRefundClaimed,
         requestRefund,
         markAsRefunded,
         markContractSigned,
         issueReceipt,
-        verifyCashPayment,
-        settleRemainingBalance,
+        sendBalanceReminder,
         manualRecordOnsitePayment,
         reviewPayment,
         rejectPayment,
@@ -4828,10 +3292,6 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         addMaintenanceRecord,
         removeMaintenanceRecord,
         submitPayment,
-        verifyOfficeReservationPayment,
-        addOfficeCheckPayment,
-        updateOfficeCheckPayment,
-        deleteOfficeCheckPayment,
         addOfficeRentalRequest,
         getUserOfficeRentals,
         approveOfficeRentalForContractSigning,

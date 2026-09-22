@@ -19,6 +19,8 @@ import { cn } from "@/src/modules/shared/lib/utils"
 import { getPolicyItems } from "@/src/modules/shared/lib/policies"
 import { useCMS } from "@/src/modules/admin/contexts/cms-context"
 import { getPublicSpacesFromData, getPanoramaSource } from "@/src/modules/client/lib/venue-data"
+import { fetchAvailability } from "@/src/modules/shared/lib/availability-client"
+import type { AvailabilityDay, AvailabilitySpace } from "@/src/modules/shared/lib/availability"
 import { db } from "@/lib/firebase"
 import { collection, query, where, getDocs, orderBy } from "firebase/firestore"
 
@@ -390,7 +392,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
   const isOpen = controlledOpen !== undefined ? controlledOpen : internalOpen
   const setIsOpen = setControlledOpen || setInternalOpen
 
-  const { bookings, maintenanceDates, addBooking } = useBookingData({ bookings: true, maintenance: true })
+  const { bookings, addBooking } = useBookingData({ bookings: true })
   const { user } = useAuth()
   const { toast } = useToast()
   const router = useRouter()
@@ -405,6 +407,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
   const [category, setCategory] = useState<'venue' | 'office' | null>(null)
   const [selectedItem, setSelectedItem] = useState<any>(null)
   const [selectedRoom, setSelectedRoom] = useState<number | null>(null) 
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null)
   const [roomPage, setRoomPage] = useState(1)
   const ROOMS_PER_PAGE = 8
   
@@ -414,22 +417,6 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
     d.setMonth(d.getMonth() + 1);
     return d;
   }, []);
-
-  const occupiedRoomNums = useMemo(() => {
-    if (!selectedItem) return new Set<number>()
-    const occupyingStatuses = ["reservation_secured", "contract_signing_required", "active_rental", "confirmed"]
-    const occupied = new Set<number>()
-    for (const b of bookings) {
-      const s = String(b.status || "").toLowerCase()
-      if (!occupyingStatuses.includes(s)) continue
-      const venue = String(b.venue || "")
-      const roomMatch = venue.match(/Room\s+(\d+)/i)
-      if (roomMatch && b.venueId === selectedItem.id) {
-        occupied.add(Number(roomMatch[1]))
-      }
-    }
-    return occupied
-  }, [bookings, selectedItem?.id])
 
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const today = new Date();
@@ -441,6 +428,9 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
 
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [selectedDuration, setSelectedDuration] = useState<string | null>(null)
+  const [availabilityDays, setAvailabilityDays] = useState<Record<string, AvailabilityDay>>({})
+  const [availabilityLoading, setAvailabilityLoading] = useState(false)
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null)
 
   const [eventName, setEventName] = useState("")
   const [eventType, setEventType] = useState("") 
@@ -469,49 +459,73 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
 
   const isOffice = category === 'office';
 
+  const availabilitySpace = useMemo<AvailabilitySpace | null>(() => {
+    if (!selectedItem || !category) return null
+    const room = selectedRoom && Array.isArray(selectedItem.rooms)
+      ? selectedItem.rooms.filter((entry: any) => !entry.isArchived)[selectedRoom - 1]
+      : null
+    return category === "office"
+      ? {
+          category: "office",
+          venueId: String(selectedItem.id || ""),
+          officeId: String(selectedItem.id || ""),
+          spaceId: selectedRoomId || String(room?.id || ""),
+          name: String(selectedItem.name || ""),
+          roomName: String(room?.name || (selectedRoom ? `Room ${selectedRoom}` : "")),
+        }
+      : {
+          category: "venue",
+          venueId: String(selectedItem.id || ""),
+          spaceId: String(selectedItem.id || ""),
+          name: String(selectedItem.name || ""),
+        }
+  }, [category, selectedItem, selectedRoom, selectedRoomId])
 
-  function getOfficeRoomIds(venueId: string): string[] {
-    if (selectedItem?.rooms && Array.isArray(selectedItem.rooms)) {
-      return selectedItem.rooms.filter((r: any) => !r.isArchived).map((r: any) => r.id)
+  const formatCalendarDate = (date: Date) => (
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+  )
+
+  useEffect(() => {
+    if (!isOpen || step !== "schedule" || !availabilitySpace || (isOffice && !availabilitySpace.spaceId)) {
+      setAvailabilityLoading(false)
+      return
     }
-    return []
-  }
 
-  const isMaintenanceBlockedForSelectedSpace = (dateKey: string) => {
-    if (!dateKey || !maintenanceDates?.length || !selectedItem) return false
+    const year = calendarMonth.getFullYear()
+    const month = calendarMonth.getMonth()
+    const from = formatCalendarDate(new Date(year, month, 1))
+    const to = formatCalendarDate(new Date(year, month + 1, 0))
+    const controller = new AbortController()
+    setAvailabilityLoading(true)
+    setAvailabilityError(null)
+    setAvailabilityDays({})
 
-    const venueId = String(selectedItem?.id || "").trim()
-    const venueName = String(selectedItem?.name || "").trim()
-    const selectedRoomName =
-      selectedRoom && venueName ? `${venueName} - Room ${selectedRoom}` : ""
-    const selectedRoomShortName =
-      selectedRoom && venueName ? `${venueName} - Rm ${selectedRoom}` : ""
-    const officeRoomIds = getOfficeRoomIds(venueId)
+    fetchAvailability({
+      ...availabilitySpace,
+      from,
+      to,
+    }, controller.signal)
+      .then((response) => {
+        if (!controller.signal.aborted) setAvailabilityDays(response.dates || {})
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return
+        setAvailabilityDays({})
+        setAvailabilityError(error instanceof Error ? error.message : "Unable to load availability.")
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setAvailabilityLoading(false)
+      })
 
-    const specificRoomId = selectedRoom ? officeRoomIds[selectedRoom - 1] : ""
+    return () => controller.abort()
+  }, [availabilitySpace, calendarMonth, isOffice, isOpen, step])
 
-    const checkKeys = specificRoomId
-      ? [specificRoomId, selectedRoomName, selectedRoomShortName].filter(Boolean)
-      : [venueId, venueName, ...officeRoomIds, selectedRoomName, selectedRoomShortName].filter(Boolean)
-
-    const acceptedKeys = new Set(
-      [
-        dateKey,
-        ...checkKeys.map((key) => `${key}|${dateKey}`),
-      ].filter(Boolean),
-    )
-
-    return maintenanceDates.some((storedValue) => {
-      const stored = String(storedValue || "").trim()
-      if (!stored) return false
-      if (acceptedKeys.has(stored)) return true
-
-      const [storedVenueKey, storedDateKey] = stored.split("|")
-      if (storedDateKey !== dateKey) return false
-
-      return checkKeys.some((key) => key === storedVenueKey)
-    })
-  }
+  useEffect(() => {
+    setSelectedDate(null)
+    setSelectedDuration(null)
+    setAvailabilityDays({})
+    setAvailabilityError(null)
+  }, [selectedItem?.id, selectedRoomId])
 
   useEffect(() => {
     if (!isOpen) return;
@@ -551,8 +565,9 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
   }, [isOpen]);
 
   const resetState = () => {
-    setStep('category'); setCategory(null); setSelectedItem(null); setSelectedRoom(null); setRoomPage(1);
+    setStep('category'); setCategory(null); setSelectedItem(null); setSelectedRoom(null); setSelectedRoomId(null); setRoomPage(1);
     setSelectedDate(null); setSelectedDuration(null);
+    setAvailabilityDays({}); setAvailabilityError(null); setAvailabilityLoading(false);
     setEventName(""); setEventType(""); setCustomEventType(""); setGuests(""); setNotes(""); setAgreed(false);
     setPendingBookingPayload(null); setIsBookingConfirmOpen(false); setIsSubmitting(false);
     
@@ -784,10 +799,14 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
       return
     }
 
-    if (isMaintenanceBlockedForSelectedSpace(selectedDate)) {
+    const selectedAvailability = availabilityDays[selectedDate]
+    const selectedSlotIsAvailable = isOffice
+      ? selectedAvailability?.status === "available"
+      : selectedAvailability?.availableSlots.some((slot) => slot.label === selectedDuration)
+    if (availabilityLoading || !selectedAvailability || selectedAvailability.status === "maintenance" || selectedAvailability.status === "full" || !selectedSlotIsAvailable) {
       toast({
         title: "Date Unavailable",
-        description: "This selected date is blocked for maintenance.",
+        description: availabilityError || "The selected date or time is no longer available. Please choose another slot.",
         variant: "destructive",
       })
       return
@@ -806,9 +825,11 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
 
     const resolvedNatureOfBusiness = eventType === "others" ? customEventType.trim() : eventType
 
-    const payload = {
+      const payload = {
       userId: user.id,
       venueId: selectedItem.id,
+      officeId: isOfficeBooking ? selectedItem.id : "",
+      spaceId: isOfficeBooking ? selectedRoomId || "" : selectedItem.id,
       venue: selectedRoom
         ? `${selectedItem.name} - Room ${selectedRoom}`
         : selectedItem.name,
@@ -968,7 +989,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
               const isMaintenance = item.isHidden === true
               return (
               <div key={item.id} className={`bg-white rounded-[1.5rem] xl:rounded-[1rem] overflow-hidden shadow-sm border transition-all duration-300 group flex flex-col ${isMaintenance ? 'border-slate-300 opacity-75' : 'border-slate-200 hover:shadow-md'}`}>
-                <div className={`relative aspect-[16/10] overflow-hidden bg-slate-100 min-h-0 ${isMaintenance ? 'cursor-not-allowed' : 'cursor-pointer focus-within:ring-2 focus-within:ring-orange-300 outline-none'}`} onClick={() => { if (!isMaintenance) { setSelectedItem(item); setStep(category === 'office' ? 'room' : 'schedule') }}}>
+                  <div className={`relative aspect-[16/10] overflow-hidden bg-slate-100 min-h-0 ${isMaintenance ? 'cursor-not-allowed' : 'cursor-pointer focus-within:ring-2 focus-within:ring-orange-300 outline-none'}`} onClick={() => { if (!isMaintenance) { setSelectedItem(item); setSelectedRoom(null); setSelectedRoomId(null); setStep(category === 'office' ? 'room' : 'schedule') }}}>
                   <img src={item.image} alt={item.name} loading="lazy" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
                   
@@ -1001,7 +1022,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
                       </VenueReviewsDialog>
                   </div>
                   
-                  <Button aria-label={`Select ${item.name}`} disabled={isMaintenance} onClick={() => { if (!isMaintenance) { setSelectedItem(item); setStep(category === 'office' ? 'room' : 'schedule') }}} className="w-full rounded-full bg-slate-900 hover:bg-[#ea580c] text-white font-bold h-10 text-sm transition-colors shadow-sm disabled:bg-slate-300 disabled:cursor-not-allowed disabled:shadow-none">
+                   <Button aria-label={`Select ${item.name}`} disabled={isMaintenance} onClick={() => { if (!isMaintenance) { setSelectedItem(item); setSelectedRoom(null); setSelectedRoomId(null); setStep(category === 'office' ? 'room' : 'schedule') }}} className="w-full rounded-full bg-slate-900 hover:bg-[#ea580c] text-white font-bold h-10 text-sm transition-colors shadow-sm disabled:bg-slate-300 disabled:cursor-not-allowed disabled:shadow-none">
                       {isMaintenance ? 'Under Maintenance' : `Select ${category === 'venue' ? 'Venue' : 'Office'}`}
                   </Button>
                 </div>
@@ -1040,12 +1061,11 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 xl:gap-4">
               {pageRooms.map((room: any, idx: number) => {
                 const roomNum = startIdx + idx + 1
-                const isBooked = occupiedRoomNums.has(roomNum);
                 return (
-                  <button aria-label={`Select ${room.name}`} key={room.id} disabled={isBooked} onClick={() => { setSelectedRoom(roomNum); setStep('schedule') }}
-                    className={`p-6 xl:p-6 rounded-[1.5rem] xl:rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-2 min-h-[120px] xl:min-h-[100px] focus-visible:ring-2 focus-visible:ring-orange-300 outline-none ${isBooked ? 'opacity-40 grayscale cursor-not-allowed bg-slate-50 border-slate-200' : 'bg-white hover:border-[#ea580c] hover:shadow-md border-slate-100 shadow-sm'}`}>
+                  <button aria-label={`Select ${room.name}`} key={room.id} onClick={() => { setSelectedRoom(roomNum); setSelectedRoomId(String(room.id || "")); setStep('schedule') }}
+                    className="p-6 xl:p-6 rounded-[1.5rem] xl:rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-2 min-h-[120px] xl:min-h-[100px] focus-visible:ring-2 focus-visible:ring-orange-300 outline-none bg-white hover:border-[#ea580c] hover:shadow-md border-slate-100 shadow-sm">
                     <div className="text-3xl xl:text-2xl font-black text-slate-900">{roomNum < 10 ? `0${roomNum}` : roomNum}</div>
-                    <div className={`text-[10px] xl:text-[9px] font-bold uppercase tracking-[0.2em] ${isBooked ? 'text-rose-500' : 'text-emerald-500'}`}>{isBooked ? 'Booked' : 'Available'}</div>
+                    <div className="text-[10px] xl:text-[9px] font-bold uppercase tracking-[0.2em] text-emerald-500">View Availability</div>
                   </button>
                 )
               })}
@@ -1083,37 +1103,9 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
 
     const hasPanorama = !!(getPanoramaSource(selectedItem))
 
-    const venueSlots = [
-      { start: 8, end: 14, startTimeLabel: "8:00 AM", label: "8:00 AM - 2:00 PM" },
-      { start: 9, end: 15, startTimeLabel: "9:00 AM", label: "9:00 AM - 3:00 PM" },
-      { start: 10, end: 16, startTimeLabel: "10:00 AM", label: "10:00 AM - 4:00 PM" },
-      { start: 11, end: 17, startTimeLabel: "11:00 AM", label: "11:00 AM - 5:00 PM" },
-      { start: 12, end: 18, startTimeLabel: "12:00 PM", label: "12:00 PM - 6:00 PM" },
-      { start: 13, end: 19, startTimeLabel: "1:00 PM", label: "1:00 PM - 7:00 PM" },
-      { start: 14, end: 20, startTimeLabel: "2:00 PM", label: "2:00 PM - 8:00 PM" },
-      { start: 15, end: 21, startTimeLabel: "3:00 PM", label: "3:00 PM - 9:00 PM" },
-      { start: 16, end: 22, startTimeLabel: "4:00 PM", label: "4:00 PM - 10:00 PM" },
-    ];
-
-    const getParsedTime = (timeStr: string) => venueSlots.find(s => s.label === timeStr);
-
-    const existingBookings = bookings.filter(b => 
-        b.date === selectedDate &&
-        b.venueId === selectedItem?.id &&
-        (!selectedRoom || (b.venue ?? "").includes(`Room ${selectedRoom}`)) &&
-        b.status !== 'cancelled' &&
-        b.status !== 'declined'
-    );
-
-    // ✨ FIX: 1 HOUR BUFFER LOGIC APPLIED ✨
-    const availableVenueSlots = venueSlots.filter(slot => {
-        return !existingBookings.some(b => {
-            if (!b.time) return false;
-            const bParsed = getParsedTime(b.time);
-            if (!bParsed) return false; 
-            return slot.start <= bParsed.end && slot.end >= bParsed.start;
-        });
-    });
+    const availableVenueSlots = selectedDate
+      ? availabilityDays[selectedDate]?.availableSlots || []
+      : []
 
     const calendarCard = (
       <div className="overflow-hidden rounded-[1rem] border border-slate-200 bg-white shadow-sm">
@@ -1121,7 +1113,11 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
           <button
             type="button"
             aria-label="Previous month"
-            onClick={() => setCalendarMonth(new Date(year, month - 1, 1))}
+            onClick={() => {
+              setCalendarMonth(new Date(year, month - 1, 1))
+              setSelectedDate(null)
+              setSelectedDuration(null)
+            }}
             className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-600"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
@@ -1139,7 +1135,11 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
           <button
             type="button"
             aria-label="Next month"
-            onClick={() => setCalendarMonth(new Date(year, month + 1, 1))}
+            onClick={() => {
+              setCalendarMonth(new Date(year, month + 1, 1))
+              setSelectedDate(null)
+              setSelectedDuration(null)
+            }}
             className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-600"
           >
             <ChevronRight className="h-3.5 w-3.5" />
@@ -1160,54 +1160,39 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
             {days.map(day => {
               const iterDate = new Date(year, month, day);
               const iterDateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-              const isSelected = selectedDate === iterDateStr;
-              const isBeforeAllowedWindow = iterDate < minBookableDate;
-              const isMaintenance = isMaintenanceBlockedForSelectedSpace(iterDateStr);
+               const isSelected = selectedDate === iterDateStr;
+               const isBeforeAllowedWindow = iterDate < minBookableDate;
+               const dayAvailability = availabilityDays[iterDateStr];
 
-              let statusClass = "border-slate-200 bg-white text-slate-700 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700";
-              let isDisabled = false;
-              let dayTitle = "Available";
+               let statusClass = "border-slate-200 bg-white text-slate-700 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700";
+               let isDisabled = false;
+               let dayTitle = "Available";
 
               if (isBeforeAllowedWindow) {
-                statusClass = "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-300 opacity-60";
-                isDisabled = true;
-                dayTitle = "Unavailable: booking must be at least 1 month from today";
-              } else if (isMaintenance) {
-                statusClass = "cursor-not-allowed border-slate-900 bg-slate-900 text-slate-400";
-                isDisabled = true;
-                dayTitle = "Maintenance day";
-              } else {
-                const dayBookings = bookings.filter(b =>
-                  b.date === iterDateStr &&
-                  b.venueId === selectedItem?.id &&
-                  (!selectedRoom || (b.venue ?? "").includes(`Room ${selectedRoom}`)) &&
-                  b.status !== 'cancelled' &&
-                  b.status !== 'declined'
-                );
+                 statusClass = "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-300 opacity-60";
+                 isDisabled = true;
+                 dayTitle = "Unavailable: booking must be at least 1 month from today";
+               } else if (availabilityLoading || !dayAvailability) {
+                 statusClass = "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-300 opacity-60";
+                 isDisabled = true;
+                 dayTitle = "Loading availability";
+               } else if (dayAvailability.status === "maintenance") {
+                 statusClass = "cursor-not-allowed border-slate-900 bg-slate-900 text-slate-400";
+                 isDisabled = true;
+                 dayTitle = "Maintenance day";
+               } else if (dayAvailability.status === "full") {
+                 statusClass = "cursor-not-allowed border-rose-100 bg-rose-50 text-rose-300";
+                 isDisabled = true;
+                 dayTitle = "Fully booked";
+               } else if (dayAvailability.status === "few") {
+                   statusClass = "border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 hover:bg-amber-100";
+                   dayTitle = "Few slots left";
+               }
 
-                const available = venueSlots.filter(slot => {
-                  return !dayBookings.some(b => {
-                    if (!b.time) return false;
-                    const bParsed = getParsedTime(b.time);
-                    if (!bParsed) return false;
-                    return slot.start <= bParsed.end && slot.end >= bParsed.start;
-                  });
-                });
-
-                if (available.length === 0) {
-                  statusClass = "cursor-not-allowed border-rose-100 bg-rose-50 text-rose-300";
-                  isDisabled = true;
-                  dayTitle = "Fully booked";
-                } else if (available.length < venueSlots.length) {
-                  statusClass = "border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 hover:bg-amber-100";
-                  dayTitle = "Few slots left";
-                }
-              }
-
-              if (isSelected && !isDisabled) {
-                statusClass = "border-orange-600 bg-orange-600 text-white shadow-md shadow-orange-200 scale-105";
-                dayTitle = "Selected date";
-              }
+               if (isSelected && !isDisabled) {
+                 statusClass = `${statusClass} ring-2 ring-orange-600 ring-offset-1 scale-105`;
+                 dayTitle = dayAvailability?.status === "few" ? "Few slots left (selected)" : "Selected date";
+               }
 
               return (
                 <button

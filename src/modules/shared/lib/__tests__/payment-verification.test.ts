@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { buildVerifiedPaymentTransition } from "../payment-verification"
+import {
+  buildPaymentDecisionTransition,
+  buildVerifiedPaymentTransition,
+} from "../payment-verification"
 import type { PaymentRecordLike } from "../payment-calculations"
 
 function makeBooking() {
@@ -111,5 +114,73 @@ describe("authoritative payment verification transition", () => {
     expect(result.booking.status).toBe("modification_under_review")
     expect(result.booking.bookingStatus).toBe("Modification Under Review")
     expect(result.booking.paymentStatus).toBe("partial")
+  })
+
+  it("rejects only the selected pending record and preserves the secured booking", () => {
+    const verified = makeRecord({
+      id: "PAY001",
+      status: "Verified",
+      verificationStatus: "Verified",
+      submittedAt: "2026-09-17T10:00:00.000Z",
+    })
+    const pending = makeRecord({
+      id: "PAY002",
+      amount: 3000,
+      submittedAt: "2026-09-18T10:00:00.000Z",
+    })
+    const result = buildPaymentDecisionTransition(
+      makeBooking(),
+      [verified, pending],
+      pending,
+      "reject",
+      { adminName: "Reviewer", adminNote: "Proof is unreadable.", now: "2026-09-18T11:00:00.000Z" },
+    )
+
+    expect(result.payment.status).toBe("Rejected")
+    expect(result.summary.acceptedVerifiedTotal).toBe(7500)
+    expect(result.summary.remainingBalance).toBe(7500)
+    expect(result.booking.status).toBe("confirmed")
+    expect(result.booking.isSlotSecured).toBe(true)
+    expect(result.booking.paymentStatus).toBe("partial")
+    expect(result.booking.paymentReviewedBy).toBe("Reviewer")
+  })
+
+  it("credits an incomplete received amount without treating it as accepted", () => {
+    const pending = makeRecord({ amount: 7500 })
+    const result = buildPaymentDecisionTransition(
+      makeBooking(),
+      [pending],
+      pending,
+      "incomplete",
+      { verifiedAmount: 5500, adminName: "Reviewer", adminNote: "Short by ₱2,000." },
+    )
+
+    expect(result.payment.status).toBe("Incomplete")
+    expect(result.payment.amount).toBe(5500)
+    expect(result.payment.requestedAmount).toBe(7500)
+    expect(result.summary.acceptedVerifiedTotal).toBe(0)
+    expect(result.summary.moneyReceivedTotal).toBe(5500)
+    expect(result.summary.remainingDownpayment).toBe(2000)
+    expect(result.booking.amountPaid).toBe(0)
+    expect(result.booking.remainingBalance).toBe(9500)
+    expect(result.booking.status).toBe("verifying")
+  })
+
+  it("lets incomplete received money complete the downpayment without counting it as verified", () => {
+    const verified = makeRecord({ id: "PAY001", status: "Verified", verificationStatus: "Verified" })
+    const pending = makeRecord({ id: "PAY002", amount: 7500, submittedAt: "2026-09-19T10:00:00.000Z" })
+    const result = buildPaymentDecisionTransition(
+      makeBooking(),
+      [verified, pending],
+      pending,
+      "incomplete",
+      { verifiedAmount: 5500, adminName: "Reviewer", adminNote: "Short payment." },
+    )
+
+    expect(result.summary.acceptedVerifiedTotal).toBe(7500)
+    expect(result.summary.moneyReceivedTotal).toBe(13000)
+    expect(result.summary.overallStatus).toBe("partial")
+    expect(result.booking.status).toBe("confirmed")
+    expect(result.booking.remainingBalance).toBe(2000)
   })
 })

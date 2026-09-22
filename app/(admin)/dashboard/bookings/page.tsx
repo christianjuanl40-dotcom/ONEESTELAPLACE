@@ -50,7 +50,7 @@ import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { cn } from "@/src/modules/shared/lib/utils"
 import { getRemainingDurationFromDates, getContractDurationLabel } from "@/src/modules/shared/lib/date-utils"
 import { useBookingData, useBookings, type Booking } from "@/src/modules/client/contexts/booking-context"
-import { createNotification, type NotificationType } from "@/src/modules/shared/lib/notifications"
+import { type NotificationType } from "@/src/modules/shared/lib/notifications"
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
 import {
   calculatePaymentSummary,
@@ -290,11 +290,11 @@ export default function AdminBookingsPage() {
   }, [bookingCtx.isLoading, bookings])
   const {
     markContractSigned,
-    modifyBooking,
     approveCancellation,
     declineCancellation,
     updateBookingStatus,
     markAsRefunded,
+    sendBalanceReminder,
   } = bookingCtx || {}
   const [searchQuery, setSearchQuery] = useState("")
 
@@ -508,38 +508,50 @@ export default function AdminBookingsPage() {
     }
   }
 
-  const confirmApproveModification = () => {
+  const confirmApproveModification = async () => {
     const id = showApproveModificationTarget
     if (!id || !bookingCtx?.approveModification) return
-    bookingCtx.approveModification(id)
-    setShowApproveModificationConfirm(false)
-    setShowApproveModificationTarget(null)
-    if (selectedBooking && selectedBooking.id === id) {
-      const updated = bookings.find((b: Booking) => b.id === id)
-      if (updated) setSelectedBooking(updated)
+    try {
+      const updated = await bookingCtx.approveModification(id)
+      setShowApproveModificationConfirm(false)
+      setShowApproveModificationTarget(null)
+      if (selectedBooking && selectedBooking.id === id) setSelectedBooking(updated)
+      toast({
+        title: "Modification Approved",
+        description: `Booking ${id} has been updated with the requested changes.`,
+        className: "border-none bg-blue-500 text-white",
+      })
+    } catch (error) {
+      toast({
+        title: "Modification Approval Failed",
+        description: error instanceof Error ? error.message : "Unable to approve this modification.",
+        variant: "destructive",
+      })
     }
-    toast({
-      title: "Modification Approved",
-      description: `Booking ${id} has been updated with the requested changes.`,
-      className: "border-none bg-blue-500 text-white",
-    })
   }
 
-  const confirmDeclineModification = () => {
+  const confirmDeclineModification = async () => {
     if (!declineModificationTarget || !declineModificationReason.trim() || !bookingCtx?.declineModification) return
     const target = declineModificationTarget
     const reason = declineModificationReason.trim()
-    bookingCtx.declineModification(target.id, reason)
-    setShowDeclineModificationModal(false)
-    setDeclineModificationTarget(null)
-    setDeclineModificationReason("")
-    const updated = bookings.find((b: Booking) => b.id === target.id)
-    if (updated) setSelectedBooking(updated)
-    toast({
-      title: "Modification Declined",
-      description: `Booking ${target.id} has been declined. Original booking unchanged.`,
-      className: "border-none bg-amber-500 text-white",
-    })
+    try {
+      const updated = await bookingCtx.declineModification(target.id, reason)
+      setShowDeclineModificationModal(false)
+      setDeclineModificationTarget(null)
+      setDeclineModificationReason("")
+      if (selectedBooking?.id === target.id) setSelectedBooking(updated)
+      toast({
+        title: "Modification Declined",
+        description: `Booking ${target.id} has been declined. Original booking unchanged.`,
+        className: "border-none bg-amber-500 text-white",
+      })
+    } catch (error) {
+      toast({
+        title: "Modification Rejection Failed",
+        description: error instanceof Error ? error.message : "Unable to decline this modification.",
+        variant: "destructive",
+      })
+    }
   }
 
   const handleMarkCompleted = (id: string) => {
@@ -547,10 +559,11 @@ export default function AdminBookingsPage() {
     setShowMarkCompletedConfirm(true)
   }
 
-  const confirmMarkCompleted = () => {
+  const confirmMarkCompleted = async () => {
     const id = showMarkCompletedTarget
     if (!id) return
-    updateBookingStatus?.(id, "completed")
+    const updated = await updateBookingStatus?.(id, "completed")
+    if (!updated) return
     setShowMarkCompletedConfirm(false)
     setShowMarkCompletedTarget(null)
     toast({
@@ -560,17 +573,24 @@ export default function AdminBookingsPage() {
     })
   }
 
-  const handleMarkContractSigned = () => {
+  const handleMarkContractSigned = async () => {
     if (!selectedBooking || !markContractSigned) return
     const id = selectedBooking.id
-    markContractSigned(id, "Administrator")
-    setShowContractConfirm(false)
-
-    toast({
-      title: "Contract Signed",
-      description: `Contract for booking ${id} has been marked as signed.`,
-      className: "border-none bg-blue-500 text-white",
-    })
+    try {
+      await markContractSigned(id, "Administrator")
+      setShowContractConfirm(false)
+      toast({
+        title: "Contract Signed",
+        description: `Contract for booking ${id} has been marked as signed.`,
+        className: "border-none bg-blue-500 text-white",
+      })
+    } catch (error) {
+      toast({
+        title: "Contract Update Failed",
+        description: error instanceof Error ? error.message : "Unable to mark the contract as signed.",
+        variant: "destructive",
+      })
+    }
   }
 
   const STATUS_OPTIONS = [
@@ -702,26 +722,21 @@ export default function AdminBookingsPage() {
           open={!!sendReminderTarget}
           onCancel={() => setSendReminderTarget(null)}
           onConfirm={() => {
-            if (!sendReminderTarget) return
+            if (!sendReminderTarget || !sendBalanceReminder) return
             const id = sendReminderTarget.id
-            modifyBooking?.(id, {
-              balanceReminderSent: true,
-              balanceReminderSentAt: new Date().toISOString(),
-              balanceReminderSentBy: "Administrator",
-            })
-            createNotification({
-              type: "balance_reminder",
-              title: "Remaining Balance Reminder",
-              message: `Please settle the remaining balance for Booking ${id}.`,
-              bookingId: id,
-              userId: sendReminderTarget.userId,
-              link: "/portal/payments",
-            })
-            setSendReminderTarget(null)
-            toast({
-              title: "Balance Reminder Sent",
-              description: `Reminder has been recorded for booking ${id}.`,
-              className: "border-none bg-blue-500 text-white",
+            void sendBalanceReminder(id).then(() => {
+              setSendReminderTarget(null)
+              toast({
+                title: "Balance Reminder Sent",
+                description: `Reminder has been recorded for booking ${id}.`,
+                className: "border-none bg-blue-500 text-white",
+              })
+            }).catch((error: unknown) => {
+              toast({
+                title: "Balance Reminder Failed",
+                description: error instanceof Error ? error.message : "Unable to send the balance reminder.",
+                variant: "destructive",
+              })
             })
           }}
         />
@@ -1910,10 +1925,12 @@ function RecordOnsitePaymentModal({
   paymentRecords?: PaymentRecordLike[] | null
 }) {
   const { manualRecordOnsitePayment } = useBookings()
+  const { toast } = useToast()
   const [step, setStep] = useState<"form" | "confirm">("form")
   const [paymentType, setPaymentType] = useState("downpayment")
   const [amountReceived, setAmountReceived] = useState("")
   const [adminNote, setAdminNote] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
     if (open) {
@@ -1921,6 +1938,7 @@ function RecordOnsitePaymentModal({
       setPaymentType("downpayment")
       setAmountReceived("")
       setAdminNote("")
+      setIsSubmitting(false)
     }
   }, [open])
 
@@ -1971,17 +1989,26 @@ function RecordOnsitePaymentModal({
     }
   }
 
-  const handleConfirm = () => {
-    if (enteredAmount <= 0) return
-
-    const updatedBooking = manualRecordOnsitePayment(booking.id, {
-      paymentType: paymentType as "downpayment" | "remaining_balance" | "full_payment",
-      amountReceived: enteredAmount,
-      adminNote: adminNote.trim(),
-      adminName: "Administrator",
-    })
-
-    onRecorded(updatedBooking ?? booking)
+  const handleConfirm = async () => {
+    if (enteredAmount <= 0 || isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      const updatedBooking = await manualRecordOnsitePayment(booking.id, {
+        paymentType: paymentType as "downpayment" | "remaining_balance" | "full_payment",
+        amountReceived: enteredAmount,
+        adminNote: adminNote.trim(),
+        adminName: "Administrator",
+      })
+      onRecorded(updatedBooking ?? booking)
+    } catch (error) {
+      toast({
+        title: "Onsite Payment Failed",
+        description: error instanceof Error ? error.message : "Unable to record the onsite payment.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const newPaymentPreview = getNewPaymentSummary()
@@ -2178,10 +2205,11 @@ function RecordOnsitePaymentModal({
                   Back
                 </Button>
                 <Button
+                  disabled={isSubmitting}
                   onClick={handleConfirm}
-                  className="h-11 w-full sm:w-auto rounded-xl bg-emerald-600 text-sm font-black text-white hover:bg-emerald-700"
+                  className="h-11 w-full sm:w-auto rounded-xl bg-emerald-600 text-sm font-black text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
-                  Confirm Onsite Payment
+                  {isSubmitting ? "Recording..." : "Confirm Onsite Payment"}
                 </Button>
               </div>
             )}

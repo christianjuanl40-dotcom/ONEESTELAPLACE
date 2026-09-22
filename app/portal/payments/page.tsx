@@ -1055,6 +1055,10 @@ function TransactionsContent() {
         amount,
         amountPaid: matched ? matched.amountPaid : amount,
         paymentAmount: matched ? matched.paymentAmount : amount,
+        amountReceived: record.amountReceived,
+        adminNote: record.adminNote,
+        rejectionReason: record.rejectionReason,
+        verificationStatus: record.verificationStatus,
         submittedAt: record.submittedAt || record.updatedAt || "",
         status: record.status || record.verificationStatus || "",
         dateGenerated: matched
@@ -1243,31 +1247,31 @@ function TransactionsContent() {
 
     if (expiredPendingBookings.length === 0) return;
 
-    expiredPendingBookings.forEach((booking) => cancelBooking(booking.id));
-
-    setLocalBookings((prev) =>
-      prev.map((booking) =>
-        expiredPendingBookings.some((expired) => expired.id === booking.id)
-          ? { ...booking, status: "cancelled" }
-          : booking,
-      ),
-    );
-
-    if (
-      selectedBookingToPay &&
-      expiredPendingBookings.some(
-        (booking) => booking.id === selectedBookingToPay,
+    void Promise.all(expiredPendingBookings.map((booking) => cancelBooking(booking.id))).then((updated) => {
+      const expiredIds = new Set(
+        updated.filter((booking): booking is Booking => Boolean(booking)).map((booking) => booking.id),
       )
-    ) {
-      setSelectedBookingToPay(null);
-      router.replace("/portal/payments");
-      toast({
-        title: "Booking Automatically Cancelled",
-        description:
-          "The 24-hour payment window ended, so the pending booking was cancelled.",
-        variant: "destructive",
-      });
-    }
+      if (expiredIds.size === 0) return
+
+      setLocalBookings((prev) =>
+        prev.map((booking) =>
+          expiredIds.has(booking.id)
+            ? { ...booking, status: "cancelled" }
+            : booking,
+        ),
+      )
+
+      if (selectedBookingToPay && expiredIds.has(selectedBookingToPay)) {
+        setSelectedBookingToPay(null);
+        router.replace("/portal/payments");
+        toast({
+          title: "Booking Automatically Cancelled",
+          description:
+            "The 24-hour payment window ended, so the pending booking was cancelled.",
+          variant: "destructive",
+        });
+      }
+    });
   }, [
     now,
     isHydrated,
@@ -2639,6 +2643,7 @@ function TransactionsContent() {
                     <ReceiptDetails
                       booking={viewingReceipt}
                       receipt={selectedViewingReceipt?.receipt || null}
+                      reviewNote={selectedViewingReceipt?.adminNote || selectedViewingReceipt?.rejectionReason || ""}
                       isCancelled={
                         String(viewingReceipt.status).toLowerCase() === "cancelled" ||
                         String(viewingReceipt.status).toLowerCase() === "declined"
@@ -2882,11 +2887,13 @@ function OfficePaymentTracker({
 function ReceiptDetails({
   booking,
   receipt,
+  reviewNote,
   isCancelled,
   displayTotal,
 }: {
   booking: Booking;
   receipt: any;
+  reviewNote?: string;
   isCancelled: boolean;
   displayTotal: number;
 }) {
@@ -2969,7 +2976,21 @@ function ReceiptDetails({
     contractTerm: contractTerm || null,
   };
 
-  return <ReceiptPaper {...paperData} />;
+  return (
+    <div className="space-y-4">
+      <ReceiptPaper {...paperData} />
+      {reviewNote && (
+        <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-700">
+            Admin Note
+          </p>
+          <p className="mt-2 whitespace-pre-wrap break-words text-sm font-semibold leading-6 text-amber-950">
+            {reviewNote}
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function getBookingTime(booking: any) {

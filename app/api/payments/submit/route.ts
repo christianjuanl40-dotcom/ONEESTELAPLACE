@@ -9,6 +9,11 @@ import {
   requireAuthenticatedUser,
 } from "@/lib/server-auth"
 import { formatDisplayName } from "@/src/modules/shared/lib/name-utils"
+import {
+  calculatePaymentSummary,
+  type PaymentRecordLike,
+  type PaymentSummary,
+} from "@/src/modules/shared/lib/payment-calculations"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -82,23 +87,24 @@ function isOfficeBooking(data: DataRecord): boolean {
 function getMaxPaymentAmount(
   booking: DataRecord,
   type: "full" | "downpayment" | "slot_reservation",
+  summary: PaymentSummary,
 ): number {
-  const total = getNumber(booking, "totalPrice")
-  const currentPaid = Math.max(0, getNumber(booking, "amountPaid"))
-  const remaining = Math.max(total - currentPaid, 0)
+  const remaining = summary.remainingBalance
 
-  if (isOfficeBooking(booking) || type === "slot_reservation") {
-    if (currentPaid > 0) return remaining
-    return Math.max(0, getNumber(booking, "officeReservationFee", total))
+  if (isOfficeBooking(booking)) {
+    const reservationFee = Math.max(
+      0,
+      getNumber(booking, "officeReservationFee", getNumber(booking, "totalPrice")),
+    )
+    return Math.max(reservationFee - Math.min(summary.moneyReceivedTotal, reservationFee), 0)
+  }
+
+  if (type === "slot_reservation") {
+    return remaining
   }
 
   if (type === "downpayment") {
-    const required = getNumber(
-      booking,
-      "selectedDownpaymentAmount",
-      getNumber(booking, "downPaymentAmount", total * 0.5),
-    )
-    return Math.max(0, Math.min(remaining, required - Math.max(0, getNumber(booking, "downpaymentPaid"))))
+    return Math.max(0, Math.min(remaining, summary.remainingDownpayment))
   }
 
   return remaining
@@ -183,6 +189,26 @@ export async function POST(request: NextRequest) {
       const booking = bookingSnapshot.data() as DataRecord
       if (booking.userId !== user.uid) throw new ApiAuthError(403, "You do not have access to this booking.")
 
+      const bookingCode = String(booking.bookingCode || "").trim()
+      const paymentSnapshots = new Map<string, any>()
+      const paymentQueries = [
+        firestore.collection("payments").where("bookingId", "==", bookingId),
+      ]
+      if (bookingCode && bookingCode !== bookingId) {
+        paymentQueries.push(firestore.collection("payments").where("bookingId", "==", bookingCode))
+        paymentQueries.push(firestore.collection("payments").where("bookingCode", "==", bookingCode))
+      }
+      paymentQueries.push(firestore.collection("payments").where("bookingCode", "==", bookingId))
+      for (const paymentQuery of paymentQueries) {
+        const snapshot = await transaction.get(paymentQuery)
+        snapshot.forEach((paymentSnapshot) => paymentSnapshots.set(paymentSnapshot.id, paymentSnapshot))
+      }
+      const existingPayments: PaymentRecordLike[] = [...paymentSnapshots.values()].map((paymentSnapshot) => ({
+        ...(paymentSnapshot.data() as DataRecord),
+        id: paymentSnapshot.id,
+      }))
+      const summary = calculatePaymentSummary(booking, existingPayments)
+
       const officeBooking = isOfficeBooking(booking)
       if (officeBooking && type !== "slot_reservation") {
         throw new ApiAuthError(400, "Office bookings only accept slot reservation payments online.")
@@ -195,23 +221,24 @@ export async function POST(request: NextRequest) {
       if (["cancelled", "declined", "completed", "rental_expired"].includes(bookingStatus)) {
         throw new ApiAuthError(409, "This booking cannot accept another payment.")
       }
-      if (
-        booking.hasActivePaymentSubmission === true ||
-        ["for_review", "cash_pending", "slot_pending"].includes(String(booking.paymentStatus || "").toLowerCase())
-      ) {
+      if (summary.hasPendingSubmission) {
         throw new ApiAuthError(409, "This booking already has a payment under review.")
       }
 
-      const maxAmount = getMaxPaymentAmount(booking, type)
+      const maxAmount = getMaxPaymentAmount(booking, type, summary)
       if (requestedAmount > maxAmount + 0.01) {
         throw new ApiAuthError(400, "The payment amount exceeds the current amount due.")
+      }
+      if (maxAmount <= 0) {
+        throw new ApiAuthError(409, "This booking has no remaining amount due.")
+      }
+      if ((type === "full" || type === "slot_reservation") && Math.abs(requestedAmount - maxAmount) > 0.01) {
+        throw new ApiAuthError(400, `This payment must equal ${maxAmount.toLocaleString()}.`)
       }
 
       const now = new Date().toISOString()
       const paymentId = `PAY-${randomUUID().replace(/-/g, "").slice(0, 20).toUpperCase()}`
       const receiptNumber = createReceiptNumber()
-      const total = getNumber(booking, "totalPrice")
-      const currentPaid = Math.max(0, getNumber(booking, "amountPaid"))
       const paymentStatus = method === "cash" ? "Awaiting Onsite Payment" : "For Verification"
        const fullName = formatDisplayName(
          user,
@@ -235,7 +262,7 @@ export async function POST(request: NextRequest) {
         paymentMethod: paymentMethodLabel,
         amountPaid: requestedAmount,
         paymentAmount: requestedAmount,
-        remainingBalance: Math.max(total - currentPaid, 0),
+        remainingBalance: summary.remainingBalance,
         paymentStatus,
         dateGenerated: now,
         dateIssued: now,
@@ -260,7 +287,7 @@ export async function POST(request: NextRequest) {
         status: paymentStatus,
         verificationStatus: method === "cash" ? "Pending Onsite Verification" : "Pending",
         receiptNumber,
-        isRemainingDownPayment: false,
+        isRemainingDownPayment: type === "downpayment" && summary.downpaymentCreditedTotal > 0,
         submittedAt: now,
         updatedAt: now,
       }
@@ -268,11 +295,24 @@ export async function POST(request: NextRequest) {
       const existingReceipts = Array.isArray(booking.paymentReceipts)
         ? booking.paymentReceipts.filter(isRecord)
         : []
+      const previouslySecured = booking.isSlotSecured === true || [
+        "confirmed",
+        "reservation_secured",
+        "contract_signing_required",
+        "active_rental",
+      ].includes(String(booking.status || "").toLowerCase())
+      const paymentStatusBeforeSubmission = summary.fullyPaid
+        ? "paid"
+        : summary.downpaymentComplete
+          ? "partial"
+          : summary.moneyReceivedTotal > 0
+            ? "incomplete"
+            : "for_review"
       const bookingUpdate = {
-        status: "verifying",
-        bookingStatus: "Pending Verification",
-        isSlotSecured: false,
-        paymentStatus: "for_review",
+        status: previouslySecured ? booking.status || "confirmed" : "verifying",
+        bookingStatus: previouslySecured ? booking.bookingStatus || "Confirmed" : "Pending Verification",
+        isSlotSecured: previouslySecured || summary.downpaymentComplete,
+        paymentStatus: paymentStatusBeforeSubmission,
         paymentType: type,
         paymentMethod: method,
         actualPaymentMethod: method === "cash" ? "Cash / Onsite" : "Bank Transfer",
@@ -283,9 +323,11 @@ export async function POST(request: NextRequest) {
         paymentAmount: requestedAmount,
         pendingPaymentAmount: requestedAmount,
         paymentSubmittedAt: now,
-        amountPaid: currentPaid,
-        remainingBalance: Math.max(total - currentPaid, 0),
-        remainingBalancePaid: false,
+        amountPaid: summary.acceptedVerifiedTotal,
+        downpaymentPaid: summary.verifiedDownpaymentPaid,
+        downpaymentRemaining: summary.remainingDownpayment,
+        remainingBalance: summary.remainingBalance,
+        remainingBalancePaid: summary.fullyPaid,
         verifiedByAdmin: false,
         hasActivePaymentSubmission: true,
         receiptIssued: true,

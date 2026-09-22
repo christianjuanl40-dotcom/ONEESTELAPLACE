@@ -8,6 +8,16 @@ import {
   requireAuthenticatedUser,
 } from "@/lib/server-auth"
 import { formatDisplayName } from "@/src/modules/shared/lib/name-utils"
+import {
+  calculateAvailabilityForDate,
+  isAvailabilitySlotOpen,
+  getAvailabilityRangeStatus,
+  isValidEventSlot,
+  parseAvailabilityTime,
+  type AvailabilityRecord,
+  type AvailabilitySpace,
+} from "@/src/modules/shared/lib/availability"
+import { isAvailabilityBlockingBooking } from "@/src/modules/shared/lib/booking-helpers"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -16,16 +26,6 @@ type DataRecord = Record<string, unknown>
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 const ROOM_PATTERN = /\broom\s+(\d+)\b/i
-const ACTIVE_BOOKING_STATUSES = new Set([
-  "pending",
-  "verifying",
-  "confirmed",
-  "reservation_secured",
-  "contract_signing_required",
-  "modification_under_review",
-  "cancellation_requested",
-  "active_rental",
-])
 const NON_BOOKABLE_VENUE_NAMES = new Set(["Grand Ballroom", "Intimate Lounge"])
 
 function isRecord(value: unknown): value is DataRecord {
@@ -70,35 +70,13 @@ function isValidCalendarDate(value: string): boolean {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
 }
 
-function parseTime(value: string): number | null {
-  const match = value.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
-  if (!match) return null
-  let hour = Number(match[1])
-  const minute = Number(match[2])
-  const meridiem = match[3].toUpperCase()
-  if (hour < 1 || hour > 12 || minute > 59) return null
-  if (meridiem === "AM" && hour === 12) hour = 0
-  if (meridiem === "PM" && hour !== 12) hour += 12
-  return hour * 60 + minute
-}
-
 function getRoomNumber(value: string): number | null {
   const match = value.match(ROOM_PATTERN)
   return match ? Number(match[1]) : null
 }
 
 function isActiveBooking(data: DataRecord): boolean {
-  return ACTIVE_BOOKING_STATUSES.has(String(data.status || "").toLowerCase())
-}
-
-function hasTimeOverlap(
-  start: number | null,
-  end: number | null,
-  existingStart: number | null,
-  existingEnd: number | null,
-): boolean {
-  if (start === null || end === null || existingStart === null || existingEnd === null) return true
-  return start < existingEnd && existingStart < end
+  return isAvailabilityBlockingBooking(data)
 }
 
 function getCatalogItem(cmsData: DataRecord, venueId: string, requestedOffice: boolean) {
@@ -151,13 +129,6 @@ function addMonths(dateValue: string, months: number): string {
   return date.toISOString().slice(0, 10)
 }
 
-function isDateBlocked(data: DataRecord, date: string): boolean {
-  if (String(data.status || "").toLowerCase() !== "active") return false
-  const start = typeof data.startDate === "string" && data.startDate ? data.startDate : String(data.date || "")
-  const end = typeof data.endDate === "string" && data.endDate ? data.endDate : start
-  return start <= date && date <= end
-}
-
 export async function POST(request: NextRequest) {
   try {
     const user = await requireAuthenticatedUser(request)
@@ -189,6 +160,8 @@ export async function POST(request: NextRequest) {
     const date = readString(body, "date", 10, true)
     const specialRequests = readString(body, "specialRequests", 2000)
     const submittedVenue = readString(body, "venue", 200)
+    const submittedOfficeId = readString(body, "officeId", 100)
+    const submittedSpaceId = readString(body, "spaceId", 100)
     const submittedStartTime = readString(body, "startTime", 30)
     const submittedEndTime = readString(body, "endTime", 30)
     const officeRentalTerm = readString(body, "officeRentalTerm", 20)
@@ -215,13 +188,30 @@ export async function POST(request: NextRequest) {
       if (!catalog) throw new ApiAuthError(400, "The selected space is no longer available.")
 
       const price = getCatalogPrice(catalog.item)
-      const roomNumber = catalog.isOffice ? getRoomNumber(submittedVenue) : null
-      if (catalog.isOffice) {
-        const rooms = Array.isArray(catalog.item.rooms)
+      const rooms = catalog.isOffice
+        ? Array.isArray(catalog.item.rooms)
           ? catalog.item.rooms.filter((room) => isRecord(room) && room.isArchived !== true)
           : []
+        : []
+      if (catalog.isOffice && submittedOfficeId && submittedOfficeId !== venueId) {
+        throw new ApiAuthError(400, "The selected office is invalid.")
+      }
+
+      const roomNumber = catalog.isOffice
+        ? submittedSpaceId
+          ? rooms.findIndex((room) => String(room.id || "") === submittedSpaceId) + 1
+          : getRoomNumber(submittedVenue)
+        : null
+      if (catalog.isOffice) {
         if (!roomNumber || roomNumber < 1 || roomNumber > rooms.length) {
           throw new ApiAuthError(400, "Please choose a valid office room.")
+        }
+
+        const userBookingsSnapshot = await transaction.get(
+          firestore.collection("bookings").where("userId", "==", user.uid),
+        )
+        if (userBookingsSnapshot.docs.some((document) => isActiveBooking(document.data() as DataRecord))) {
+          throw new ApiAuthError(409, "You already have an active office rental booking.")
         }
       }
 
@@ -233,44 +223,116 @@ export async function POST(request: NextRequest) {
 
       const startTime = catalog.isOffice ? "" : submittedStartTime
       const endTime = catalog.isOffice ? "" : submittedEndTime
-      const startMinutes = parseTime(startTime)
-      const endMinutes = parseTime(endTime)
+      const selectedTerm = catalog.isOffice
+        ? ["6_months", "1_year", "2_years"].includes(officeRentalTerm)
+          ? officeRentalTerm
+          : "6_months"
+        : ""
+      const officeEndDate = catalog.isOffice ? addMonths(date, getTermMonths(selectedTerm)) : ""
+      const startMinutes = parseAvailabilityTime(startTime)
+      const endMinutes = parseAvailabilityTime(endTime)
       if (!catalog.isOffice && (startMinutes === null || endMinutes === null || endMinutes <= startMinutes)) {
         throw new ApiAuthError(400, "Please choose a valid event time.")
       }
 
-      const existingSnapshot = await transaction.get(
-        firestore.collection("bookings").where("venueId", "==", venueId),
-      )
-      for (const existingDocument of existingSnapshot.docs) {
-        const existing = existingDocument.data() as DataRecord
-        if (!isActiveBooking(existing) || String(existing.date || "") !== date) continue
-
-        if (catalog.isOffice) {
-          const existingRoomNumber = getRoomNumber(String(existing.venue || ""))
-          if (existingRoomNumber === null || existingRoomNumber === roomNumber) {
-            throw new ApiAuthError(409, "That office room is already reserved for the selected date.")
+      const room = catalog.isOffice && roomNumber ? rooms[roomNumber - 1] : null
+      const roomName = room ? String(room.name || `Room ${roomNumber}`) : ""
+      const space: AvailabilitySpace = catalog.isOffice
+        ? {
+            category: "office",
+            venueId,
+            officeId: venueId,
+            spaceId: String(room?.id || submittedSpaceId || ""),
+            name: String(catalog.item.name || venueId),
+            roomName,
           }
-          continue
-        }
+        : {
+            category: "venue",
+            venueId,
+            spaceId: venueId,
+            name: String(catalog.item.name || venueId),
+          }
 
-        if (
-          hasTimeOverlap(
-            startMinutes,
-            endMinutes,
-            parseTime(String(existing.startTime || "")),
-            parseTime(String(existing.endTime || "")),
-          )
-        ) {
-          throw new ApiAuthError(409, "That space is already reserved for the selected time.")
-        }
+      const bookingQueries: FirebaseFirestore.Query[] = [
+        firestore.collection("bookings").where("venueId", "==", venueId),
+        firestore.collection("bookings").where("date", "==", date),
+      ]
+      if (catalog.isOffice) {
+        bookingQueries.push(firestore.collection("bookings").where("endDate", ">=", date))
+      }
+      const bookingSnapshots = await Promise.all(bookingQueries.map((query) => transaction.get(query)))
+      const existingBookings = new Map<string, AvailabilityRecord>()
+      bookingSnapshots.forEach((snapshot) => snapshot.forEach((document) => {
+        existingBookings.set(document.id, { ...(document.data() as DataRecord), id: document.id })
+      }))
+
+      const maintenanceQueries: FirebaseFirestore.Query[] = [
+        firestore.collection("maintenanceRecords").where("date", "==", date),
+        firestore.collection("maintenanceRecords").where("endDate", ">=", date),
+        ...[...new Set([space.spaceId, space.officeId, space.venueId].filter(Boolean))].map((spaceId) => (
+          firestore.collection("maintenanceRecords").where("spaceId", "==", spaceId)
+        )),
+      ]
+      const maintenanceSnapshots = await Promise.all(maintenanceQueries.map((query) => transaction.get(query)))
+      const maintenanceRecords = new Map<string, AvailabilityRecord>()
+      maintenanceSnapshots.forEach((snapshot) => snapshot.forEach((document) => {
+        maintenanceRecords.set(document.id, { ...(document.data() as DataRecord), id: document.id })
+      }))
+
+      const officeRentalRecords = catalog.isOffice
+        ? new Map<string, AvailabilityRecord>()
+        : null
+      if (catalog.isOffice && officeRentalRecords) {
+        const officeRentalSnapshots = await Promise.all(
+          [...new Set([space.spaceId, space.officeId, space.venueId].filter(Boolean))].map((spaceId) => (
+            transaction.get(firestore.collection("officeRentals").where("officeSpaceId", "==", spaceId))
+          )),
+        )
+        officeRentalSnapshots.forEach((snapshot) => snapshot.forEach((document) => {
+          officeRentalRecords.set(document.id, { ...(document.data() as DataRecord), id: document.id })
+        }))
       }
 
-      const maintenanceSnapshot = await transaction.get(
-        firestore.collection("maintenanceRecords").where("spaceId", "==", venueId),
+      if (!catalog.isOffice && !isValidEventSlot(startMinutes, endMinutes, catalog.item)) {
+        throw new ApiAuthError(400, "Please choose a valid event time.")
+      }
+      const availability = calculateAvailabilityForDate(
+        space,
+        date,
+        [...existingBookings.values()],
+        [...maintenanceRecords.values()],
+        officeRentalRecords ? [...officeRentalRecords.values()] : [],
+        catalog.item,
       )
-      if (maintenanceSnapshot.docs.some((document) => isDateBlocked(document.data() as DataRecord, date))) {
+      if (availability.status === "maintenance") {
         throw new ApiAuthError(409, "That space is under maintenance on the selected date.")
+      }
+      if (catalog.isOffice) {
+        const rangeStatus = getAvailabilityRangeStatus(
+          space,
+          date,
+          officeEndDate,
+          [...existingBookings.values()],
+          [...maintenanceRecords.values()],
+          officeRentalRecords ? [...officeRentalRecords.values()] : [],
+        )
+        if (rangeStatus === "maintenance") {
+          throw new ApiAuthError(409, "That office room is under maintenance during the selected rental term.")
+        }
+        if (rangeStatus !== "available") {
+          throw new ApiAuthError(409, "That office room is already reserved during the selected rental term.")
+        }
+      }
+      if (!catalog.isOffice && !isAvailabilitySlotOpen(
+        space,
+        date,
+        startMinutes as number,
+        endMinutes as number,
+        [...existingBookings.values()],
+        [...maintenanceRecords.values()],
+        catalog.item,
+      )) {
+        throw new ApiAuthError(409, "That space is already reserved for the selected time.")
       }
 
       const bookingNumber = getNextBookingId(cmsData.bookingCounter)
@@ -280,31 +342,28 @@ export async function POST(request: NextRequest) {
         ? catalog.item.downPaymentPercentage
         : 50
       const downPaymentAmount = price * (downPaymentPercentage / 100)
-      const selectedTerm = catalog.isOffice
-        ? ["6_months", "1_year", "2_years"].includes(officeRentalTerm)
-          ? officeRentalTerm
-          : "6_months"
-        : ""
       const now = new Date().toISOString()
       const venue = catalog.isOffice && roomNumber
-        ? `${String(catalog.item.name || venueId)} - Room ${roomNumber}`
+        ? `${String(catalog.item.name || venueId)} - ${roomName || `Room ${roomNumber}`}`
         : String(catalog.item.name || venueId)
-       const fullName = formatDisplayName(user, user.fullName || "Client")
+      const fullName = formatDisplayName(user, user.fullName || "Client")
 
       const booking = {
         uid: user.uid,
         userId: user.uid,
         venueId,
+        officeId: catalog.isOffice ? venueId : "",
+        spaceId: catalog.isOffice ? String(room?.id || submittedSpaceId || "") : venueId,
         venue,
         eventName,
         eventType,
         companyName: catalog.isOffice ? companyName : "",
         natureOfBusiness: catalog.isOffice ? natureOfBusiness : "",
         customEventType: catalog.isOffice ? customEventType : "",
-         guestCount,
+        guestCount,
         date,
-        endDate: catalog.isOffice ? addMonths(date, getTermMonths(selectedTerm)) : "",
-         time: catalog.isOffice ? "" : `${startTime} - ${endTime}`,
+        endDate: officeEndDate,
+        time: catalog.isOffice ? "" : `${startTime} - ${endTime}`,
         startTime,
         endTime,
         status: "pending",

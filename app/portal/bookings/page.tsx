@@ -75,6 +75,8 @@ import {
 import { getRemainingDurationFromDates } from "@/src/modules/shared/lib/date-utils"
 import { useCMS } from "@/src/modules/admin/contexts/cms-context"
 import { getPublicSpacesFromData } from "@/src/modules/client/lib/venue-data"
+import { fetchAvailability } from "@/src/modules/shared/lib/availability-client"
+import type { AvailabilityDay, AvailabilitySpace } from "@/src/modules/shared/lib/availability"
 import { Progress } from "@/src/modules/shared/components/ui/progress"
 import {
   Tooltip,
@@ -1900,7 +1902,6 @@ function ModifyBookingFlowModal({
   onClose: () => void
   onSubmitChanges: (changes: Record<string, unknown>, reason: string) => void
 }) {
-  const { bookings, maintenanceDates } = useBookings()
   const { toast } = useToast()
   const { cmsData } = useCMS()
 
@@ -1930,6 +1931,9 @@ function ModifyBookingFlowModal({
   })
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [selectedDuration, setSelectedDuration] = useState<string | null>(null)
+  const [availabilityDays, setAvailabilityDays] = useState<Record<string, AvailabilityDay>>({})
+  const [availabilityLoading, setAvailabilityLoading] = useState(false)
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null)
 
   // Venue lookup
   const venueInfo = useMemo(() => {
@@ -1944,6 +1948,73 @@ function ModifyBookingFlowModal({
   }, [venueInfo])
 
   const isOffice = booking ? isOfficeBooking(booking) : false
+
+  const availabilitySpace = useMemo<AvailabilitySpace | null>(() => {
+    if (!booking || !venueInfo) return null
+    if (!isOffice) {
+      return {
+        category: "venue",
+        venueId: String(booking.venueId || ""),
+        spaceId: String((booking as any).spaceId || booking.venueId || ""),
+        name: String(venueInfo.name || booking.venue || ""),
+      }
+    }
+
+    const rooms = Array.isArray((venueInfo as any).rooms)
+      ? (venueInfo as any).rooms.filter((room: any) => !room.isArchived)
+      : []
+    const roomNumber = String(booking.venue || "").match(/\broom\s+(\d+)\b/i)?.[1]
+    const room = rooms.find((entry: any) => String(entry.id || "") === String((booking as any).spaceId || ""))
+      || (roomNumber ? rooms[Number(roomNumber) - 1] : null)
+    return {
+      category: "office",
+      venueId: String((booking as any).officeId || booking.venueId || ""),
+      officeId: String((booking as any).officeId || booking.venueId || ""),
+      spaceId: String((booking as any).spaceId || room?.id || ""),
+      name: String(venueInfo.name || String(booking.venue || "").split(/\s+-\s+(?:room|rm)\s+/i)[0]),
+      roomName: String(room?.name || (roomNumber ? `Room ${roomNumber}` : "")),
+    }
+  }, [booking, isOffice, venueInfo])
+
+  const formatCalendarDate = (date: Date) => (
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+  )
+
+  useEffect(() => {
+    if (!open || step !== "schedule" || !availabilitySpace || (isOffice && !availabilitySpace.spaceId)) {
+      setAvailabilityLoading(false)
+      return
+    }
+
+    const availabilityYear = calendarMonth.getFullYear()
+    const availabilityMonth = calendarMonth.getMonth()
+    const from = formatCalendarDate(new Date(availabilityYear, availabilityMonth, 1))
+    const to = formatCalendarDate(new Date(availabilityYear, availabilityMonth + 1, 0))
+    const controller = new AbortController()
+    setAvailabilityLoading(true)
+    setAvailabilityError(null)
+    setAvailabilityDays({})
+
+    fetchAvailability({
+      ...availabilitySpace,
+      from,
+      to,
+      excludeBookingId: booking?.id || "",
+    }, controller.signal)
+      .then((response) => {
+        if (!controller.signal.aborted) setAvailabilityDays(response.dates || {})
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return
+        setAvailabilityDays({})
+        setAvailabilityError(error instanceof Error ? error.message : "Unable to load availability.")
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setAvailabilityLoading(false)
+      })
+
+    return () => controller.abort()
+  }, [availabilitySpace, booking?.id, calendarMonth, isOffice, open, step])
 
   // Calendar calculations (replicating New Booking Step 3)
   const minBookableDate = useMemo(() => {
@@ -1960,63 +2031,9 @@ function ModifyBookingFlowModal({
   const emptySlots = Array.from({ length: firstDay }).map((_, i) => null)
   const days = Array.from({ length: daysInMonth }).map((_, i) => i + 1)
 
-  // Venue time slots (same as New Booking)
-  const venueSlots = [
-    { start: 8, end: 14, startTimeLabel: "8:00 AM", label: "8:00 AM - 2:00 PM" },
-    { start: 9, end: 15, startTimeLabel: "9:00 AM", label: "9:00 AM - 3:00 PM" },
-    { start: 10, end: 16, startTimeLabel: "10:00 AM", label: "10:00 AM - 4:00 PM" },
-    { start: 11, end: 17, startTimeLabel: "11:00 AM", label: "11:00 AM - 5:00 PM" },
-    { start: 12, end: 18, startTimeLabel: "12:00 PM", label: "12:00 PM - 6:00 PM" },
-    { start: 13, end: 19, startTimeLabel: "1:00 PM", label: "1:00 PM - 7:00 PM" },
-    { start: 14, end: 20, startTimeLabel: "2:00 PM", label: "2:00 PM - 8:00 PM" },
-    { start: 15, end: 21, startTimeLabel: "3:00 PM", label: "3:00 PM - 9:00 PM" },
-    { start: 16, end: 22, startTimeLabel: "4:00 PM", label: "4:00 PM - 10:00 PM" },
-  ]
-
-  const getParsedTime = (timeStr: string) => venueSlots.find(s => s.label === timeStr)
-
-  const isMaintenanceBlocked = (dateKey: string) => {
-    if (!dateKey || !maintenanceDates?.length || !booking) return false
-    const venueId = booking.venueId || ""
-    const venueName = (booking.venue || "").toLowerCase().trim()
-
-    const roomId = venueId?.startsWith("o") ? venueId : ""
-
-    return maintenanceDates.some((storedValue) => {
-      const stored = String(storedValue || "").trim()
-      if (!stored) return false
-      if (stored === dateKey) return true
-      const [storedVenueKey, storedDateKey] = stored.split("|")
-      if (storedDateKey !== dateKey) return false
-      if (roomId && storedVenueKey === roomId) return true
-      if (storedVenueKey === venueId) return true
-      return storedVenueKey && storedVenueKey.toLowerCase().trim() === venueName
-    })
-  }
-
-  // Available time slots for selected date
-  const availableVenueSlots = useMemo(() => {
-    if (!selectedDate || !booking) return venueSlots
-    const venueMatchId = booking.venueId || ""
-    const venueMatchName = (booking.venue || "").toLowerCase().trim()
-    const existingBookings = (bookings || []).filter(b => {
-      if (b.date !== selectedDate) return false
-      if (b.id === booking.id) return false
-      if (b.status === 'cancelled' || b.status === 'declined') return false
-      const bVenueId = (b.venueId || "").toLowerCase().trim()
-      const bVenueName = (b.venue || "").toLowerCase().trim()
-      if (venueMatchId && bVenueId) return bVenueId === venueMatchId
-      return bVenueName === venueMatchName
-    })
-    return venueSlots.filter(slot =>
-      !existingBookings.some(b => {
-        if (!b.time) return false
-        const bParsed = getParsedTime(b.time)
-        if (!bParsed) return false
-        return slot.start <= bParsed.end && slot.end >= bParsed.start
-      })
-    )
-  }, [selectedDate, bookings, booking])
+  const availableVenueSlots = selectedDate
+    ? availabilityDays[selectedDate]?.availableSlots || []
+    : []
 
   const rentalTermToDisplay: Record<string, string> = {
     "6_months": "6 Months",
@@ -2075,10 +2092,14 @@ function ModifyBookingFlowModal({
       setReasonError(true)
       return
     }
-    if (selectedDate && isMaintenanceBlocked(selectedDate)) {
+    const selectedAvailability = selectedDate ? availabilityDays[selectedDate] : undefined
+    const selectedSlotIsAvailable = isOffice
+      ? selectedAvailability?.status === "available"
+      : selectedAvailability?.availableSlots.some((slot) => slot.label === selectedDuration)
+    if (!selectedDate || availabilityLoading || !selectedAvailability || selectedAvailability.status === "maintenance" || selectedAvailability.status === "full" || !selectedSlotIsAvailable) {
       toast({
         title: "Date Unavailable",
-        description: "This space is under maintenance on the selected date. Please choose another date.",
+        description: availabilityError || "The selected date or time is no longer available. Please choose another slot.",
         variant: "destructive",
       })
       return
@@ -2121,10 +2142,10 @@ function ModifyBookingFlowModal({
       if (selectedDuration !== booking.time) {
         changes.time = selectedDuration
         if (selectedDuration) {
-          const parsed = getParsedTime(selectedDuration)
+          const parsed = availableVenueSlots.find((slot) => slot.label === selectedDuration)
           if (parsed) {
             changes.startTime = parsed.startTimeLabel
-            changes.endTime = `${parsed.end > 12 ? parsed.end - 12 : parsed.end}:00 ${parsed.end >= 12 ? 'PM' : 'AM'}`
+            changes.endTime = parsed.endTimeLabel
           }
         }
       }
@@ -2142,7 +2163,7 @@ function ModifyBookingFlowModal({
     const isSelected = selectedDate === iterDateStr
     const isBookingOwnDate = booking?.date === iterDateStr
     const isBeforeAllowedWindow = iterDate < minBookableDate && !isBookingOwnDate
-    const isMaintenance = isMaintenanceBlocked(iterDateStr)
+    const dayAvailability = availabilityDays[iterDateStr]
 
     let statusClass = "border-slate-200 bg-white text-slate-700 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
     let isDisabled = false
@@ -2150,39 +2171,21 @@ function ModifyBookingFlowModal({
     if (isBeforeAllowedWindow) {
       statusClass = "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-300 opacity-60"
       isDisabled = true
-    } else if (isMaintenance) {
+    } else if (availabilityLoading || !dayAvailability) {
+      statusClass = "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-300 opacity-60"
+      isDisabled = true
+    } else if (dayAvailability.status === "maintenance") {
       statusClass = "cursor-not-allowed border-slate-900 bg-slate-900 text-slate-400"
       isDisabled = true
-    } else {
-      const venueMatchId = booking?.venueId || ""
-      const venueMatchName = (booking?.venue || "").toLowerCase().trim()
-      const dayBookings = (bookings || []).filter(b => {
-        if (b.date !== iterDateStr) return false
-        if (b.id === booking?.id) return false
-        if (b.status === 'cancelled' || b.status === 'declined') return false
-        const bVenueId = (b.venueId || "").toLowerCase().trim()
-        const bVenueName = (b.venue || "").toLowerCase().trim()
-        if (venueMatchId && bVenueId) return bVenueId === venueMatchId
-        return bVenueName === venueMatchName
-      })
-      const available = venueSlots.filter(slot =>
-        !dayBookings.some(b => {
-          if (!b.time) return false
-          const bParsed = getParsedTime(b.time)
-          if (!bParsed) return false
-          return slot.start <= bParsed.end && slot.end >= bParsed.start
-        })
-      )
-      if (available.length === 0) {
-        statusClass = "cursor-not-allowed border-rose-100 bg-rose-50 text-rose-300"
-        isDisabled = true
-      } else if (available.length < venueSlots.length) {
-        statusClass = "border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 hover:bg-amber-100"
-      }
+    } else if (dayAvailability.status === "full") {
+      statusClass = "cursor-not-allowed border-rose-100 bg-rose-50 text-rose-300"
+      isDisabled = true
+    } else if (dayAvailability.status === "few") {
+      statusClass = "border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 hover:bg-amber-100"
     }
 
     if (isSelected && !isDisabled) {
-      statusClass = "border-orange-600 bg-orange-600 text-white shadow-md shadow-orange-200 scale-105"
+      statusClass = `${statusClass} ring-2 ring-orange-600 ring-offset-1 scale-105`
     }
 
     return (
@@ -2298,7 +2301,11 @@ function ModifyBookingFlowModal({
                         <button
                           type="button"
                           aria-label="Previous month"
-                          onClick={() => setCalendarMonth(new Date(year, month - 1, 1))}
+                          onClick={() => {
+                            setCalendarMonth(new Date(year, month - 1, 1))
+                            setSelectedDate(null)
+                            setSelectedDuration(null)
+                          }}
                           className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-600"
                         >
                           <ChevronLeft className="h-3.5 w-3.5" />
@@ -2314,7 +2321,11 @@ function ModifyBookingFlowModal({
                         <button
                           type="button"
                           aria-label="Next month"
-                          onClick={() => setCalendarMonth(new Date(year, month + 1, 1))}
+                          onClick={() => {
+                            setCalendarMonth(new Date(year, month + 1, 1))
+                            setSelectedDate(null)
+                            setSelectedDuration(null)
+                          }}
                           className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-600"
                         >
                           <ChevronRight className="h-3.5 w-3.5" />
@@ -3004,21 +3015,19 @@ export default function MyBookingsPage() {
       (records.length === 0 &&
         (payStatus === "verified" || payStatus === "paid" || payStatus === "slot_verified"))
     if (canIssueReceipt) {
-      issueReceipt(booking.id)
-      setTimeout(async () => {
-        const updated = await getStoredReceiptByBookingId(booking.id)
-        if (updated) {
-          setReceiptToView(updated)
-          setReceiptBooking(booking)
-        } else {
-          toast({
-            title: "Receipt Not Available",
-            description:
-              "Unable to generate receipt. Please contact support.",
-            variant: "destructive",
-          })
-        }
-      }, 150)
+      try {
+        const updatedBooking = await issueReceipt(booking.id)
+        const updated = updatedBooking.receipt || await getStoredReceiptByBookingId(booking.id)
+        if (!updated) throw new Error("Unable to generate receipt. Please contact support.")
+        setReceiptToView(updated)
+        setReceiptBooking(updatedBooking)
+      } catch (error) {
+        toast({
+          title: "Receipt Not Available",
+          description: error instanceof Error ? error.message : "Unable to generate receipt. Please contact support.",
+          variant: "destructive",
+        })
+      }
     } else {
       toast({
         title: "Receipt Not Available",
@@ -3101,19 +3110,24 @@ export default function MyBookingsPage() {
           booking={modifyTarget}
           open={!!modifyTarget}
           onClose={() => setModifyTarget(null)}
-          onSubmitChanges={(changes, reason) => {
+          onSubmitChanges={async (changes, reason) => {
             if (modifyTarget) {
-              requestModification(modifyTarget.id, changes, reason)
-              if (user) {
-                const updated = getUserBookings(user.id).find((b: any) => b.id === modifyTarget.id)
-                if (updated) setViewingBooking(updated)
+              try {
+                const updated = await requestModification(modifyTarget.id, changes, reason)
+                setViewingBooking(updated)
+                toast({
+                  title: "Modification Requested",
+                  description: "Your modification request is under review.",
+                  className: "bg-slate-900 text-white border-none",
+                })
+                setModifyTarget(null)
+              } catch (error) {
+                toast({
+                  title: "Modification Request Failed",
+                  description: error instanceof Error ? error.message : "Unable to submit the modification request.",
+                  variant: "destructive",
+                })
               }
-              toast({
-                title: "Modification Requested",
-                description: "Your modification request is under review.",
-                className: "bg-slate-900 text-white border-none",
-              })
-              setModifyTarget(null)
             }
           }}
         />
