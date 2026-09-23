@@ -46,7 +46,7 @@ function readAmount(value: unknown): number {
 
 function isValidProof(value: string, bookingId: string): boolean {
   if (!value || value.length > MAX_PROOF_LENGTH) return false
-  if (/^data:image\/(?:jpeg|png|webp);base64,[a-z0-9+/=]+$/i.test(value)) return true
+  if (/^data:image\/(?:jpe?g|png|webp);base64,[a-z0-9+/=]+$/i.test(value)) return true
   try {
     const url = new URL(value)
     if (
@@ -66,7 +66,9 @@ function isValidProof(value: string, bookingId: string): boolean {
         return part
       }
     })
-    return publicIdParts.some(
+    const imageDelivery = uploadIndex > 0 && pathParts[uploadIndex - 1] === "image"
+    const supportedImage = /\.(?:jpe?g|png|webp)$/i.test(url.pathname)
+    return imageDelivery && supportedImage && publicIdParts.some(
       (part, index) => part === "payment-proofs" && publicIdParts[index + 1] === bookingId,
     )
   } catch {
@@ -323,8 +325,8 @@ export async function POST(request: NextRequest) {
         paymentAmount: requestedAmount,
         pendingPaymentAmount: requestedAmount,
         paymentSubmittedAt: now,
-        amountPaid: summary.acceptedVerifiedTotal,
-        downpaymentPaid: summary.verifiedDownpaymentPaid,
+        amountPaid: summary.acceptedTotalPaid,
+        downpaymentPaid: summary.acceptedDpPaid,
         downpaymentRemaining: summary.remainingDownpayment,
         remainingBalance: summary.remainingBalance,
         remainingBalancePaid: summary.fullyPaid,

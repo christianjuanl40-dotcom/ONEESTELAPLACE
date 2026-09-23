@@ -99,7 +99,7 @@ function buildDecisionBookingFields(
   const slotSecured = paymentSecured || previouslySecured
   const selectedDownpaymentAmount = toPaymentAmount(booking.selectedDownpaymentAmount) || summary.requiredDownpayment
   const downpaymentPaid = summary.requiredDownpayment > 0
-    ? Math.min(summary.verifiedDownpaymentPaid, selectedDownpaymentAmount)
+    ? Math.min(summary.acceptedDpPaid, selectedDownpaymentAmount)
     : 0
 
   const status = modificationUnderReview
@@ -128,7 +128,7 @@ function buildDecisionBookingFields(
     paymentStage,
     balanceStatus: summary.fullyPaid ? "Settled" : "With Remaining Balance",
     isSlotSecured: slotSecured,
-    amountPaid: summary.acceptedVerifiedTotal,
+    amountPaid: summary.acceptedTotalPaid,
     lastPaymentAmount,
     downpaymentPaid,
     downpaymentRemaining: summary.remainingDownpayment,
@@ -137,11 +137,11 @@ function buildDecisionBookingFields(
     remainingBalancePaid: summary.fullyPaid,
     hasActivePaymentSubmission: summary.hasPendingSubmission,
     paymentAmount: lastPaymentAmount,
-    pendingPaymentAmount: summary.hasPendingSubmission ? booking.pendingPaymentAmount || 0 : 0,
-    contractSigningRequired: Boolean(booking.contractSigningRequired || summary.acceptedVerifiedTotal > 0),
+    pendingPaymentAmount: summary.hasPendingSubmission ? summary.pendingCurrentAmount : 0,
+    contractSigningRequired: Boolean(booking.contractSigningRequired || summary.acceptedTotalPaid > 0),
     contractStatus: contractSigned
       ? "Signed"
-      : summary.acceptedVerifiedTotal > 0
+      : summary.acceptedTotalPaid > 0
         ? "Pending Signature"
         : booking.contractStatus || "Not Available",
     contractSigned,
@@ -195,14 +195,14 @@ export function buildVerifiedPaymentTransition(
   const contractSigned = booking.contractSigned === true || booking.contractStatus === "Signed"
   const contractStatus = contractSigned
     ? "Signed"
-    : alreadyVerified || summary.acceptedVerifiedTotal > 0
+    : alreadyVerified || summary.acceptedTotalPaid > 0
       ? "Pending Signature"
       : booking.contractStatus || "Not Available"
   const selectedDownpaymentAmount = toPaymentAmount(
     booking.selectedDownpaymentAmount,
   ) || summary.requiredDownpayment
   const downpaymentPaid = summary.requiredDownpayment > 0
-    ? Math.min(summary.verifiedDownpaymentPaid, selectedDownpaymentAmount)
+    ? Math.min(summary.acceptedDpPaid, selectedDownpaymentAmount)
     : 0
   const bookingStatus = officeBooking
     ? summary.fullyPaid ? "Slot Secured" : "Pending Verification"
@@ -246,7 +246,7 @@ export function buildVerifiedPaymentTransition(
     paymentStage,
     balanceStatus: summary.fullyPaid ? "Settled" : "With Remaining Balance",
     isSlotSecured: slotSecured,
-    amountPaid: summary.acceptedVerifiedTotal,
+    amountPaid: summary.acceptedTotalPaid,
     lastPaymentAmount: verifiedAmount,
     downpaymentPaid,
     downpaymentRemaining: summary.remainingDownpayment,
@@ -255,9 +255,7 @@ export function buildVerifiedPaymentTransition(
     remainingBalancePaid: summary.fullyPaid,
     hasActivePaymentSubmission: summary.hasPendingSubmission,
     paymentAmount: verifiedAmount,
-    pendingPaymentAmount: summary.hasPendingSubmission
-      ? booking.pendingPaymentAmount || 0
-      : 0,
+    pendingPaymentAmount: summary.hasPendingSubmission ? summary.pendingCurrentAmount : 0,
     paymentVerifiedAt: alreadyVerified ? booking.paymentVerifiedAt || now : now,
     paymentReviewedAt: alreadyVerified ? booking.paymentReviewedAt || now : now,
     paymentVerifiedBy: alreadyVerified ? booking.paymentVerifiedBy || options.adminName : options.adminName,
@@ -265,7 +263,7 @@ export function buildVerifiedPaymentTransition(
     paymentVerifiedAmount: verifiedAmount,
     verifiedByAdmin: true,
     verifiedAt: alreadyVerified ? booking.verifiedAt || now : now,
-    contractSigningRequired: Boolean(booking.contractSigningRequired || alreadyVerified || summary.acceptedVerifiedTotal > 0),
+    contractSigningRequired: Boolean(booking.contractSigningRequired || alreadyVerified || summary.acceptedTotalPaid > 0),
     contractStatus,
     contractSigned,
     officeReservationStatus: officeBooking

@@ -356,7 +356,7 @@ export default function AdminPaymentsPage() {
     }
   }, [highlightedPaymentId, filteredPayments, safePaymentPage])
 
-const openActionModal = (payment: BookingRecord, type: PaymentAction, submission?: PaymentRecord | null) => {
+  const openActionModal = (payment: BookingRecord, type: PaymentAction, submission?: PaymentRecord | null) => {
     const recordId = submission?.id
     const amount = getPaymentRecordAmount(submission)
     const isCashSubmission =
@@ -523,16 +523,16 @@ const openActionModal = (payment: BookingRecord, type: PaymentAction, submission
           booking={onsiteVerifyTarget}
           paymentRecords={
             onsiteVerifyTarget
-              ? getRecordsForBooking(bookingCtx.paymentRecords || [], onsiteVerifyTarget.id)
+              ? getRecordsForBooking(bookingCtx.paymentRecords || [], onsiteVerifyTarget)
               : []
            }
-           onClose={() => setOnsiteVerifyTarget(null)}
-          onConfirm={async (updatedBooking) => {
+          onClose={() => setOnsiteVerifyTarget(null)}
+          onConfirm={async (updatedBooking, adminNote) => {
             try {
               const paymentRecordId = (updatedBooking as BookingRecord).paymentRecordId
               const result = await bookingCtx.reviewPayment(updatedBooking.id, {
                 verifiedAmount: updatedBooking.lastPaymentAmount || updatedBooking.paymentVerifiedAmount,
-                adminNote: updatedBooking.adminLogs?.[updatedBooking.adminLogs.length - 1]?.message || undefined,
+                adminNote: adminNote || undefined,
                 adminName: user?.name || "Administrator",
                 paymentRecordId,
               })
@@ -562,9 +562,9 @@ const openActionModal = (payment: BookingRecord, type: PaymentAction, submission
         />
         <IncompletePaymentModal
           booking={incompletePaymentTarget}
-          paymentRecords={incompletePaymentTarget ? getRecordsForBooking(bookingCtx.paymentRecords || [], incompletePaymentTarget.id) : []}
+          paymentRecords={incompletePaymentTarget ? getRecordsForBooking(bookingCtx.paymentRecords || [], incompletePaymentTarget) : []}
           onClose={() => setIncompletePaymentTarget(null)}
-           onConfirm={async (updatedBooking) => {
+          onConfirm={async (updatedBooking) => {
              // Use BookingContext markIncompletePayment as single source of truth
              const paymentRecordId = (updatedBooking as BookingRecord).paymentRecordId
              const result = await bookingCtx.markIncompletePayment(updatedBooking.id, {
@@ -1085,7 +1085,6 @@ function PaymentReviewModal({
     return unique
   }, [payment.paymentReceipts, payment.receipt, storedReceipts])
 
-  const totalAmount = getSafePrice(payment.totalPrice)
   const selectedPaymentType = selected
     ? mapPaymentTerm(selected.term, payment.paymentType)
     : payment.paymentType
@@ -1101,6 +1100,7 @@ function PaymentReviewModal({
   // and Client always agree. amountPaid shows ALL valid money received
   // (verified payments + received amounts of incomplete payments).
   const paymentSummary = calculatePaymentSummary(summaryBase, submissions)
+  const totalAmount = paymentSummary.totalBookingAmount
   const selectedAmount = selected
     ? getPaymentRecordAmount(selected)
     : getSafePrice(payment.pendingPaymentAmount || payment.paymentAmount || paymentSummary.moneyReceivedTotal)
@@ -1138,9 +1138,12 @@ function PaymentReviewModal({
     "",
   ).trim()
 
-  const effectiveProof = selected?.proofUrl || payment.proofUrl || payment.paymentProof || payment.proofOfPayment || payment.proofImage || payment.receiptImage
+  const selectedProof = selected
+    ? selected.proofUrl || (selected as any).paymentProof || (selected as any).proofOfPayment || (selected as any).proofImage || (selected as any).receiptImage
+    : ""
+  const bookingProof = payment.proofUrl || payment.paymentProof || payment.proofOfPayment || payment.proofImage || payment.receiptImage
+  const effectiveProof = selected ? selectedProof : bookingProof
   const hasImageProof = isImageProof(effectiveProof)
-  const hasPdfProof = isPdfProof(effectiveProof)
   const hasProof = !!effectiveProof
 
   const [proofPreviewOpen, setProofPreviewOpen] = useState(false)
@@ -1259,10 +1262,10 @@ function PaymentReviewModal({
     ),
     downpaymentBreakdown: isDownpaymentPayment
       ? {
-          totalAmount: paymentSummary.requiredDownpayment,
-          totalPaid: paymentSummary.verifiedDownpaymentPaid,
+          totalAmount: paymentSummary.requiredDpAmount,
+          totalPaid: paymentSummary.acceptedDpPaid,
           paymentUnderReview: isPaymentUnderReview ? paymentUnderReviewAmount : null,
-          remainingBalance: paymentSummary.remainingVerifiedDownpayment,
+          remainingBalance: paymentSummary.remainingDpBalance,
         }
       : undefined,
     paymentStatus: matchedReceipt?.paymentStatus || submissionStatusLabel,
@@ -1498,32 +1501,15 @@ function PaymentReviewModal({
                       Open proof in new tab
                     </button>
                   </div>
-                ) : hasPdfProof ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <iframe
-                      src={effectiveProof}
-                      title="Uploaded payment proof (PDF)"
-                      className="h-[55vh] w-full rounded-xl border border-slate-200 bg-white"
-                    />
-                    <button
-                      type="button"
-                      onClick={openProofInNewTab}
-                      className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-black text-slate-700 transition hover:bg-slate-50"
-                    >
-                      <Eye className="h-3.5 w-3.5" />
-                      Open proof in new tab
-                    </button>
-                  </div>
                 ) : hasProof ? (
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <button
-                      type="button"
-                      onClick={openProofInNewTab}
-                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-black text-slate-700 transition hover:bg-slate-50"
-                    >
-                      <FileText className="h-3.5 w-3.5" />
-                      Open uploaded payment proof
-                    </button>
+                    <div className="flex min-h-[120px] flex-col items-center justify-center rounded-xl border border-dashed border-amber-200 bg-amber-50 p-5 text-center">
+                      <FileText className="mb-2 h-8 w-8 text-amber-400" />
+                      <p className="text-sm font-black text-amber-900">Unsupported proof format</p>
+                      <p className="mt-1 text-xs leading-5 text-amber-700">
+                        Payment proof must be a JPG, JPEG, PNG, or WEBP image.
+                      </p>
+                    </div>
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -1554,8 +1540,7 @@ function PaymentReviewModal({
                 </div>
               </ModalSection>
 
-              {!isDownpaymentPayment && (
-                <ModalSection title="Amount Summary">
+              <ModalSection title="Amount Summary">
                   <div className="rounded-2xl border border-orange-100 bg-orange-50 p-5">
                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">
                       {displayLabel}
@@ -1569,8 +1554,7 @@ function PaymentReviewModal({
                       {getPaymentTypeLabel(selectedPaymentType)}
                     </p>
                   </div>
-                </ModalSection>
-              )}
+              </ModalSection>
 
               <ModalSection title="Payment Details">
                 <div className="space-y-3 rounded-2xl border border-slate-100 bg-slate-50 p-4">
@@ -1579,10 +1563,11 @@ function PaymentReviewModal({
                     <InfoLine label="Bank Reference No." value={String(selectedBankReference || "No reference number")} />
                   )}
                   <InfoLine label="Payment Type" value={getPaymentTypeLabel(selectedPaymentType)} />
-                  {isDownpaymentPayment && !receiptHasDownpaymentBreakdown ? (
-                    <>
-                      <InfoLine label="Total DP Amount" value={formatCurrency(paymentSummary.requiredDownpayment)} />
-                      <InfoLine label="Total DP Paid" value={formatCurrency(paymentSummary.verifiedDownpaymentPaid)} />
+                    <InfoLine label="Total Booking Amount" value={formatCurrency(paymentSummary.totalBookingAmount)} />
+                    {isDownpaymentPayment && !receiptHasDownpaymentBreakdown ? (
+                      <>
+                      <InfoLine label="Total DP Amount" value={formatCurrency(paymentSummary.requiredDpAmount)} />
+                      <InfoLine label="Total DP Paid" value={formatCurrency(paymentSummary.acceptedDpPaid)} />
                       {isPaymentUnderReview && (
                         <InfoLine
                           label="Payment Under Review"
@@ -1592,12 +1577,12 @@ function PaymentReviewModal({
                       )}
                       <InfoLine
                         label="Remaining DP Balance"
-                        value={formatCurrency(paymentSummary.remainingVerifiedDownpayment)}
+                        value={formatCurrency(paymentSummary.remainingDpBalance)}
                       />
                     </>
-                  ) : !isDownpaymentPayment ? (
-                    <InfoLine label="Total Booking" value={formatCurrency(totalAmount)} />
                   ) : null}
+                  <InfoLine label={displayLabel} value={formatCurrency(displayAmount)} />
+                  <InfoLine label="Remaining Booking Balance" value={formatCurrency(paymentSummary.remainingBookingBalance)} />
                   <InfoLine label="Status" value={submissionStatusLabel} />
                   {submittedAt && (
                     <InfoLine label="Submitted" value={formatSubmittedAt(submittedAt)} />
@@ -1933,15 +1918,8 @@ function getPaymentTypeLabel(type?: string) {
 function isImageProof(proof: unknown) {
   const value = String(proof || "").toLowerCase()
   if (!value) return false
-  if (value.startsWith("data:image")) return true
-  return /\.(jpe?g|png|webp|gif|avif|bmp|svg|heic|heif)(\?|#|$)/.test(value)
-}
-
-function isPdfProof(proof: unknown) {
-  const value = String(proof || "").toLowerCase()
-  if (!value) return false
-  if (value.startsWith("data:application/pdf")) return true
-  return /\.pdf(\?|#|$)/.test(value)
+  if (/^data:image\/(?:jpe?g|png|webp);/i.test(value)) return true
+  return /\.(jpe?g|png|webp)(\?|#|$)/.test(value)
 }
 
 function getPaymentTime(value?: string | number | Date | null) {
@@ -2048,7 +2026,7 @@ function buildPaymentBookingEntry(
   const cash = latest.paymentMethod === "cash" || String(latest.method || "").toLowerCase().includes("office")
   const method = bank ? "bank" : cash ? "cash" : latest.paymentMethod === "cash" ? "cash" : latest.paymentMethod === "bank" ? "bank" : base.paymentMethod
   const amount = getPaymentRecordAmount(latest)
-  const proof = latest.proofUrl || base.proofUrl || base.paymentProof
+  const proof = latest.proofUrl || (submissions.length === 1 ? base.proofUrl || base.paymentProof : "")
   const receipts = Array.isArray(base.paymentReceipts)
     ? base.paymentReceipts
     : base.receipt
@@ -2748,7 +2726,7 @@ function OnsiteVerifyModal({
   // INCOMPLETE money is always respected.
   paymentRecords?: PaymentRecordLike[] | null
   onClose: () => void
-  onConfirm: (updated: BookingRecord) => void | Promise<void>
+  onConfirm: (updated: BookingRecord, adminNote: string) => void | Promise<void>
 }) {
   const [amountReceived, setAmountReceived] = useState("")
   const [adminNote, setAdminNote] = useState("")
@@ -2756,7 +2734,6 @@ function OnsiteVerifyModal({
 
   useEffect(() => {
     if (booking) {
-      const totalAmt = getAmountValue(booking.totalAmount || booking.totalPrice || booking.amount || booking.price)
       // CANONICAL CREDITED LEDGER — money already received for THIS booking
       // across its complete history: verified payments plus the received
       // amounts of short (INCOMPLETE) payments. The pending onsite record
@@ -2764,11 +2741,7 @@ function OnsiteVerifyModal({
       // double-counts here.
       const records = paymentRecords || []
       const summary = calculatePaymentSummary(booking as unknown as Parameters<typeof calculatePaymentSummary>[0], records)
-      const previouslySubmitted = Math.max(
-        summary.downpaymentCreditedTotal,
-        summary.acceptedVerifiedTotal,
-      )
-      const outstanding = Math.max(totalAmt - previouslySubmitted, 0)
+      const outstanding = summary.remainingBookingBalance
       // Prefill the amount needed for the CURRENT stage: the remaining
       // downpayment while it is still incomplete, otherwise the booking's
       // true outstanding balance. Admin can always edit the value.
@@ -2785,15 +2758,11 @@ function OnsiteVerifyModal({
 
   if (!booking) return null
 
-  const totalAmount = getAmountValue(booking.totalAmount || booking.totalPrice || booking.amount || booking.price)
   // Same canonical ledger for every displayed/derived figure below.
   const records = paymentRecords || []
   const summary = calculatePaymentSummary(booking as unknown as Parameters<typeof calculatePaymentSummary>[0], records)
-  const previouslySubmitted = Math.max(
-    summary.downpaymentCreditedTotal,
-    summary.acceptedVerifiedTotal,
-    typeof booking.amountPaid === "number" ? booking.amountPaid : 0,
-  )
+  const totalAmount = summary.totalBookingAmount
+  const previouslySubmitted = summary.acceptedTotalPaid
   const currentPaymentAmount = getSafePrice(
     (booking as any).pendingPaymentAmount ||
       (booking as any).paymentAmount ||
@@ -2859,7 +2828,7 @@ function OnsiteVerifyModal({
       ),
     }
 
-    onConfirm(updatedBooking)
+    onConfirm(updatedBooking, adminNote.trim())
     setConfirmStep(false)
   }
 

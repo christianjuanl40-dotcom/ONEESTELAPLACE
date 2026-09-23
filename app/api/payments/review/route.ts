@@ -40,6 +40,8 @@ function asIso(value: unknown): unknown {
 function stripUndefinedDeep(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripUndefinedDeep)
   if (value && typeof value === "object") {
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype !== Object.prototype && prototype !== null) return value
     const result: DataRecord = {}
     for (const [key, entry] of Object.entries(value as DataRecord)) {
       if (entry === undefined) continue

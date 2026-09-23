@@ -228,7 +228,7 @@ function StatusCard({
   // Admin Payment Verification page (accepted/verified records only).
   const paymentSummary = calculatePaymentSummary(
     booking,
-    getRecordsForBooking(paymentRecords, booking.id),
+    getRecordsForBooking(paymentRecords, booking),
   )
   const canonicalPayStatus = paymentSummary.overallStatus
 

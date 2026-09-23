@@ -490,6 +490,76 @@ describe("Downpayment detail ledger", () => {
   })
 })
 
+describe("Canonical accepted ledger aliases", () => {
+  it("keeps BK70 incomplete money accepted for balances without marking it verified", () => {
+    const booking = makeBooking({
+      id: "BK70",
+      totalPrice: 10000,
+      totalAmount: 10000,
+      selectedDownpaymentAmount: 5000,
+    })
+    const summary = calculatePaymentSummary(booking, [
+      makeRecord({
+        id: "BK70-INCOMPLETE",
+        bookingId: "BK70",
+        status: "Incomplete",
+        amount: 5000,
+        amountPaid: 3000,
+        amountReceived: 3000,
+        submittedAt: "2026-09-20T10:00:00Z",
+      }),
+      makeRecord({
+        id: "BK70-PENDING",
+        bookingId: "BK70",
+        status: "For Review",
+        amount: 2000,
+        submittedAt: "2026-09-21T10:00:00Z",
+      }),
+    ])
+
+    expect(summary.acceptedTotalPaid).toBe(3000)
+    expect(summary.acceptedDpPaid).toBe(3000)
+    expect(summary.remainingDpBalance).toBe(2000)
+    expect(summary.remainingBookingBalance).toBe(7000)
+    expect(summary.acceptedVerifiedTotal).toBe(0)
+    expect(summary.currentTransactionAmount).toBe(2000)
+    expect(summary.pendingCurrentAmount).toBe(2000)
+  })
+
+  it("includes the later verified payment in the accepted DP ledger", () => {
+    const booking = makeBooking({
+      id: "BK70",
+      totalPrice: 10000,
+      totalAmount: 10000,
+      selectedDownpaymentAmount: 5000,
+    })
+    const summary = calculatePaymentSummary(booking, [
+      makeRecord({
+        id: "BK70-INCOMPLETE",
+        bookingId: "BK70",
+        status: "Incomplete",
+        amount: 5000,
+        amountPaid: 3000,
+        amountReceived: 3000,
+        submittedAt: "2026-09-20T10:00:00Z",
+      }),
+      makeRecord({
+        id: "BK70-VERIFIED",
+        bookingId: "BK70",
+        status: "Verified",
+        amount: 2000,
+        submittedAt: "2026-09-21T10:00:00Z",
+      }),
+    ])
+
+    expect(summary.acceptedTotalPaid).toBe(5000)
+    expect(summary.acceptedDpPaid).toBe(5000)
+    expect(summary.remainingDpBalance).toBe(0)
+    expect(summary.remainingBookingBalance).toBe(5000)
+    expect(summary.overallStatus).toBe("partial")
+  })
+})
+
 describe("Edge cases", () => {
   it("for_review record has ₱0 credit and is pending", () => {
     const record = makeRecord({ status: "for_review", amount: 7500 })

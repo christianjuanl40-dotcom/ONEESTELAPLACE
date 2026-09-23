@@ -124,7 +124,7 @@ export function TransactionsDialog({ open, onOpenChange }: TransactionsDialogPro
     // Canonical overall payment status — derived from the booking's complete
     // payment history (verified records only), same calc as the Admin Payment
     // Verification page and the Client My Transactions page.
-    const records = getRecordsForBooking(paymentRecords, booking.id);
+    const records = getRecordsForBooking(paymentRecords, booking);
     const bookingAny = booking as any;
     const hasPaymentFields =
       records.length > 0 ||

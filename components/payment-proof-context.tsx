@@ -131,9 +131,9 @@ export function PaymentProofProvider({ children }: { children: React.ReactNode }
       let imageUrl = normalized.proofUrl || ""
 
       if (file) {
-        const resourceType = validateFileType(file, { allowDocuments: true });
+        const resourceType = validateFileType(file);
         if (!resourceType) {
-          throw new Error("Unsupported file type. Allowed: jpg, jpeg, png, webp, pdf, doc, docx.");
+          throw new Error("Unsupported file type. Allowed: jpg, jpeg, png, webp.");
         }
         const result = await uploadToCloudinary(file, {
           folder: `payment-proofs/${normalized.bookingId}`,

@@ -9,18 +9,19 @@
 //    explicitly marked "verified" by Admin. Rejected and pending records
 //    contribute nothing and never reset or reduce any total.
 //  - acceptedVerifiedTotal = Σ(amount of VERIFIED records only) — the
-//    OFFICIALLY accepted money, used for diagnostics/display.
-//  - moneyReceivedTotal = verified amounts + received amounts of INCOMPLETE
-//    payments (admin-entered amountReceived; falls back to the submitted
-//    amount). An INCOMPLETE record keeps its own status/receipt forever, but
-//    its actually-received money is real and MUST reduce what the client
-//    still owes. This ledger drives balances, downpayment completion and the
-//    stage flow.
+//    officially verified-money diagnostic.
+//  - acceptedTotalPaid / moneyReceivedTotal = verified amounts + received
+//    amounts of INCOMPLETE payments (admin-entered amountReceived; falls back
+//    to the submitted amount). An INCOMPLETE record keeps its own
+//    status/receipt forever, but its actually-received money is real and MUST
+//    reduce what the client still owes. This ledger drives balances,
+//    downpayment completion and the stage flow.
 //  - remainingBalance = max(0, bookingTotal − moneyReceivedTotal)
 //    (the Settle Remaining Balance amount)
 //  - requiredDownpayment = bookingTotal × (downPaymentPercentage || 50) / 100
 //    (or the booking's selectedDownpaymentAmount when present)
-//  - remainingDownpayment = max(0, requiredDownpayment − downpaymentCreditedTotal)
+//  - acceptedDpPaid = credited money applied to the downpayment, capped at the
+//    required DP; remainingDownpayment = max(0, requiredDownpayment − acceptedDpPaid)
 //    (the Complete Your Downpayment amount)
 //  - downpaymentComplete = moneyReceivedTotal >= requiredDownpayment
 //    (cumulative across records; a single record never needs to equal the
@@ -87,6 +88,7 @@ export interface PaymentRecordLike {
 
 export interface BookingLike {
   id?: unknown
+  bookingCode?: unknown
   totalPrice?: unknown
   totalAmount?: unknown
   amount?: unknown
@@ -103,14 +105,27 @@ export interface BookingLike {
 }
 
 export interface PaymentSummary {
+  // Canonical names used by the client and admin surfaces.
+  totalBookingAmount: number
+  requiredDpAmount: number
+  // Accepted/credited money includes verified records and amounts that Admin
+  // recorded as received on incomplete records. Pending and rejected records
+  // remain excluded.
+  acceptedTotalPaid: number
+  acceptedDpPaid: number
+  remainingDpBalance: number
+  remainingBookingBalance: number
+  // The newest transaction and newest unresolved transaction are exposed for
+  // transaction-specific displays; they never affect the booking ledger.
+  currentTransactionAmount: number
+  pendingCurrentAmount: number
   bookingTotal: number
   requiredDownpayment: number
-  // Officially ACCEPTED money (admin-VERIFIED records only). Incomplete,
-  // rejected, and pending payments never count here.
+  // Officially VERIFIED money only. Incomplete, rejected, and pending records
+  // never count here; acceptedTotalPaid is the customer-facing ledger total.
   acceptedVerifiedTotal: number
-  // Officially ACCEPTED down-payment money only. This intentionally excludes
-  // incomplete money because it is used for the DP detail breakdown, not the
-  // client balance/stage ledger below.
+  // Officially VERIFIED down-payment money only. acceptedDpPaid is the
+  // customer-facing DP ledger, including accepted incomplete money.
   verifiedDownpaymentPaid: number
   remainingVerifiedDownpayment: number
   // ALL valid money actually held: verified + received amounts of INCOMPLETE
@@ -349,10 +364,19 @@ function matchesBooking(record: PaymentRecordLike, bookingId: string): boolean {
 
 export function getRecordsForBooking(
   records: ReadonlyArray<PaymentRecordLike> | null | undefined,
-  bookingId: string | undefined,
+  bookingOrId: BookingLike | string | undefined,
+  bookingCode?: string,
 ): PaymentRecordLike[] {
-  if (!bookingId) return []
-  return (records || []).filter((record) => matchesBooking(record, bookingId))
+  const identifiers = typeof bookingOrId === "object" && bookingOrId !== null
+    ? [bookingOrId.id, bookingOrId.bookingCode]
+    : [bookingOrId, bookingCode]
+  const normalizedIdentifiers = identifiers
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+  if (normalizedIdentifiers.length === 0) return []
+  return (records || []).filter((record) => (
+    normalizedIdentifiers.some((identifier) => matchesBooking(record, identifier))
+  ))
 }
 
 // Derives the overall payment status from the booking's COMPLETE payment
@@ -417,8 +441,17 @@ export function calculatePaymentSummary(
     const verifiedDownpaymentPaid = requiredDownpayment > 0
       ? Math.min(Math.max(downpaymentPaid, amountPaid), requiredDownpayment)
       : 0
+    const remainingDownpayment = Math.max(creditTarget - downpaymentCreditedTotal, 0)
 
     return {
+      totalBookingAmount: bookingTotal,
+      requiredDpAmount: requiredDownpayment,
+      acceptedTotalPaid: moneyReceivedTotal,
+      acceptedDpPaid: verifiedDownpaymentPaid,
+      remainingDpBalance: remainingDownpayment,
+      remainingBookingBalance: remainingBalance,
+      currentTransactionAmount: 0,
+      pendingCurrentAmount: 0,
       bookingTotal,
       requiredDownpayment,
       acceptedVerifiedTotal: amountPaid,
@@ -431,7 +464,7 @@ export function calculatePaymentSummary(
       hasPendingSubmission: false,
       overallStatus: legacyStatus,
       downpaymentCreditedTotal,
-      remainingDownpayment: Math.max(creditTarget - downpaymentCreditedTotal, 0),
+      remainingDownpayment,
     }
   }
 
@@ -492,6 +525,8 @@ export function calculatePaymentSummary(
   const sorted = [...records].sort(
     (a, b) => getPaymentRecordTime(a) - getPaymentRecordTime(b),
   )
+  const currentTransaction = sorted[sorted.length - 1]
+  const pendingCurrent = [...sorted].reverse().find((record) => isUnresolvedPaymentRecord(record))
   let latestMarkedUnresolved: PaymentRecordLike | null = null
   for (let i = sorted.length - 1; i >= 0; i--) {
     const record = sorted[i]
@@ -531,7 +566,20 @@ export function calculatePaymentSummary(
     overallStatus = "incomplete"
   }
 
+  const acceptedDpPaid = requiredDownpayment > 0
+    ? Math.min(downpaymentCreditedTotal, requiredDownpayment)
+    : 0
+  const remainingDpBalance = Math.max(requiredDownpayment - acceptedDpPaid, 0)
+
   return {
+    totalBookingAmount: bookingTotal,
+    requiredDpAmount: requiredDownpayment,
+    acceptedTotalPaid: moneyReceivedTotal,
+    acceptedDpPaid,
+    remainingDpBalance,
+    remainingBookingBalance: remainingBalance,
+    currentTransactionAmount: currentTransaction ? getPaymentRecordAmount(currentTransaction) : 0,
+    pendingCurrentAmount: pendingCurrent ? getPaymentRecordAmount(pendingCurrent) : 0,
     bookingTotal,
     requiredDownpayment,
     acceptedVerifiedTotal,
@@ -546,10 +594,8 @@ export function calculatePaymentSummary(
     moneyReceivedTotal,
     // For non-downpayment (full payment) bookings the "required first
     // payment" is the whole booking, mirroring downpaymentComplete above.
-    remainingDownpayment: Math.max(
-      (requiredDownpayment > 0 ? requiredDownpayment : bookingTotal) -
-        downpaymentCreditedTotal,
-      0,
-    ),
+    remainingDownpayment: requiredDownpayment > 0
+      ? remainingDpBalance
+      : Math.max(bookingTotal - downpaymentCreditedTotal, 0),
   }
 }

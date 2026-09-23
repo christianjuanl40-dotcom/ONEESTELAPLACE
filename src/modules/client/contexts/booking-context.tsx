@@ -7,6 +7,7 @@ import { perfListener, perfMark } from "@/src/modules/shared/lib/perf-trace";
 import { db } from "@/lib/firebase"
 import { createNotification } from "@/src/modules/shared/lib/notifications"
 import { getAuthHeaders } from "@/src/modules/shared/lib/auth-token"
+import { evaluateCancellationEligibility } from "@/src/modules/shared/lib/cancellation"
 import {
   collection,
   doc,
@@ -653,18 +654,7 @@ export function canShowCancellationNotice(booking: Partial<Booking>): boolean {
 
 export function canRequestCancellation(booking: Partial<Booking>): boolean {
   if (!booking) return false;
-  if (booking.status === "cancelled" || booking.status === "completed") return false;
-  if (booking.status === "cancellation_requested") return false;
-  if (
-    booking.cancellationRequested === true ||
-    ["under review", "pending", "approved", "requested"].includes(
-      String(booking.cancellationStatus || "").trim().toLowerCase(),
-    ) ||
-    String((booking as any).cancelRequestStatus || "").trim().toLowerCase() === "pending"
-  ) return false;
-  if (!canShowCancellationNotice(booking)) return false;
-  const daysBefore = calculateDaysBeforeEvent(booking.date);
-  return daysBefore > CANCELLATION_CLOSED_DAYS;
+  return evaluateCancellationEligibility(booking as Record<string, unknown>).allowed;
 }
 
 function getDisplayBookingStatus(booking: Partial<Booking>): BookingStatusLabel {

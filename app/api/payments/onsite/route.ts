@@ -52,6 +52,21 @@ function asIso(value: unknown): unknown {
   return value
 }
 
+function stripUndefinedDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripUndefinedDeep)
+  if (value && typeof value === "object") {
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype !== Object.prototype && prototype !== null) return value
+    const result: DataRecord = {}
+    for (const [key, entry] of Object.entries(value as DataRecord)) {
+      if (entry === undefined) continue
+      result[key] = stripUndefinedDeep(entry)
+    }
+    return result
+  }
+  return value
+}
+
 function createReceiptNumber(): string {
   return `ER-${new Date().getUTCFullYear()}-${randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`
 }
@@ -107,6 +122,14 @@ export async function POST(request: NextRequest) {
       const bookingSnapshot = await transaction.get(bookingRef)
       if (!bookingSnapshot.exists) throw new ApiAuthError(404, "Booking not found.")
       const booking: DataRecord & { id: string } = { ...(bookingSnapshot.data() as DataRecord), id: bookingId }
+      const terminalStatuses = [booking.status, booking.bookingStatus]
+        .map((value) => String(value || "").trim().toLowerCase().replace(/\s+/g, "_"))
+      if (["cancelled", "declined", "completed", "rental_expired"].some((status) => terminalStatuses.includes(status))) {
+        throw new ApiAuthError(409, "This booking cannot accept another payment.")
+      }
+      if (String(booking.cancellationStatus || "").trim().toLowerCase() === "approved") {
+        throw new ApiAuthError(409, "This booking cannot accept another payment.")
+      }
       const bookingCode = String(booking.bookingCode || "").trim()
       const paymentSnapshots = new Map<string, any>()
       const paymentQueries = [
@@ -242,17 +265,21 @@ export async function POST(request: NextRequest) {
       const { id: _bookingId, ...bookingToPersist } = bookingWithReceipt
       const { id: _paymentId, ...paymentToPersist } = transition.payment
       transaction.set(bookingRef, {
-        ...bookingToPersist,
+        ...stripUndefinedDeep(bookingToPersist) as DataRecord,
         updatedAt: now,
       }, { merge: true })
       transaction.set(firestore.collection("payments").doc(paymentId), {
-        ...paymentToPersist,
+        ...stripUndefinedDeep(paymentToPersist) as DataRecord,
         receiptNumber,
         method: "Cash / Onsite",
         paymentMethod: "cash",
         adminNote,
       }, { merge: true })
-      transaction.set(firestore.collection("receipts").doc(receiptNumber), receipt, { merge: true })
+      transaction.set(
+        firestore.collection("receipts").doc(receiptNumber),
+        stripUndefinedDeep(receipt) as DataRecord,
+        { merge: true },
+      )
 
       return {
         booking: bookingWithReceipt,

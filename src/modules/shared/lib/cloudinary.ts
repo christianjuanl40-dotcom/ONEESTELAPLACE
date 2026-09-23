@@ -71,7 +71,7 @@ export function validateFileType(
   file: File,
   options?: { allowDocuments?: boolean },
 ): string | null {
-  const imageTypes = ["image/jpeg", "image/png", "image/webp"];
+  const imageTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
   const docTypes = [
     "application/pdf",
     "application/msword",

@@ -11,7 +11,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 const ALLOWED_DOCUMENT_TYPES = [
   "application/pdf",
   "application/msword",
@@ -31,7 +31,7 @@ function isSafeFolder(folder: string): boolean {
 }
 
 function hasFileSignature(buffer: Buffer, mime: string): boolean {
-  if (mime === "image/jpeg") return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  if (mime === "image/jpeg" || mime === "image/jpg") return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
   if (mime === "image/png") return buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
   if (mime === "image/webp") return buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
   if (mime === "application/pdf") return buffer.subarray(0, 5).toString("ascii") === "%PDF-";
@@ -97,6 +97,9 @@ export async function POST(request: NextRequest) {
     const destination = await canUploadToFolder(requestedFolder, user);
     if (!destination) {
       return NextResponse.json({ error: "You are not allowed to upload to this location." }, { status: 403 });
+    }
+    if (requestedFolder.startsWith("payment-proofs/") && resourceType !== "image") {
+      return NextResponse.json({ error: "Payment proof must be an image." }, { status: 400 });
     }
 
     const validated = validateFileType(file.type, resourceType);

@@ -64,6 +64,7 @@ import type { PaymentRecord } from "@/src/modules/client/contexts/booking-contex
 import {
   calculatePaymentSummary,
   getRecordsForBooking,
+  type PaymentSummary,
   type PaymentRecordLike,
 } from "@/src/modules/shared/lib/payment-calculations";
 
@@ -177,6 +178,10 @@ function getPaymentTermLabel(
 ) {
   if (isSettlingBalance) return "Remaining Balance";
   return type === "full" ? "Full Payment" : "Down Payment";
+}
+
+function isSupportedProofImage(file: File): boolean {
+  return ["image/jpeg", "image/jpg", "image/png", "image/webp"].includes(file.type.toLowerCase())
 }
 
 function getTransactionDisplayAmount(
@@ -386,6 +391,7 @@ function getSettlementState(booking: Booking, records?: PaymentRecordLike[] | nu
   const isLegacyAwaitingInitialPayment =
     (records?.length || 0) === 0 &&
     ["unpaid", "pending"].includes(storedPaymentStatus);
+  const hasActivePaymentSubmission = booking.hasActivePaymentSubmission === true;
   // Existing business rule (same signal the original payment flow used): a
   // booking whose submission is still awaiting admin resolution is UNDER
   // REVIEW and must expose neither Pay Now nor Settle Remaining Balance.
@@ -396,6 +402,7 @@ function getSettlementState(booking: Booking, records?: PaymentRecordLike[] | nu
   // its own — only once its pending submission has been resolved.
   const isUnderReview =
     summary.hasPendingSubmission ||
+    hasActivePaymentSubmission ||
     (summary.overallStatus === "for_review" && !isLegacyAwaitingInitialPayment);
 
   return {
@@ -408,9 +415,9 @@ function getSettlementState(booking: Booking, records?: PaymentRecordLike[] | nu
 
 function getLatestPaymentStatus(
   records: PaymentRecord[] | undefined,
-  bookingId: string,
+  booking: Booking | string,
 ): string {
-  const latest = getRecordsForBooking(records, bookingId)
+  const latest = getRecordsForBooking(records, booking)
     .sort(
       (a, b) =>
         new Date(String(b.submittedAt || 0)).getTime() -
@@ -456,7 +463,8 @@ function PaymentActionButtons({
     summary.moneyReceivedTotal < summary.bookingTotal &&
     summary.remainingBalance > 0 &&
     !isCancelled &&
-    !isCompleted;
+    !isCompleted &&
+    !isUnderReview;
 
   // Pending bookings keep the existing Pay Now flow (24h window, no payment
   // submitted yet). Every other active booking with a payable balance gets
@@ -716,7 +724,7 @@ function HistoryRow({
   const isCancelled =
     String(booking.status).toLowerCase() === "cancelled" ||
     String(booking.status).toLowerCase() === "declined";
-  const paymentRecords = getRecordsForBooking(records, booking.id);
+  const paymentRecords = getRecordsForBooking(records, booking);
   const paymentSummary = calculatePaymentSummary(booking, paymentRecords);
   const paymentStatus = paymentRecords.length > 0
     ? paymentSummary.overallStatus
@@ -992,7 +1000,7 @@ function TransactionsContent() {
         : [];
     const bookingRecords: PaymentRecordLike[] = getRecordsForBooking(
       paymentRecords,
-      viewingReceipt.id,
+      viewingReceipt,
     );
     const storedReceipts = viewingStoredReceipts as any[];
     // Same receipt may be persisted both inside the booking doc
@@ -1203,7 +1211,7 @@ function TransactionsContent() {
   const summarizedTransactions = useMemo(
     () =>
       myTransactions.map((booking) => {
-        const records = getRecordsForBooking(paymentRecords, booking.id);
+        const records = getRecordsForBooking(paymentRecords, booking);
         const summary = calculatePaymentSummary(booking, records);
         // Canonical state is only authoritative once there is payment activity.
         // A fresh booking (ps "unpaid", nothing submitted, no records) keeps its
@@ -1294,7 +1302,7 @@ function TransactionsContent() {
       booking.paymentStatus,
       booking.paymentMethod,
     ];
-    const paymentFields = getRecordsForBooking(paymentRecords, booking.id)
+    const paymentFields = getRecordsForBooking(paymentRecords, booking)
       .flatMap((r) => [
         r.id,
         String(r.referenceNo || ""),
@@ -1545,7 +1553,7 @@ function TransactionsContent() {
     // downpayment must be asked for ₱2,000 here — NEVER the full ₱7,500
     // again. The raw booking fields are only a fallback for bookings whose
     // payment type carries no canonical downpayment requirement.
-    const payRecords = getRecordsForBooking(paymentRecords, booking.id);
+    const payRecords = getRecordsForBooking(paymentRecords, booking);
     const paySummary = calculatePaymentSummary(booking, payRecords);
     const hasPaymentActivity =
       payRecords.length > 0 ||
@@ -1616,7 +1624,7 @@ function TransactionsContent() {
       const file = event.target.files?.[0];
       if (!file) return;
 
-      if (!file.type.startsWith("image/")) {
+      if (!isSupportedProofImage(file)) {
         toast({
           title: "Invalid File",
           description: "Please upload an image file only.",
@@ -2225,7 +2233,7 @@ function TransactionsContent() {
                       <div className="relative cursor-pointer rounded-xl border-2 border-dashed border-slate-300 p-6 sm:p-8 text-center transition-colors hover:bg-slate-50">
                         <input
                           type="file"
-                          accept="image/*"
+                          accept="image/jpeg,image/jpg,image/png,image/webp"
                           className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
                           onChange={handleFileChange}
                         />
@@ -2403,9 +2411,9 @@ function TransactionsContent() {
                     onPay={handlePay}
                     onSettle={handleSettle}
                     onView={handleView}
-                    records={getRecordsForBooking(paymentRecords, currentTransaction.id)}
-                    paymentCount={getRecordsForBooking(paymentRecords, currentTransaction.id).length}
-                    latestPaymentStatus={getLatestPaymentStatus(paymentRecords, currentTransaction.id)}
+                    records={getRecordsForBooking(paymentRecords, currentTransaction)}
+                    paymentCount={getRecordsForBooking(paymentRecords, currentTransaction).length}
+                    latestPaymentStatus={getLatestPaymentStatus(paymentRecords, currentTransaction)}
                   />
                 </NotificationTargetWrapper>
               </div>
@@ -2431,7 +2439,7 @@ function TransactionsContent() {
               <div className="mt-3 space-y-2">
                 {paginatedOtherActive.map((booking) => {
                   const isOfficeRental = isOfficeRentalBooking(booking);
-                  const otherPaymentRecords = getRecordsForBooking(paymentRecords, booking.id);
+                  const otherPaymentRecords = getRecordsForBooking(paymentRecords, booking);
                   const otherPaymentSummary = calculatePaymentSummary(booking, otherPaymentRecords);
                   const otherPaymentStatus = otherPaymentRecords.length > 0
                     ? otherPaymentSummary.overallStatus
@@ -2499,7 +2507,7 @@ function TransactionsContent() {
                               compact
                               records={otherPaymentRecords}
                               paymentCount={otherPaymentRecords.length}
-                              latestPaymentStatus={getLatestPaymentStatus(paymentRecords, booking.id)}
+                              latestPaymentStatus={getLatestPaymentStatus(paymentRecords, booking)}
                             />
                           </div>
                         </div>
@@ -2643,18 +2651,19 @@ function TransactionsContent() {
                     <ReceiptDetails
                       booking={viewingReceipt}
                       receipt={selectedViewingReceipt?.receipt || null}
+                      paymentSummary={calculatePaymentSummary(
+                        viewingReceipt,
+                        getRecordsForBooking(paymentRecords, viewingReceipt),
+                      )}
                       reviewNote={selectedViewingReceipt?.adminNote || selectedViewingReceipt?.rejectionReason || ""}
                       isCancelled={
                         String(viewingReceipt.status).toLowerCase() === "cancelled" ||
                         String(viewingReceipt.status).toLowerCase() === "declined"
                       }
-                      displayTotal={
-                        ["cancelled", "declined"].includes(
-                          String(viewingReceipt.status).toLowerCase(),
-                        )
-                          ? 0
-                          : (viewingReceipt as any).totalPrice || 0
-                      }
+                      displayTotal={calculatePaymentSummary(
+                        viewingReceipt,
+                        getRecordsForBooking(paymentRecords, viewingReceipt),
+                      ).totalBookingAmount}
                     />
                   </div>
                 </div>
@@ -2887,12 +2896,14 @@ function OfficePaymentTracker({
 function ReceiptDetails({
   booking,
   receipt,
+  paymentSummary,
   reviewNote,
   isCancelled,
   displayTotal,
 }: {
   booking: Booking;
   receipt: any;
+  paymentSummary: PaymentSummary;
   reviewNote?: string;
   isCancelled: boolean;
   displayTotal: number;
@@ -2923,8 +2934,7 @@ function ReceiptDetails({
     );
   }
 
-  const totalAmount =
-    (booking as any).totalPrice ?? displayTotal ?? null;
+  const totalAmount = displayTotal || paymentSummary.totalBookingAmount || null;
   const amountPaid =
     receipt?.amountPaid ??
     receipt?.paymentAmount ??
@@ -2974,6 +2984,13 @@ function ReceiptDetails({
     isVerified,
     isOfficeRental,
     contractTerm: contractTerm || null,
+    downpaymentBreakdown: paymentSummary.requiredDpAmount > 0
+      ? {
+          totalAmount: paymentSummary.requiredDpAmount,
+          totalPaid: paymentSummary.acceptedDpPaid,
+          remainingBalance: paymentSummary.remainingDpBalance,
+        }
+      : undefined,
   };
 
   return (

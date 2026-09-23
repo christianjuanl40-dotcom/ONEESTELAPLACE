@@ -500,7 +500,7 @@ export default function ReportsPage() {
   const enrichedData = useMemo(() => {
     const records = Array.isArray(paymentRecords) ? paymentRecords : []
     return filteredData.map((booking) => {
-      const bookingRecords = getRecordsForBooking(records, String(booking.id))
+      const bookingRecords = getRecordsForBooking(records, booking)
       const summary = hasPaymentActivity(booking, bookingRecords)
         ? calculatePaymentSummary(booking as any, bookingRecords)
         : null

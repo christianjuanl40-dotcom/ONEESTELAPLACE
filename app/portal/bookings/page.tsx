@@ -763,7 +763,7 @@ function BookingDetailsModal({
 
   // Canonical overall payment state — same source the Admin Payment
   // Verification page and the client My Transactions page use.
-  const bookingPaymentRecords = getRecordsForBooking(paymentRecords, booking.id)
+  const bookingPaymentRecords = getRecordsForBooking(paymentRecords, booking)
   const hasPaymentRecords = bookingPaymentRecords.length > 0
   const paymentSummary = calculatePaymentSummary(
     booking,
@@ -840,9 +840,10 @@ function BookingDetailsModal({
     booking as unknown as Record<string, unknown>,
   )
 
+  const cancellationStatus = normalizeStatus(booking.cancellationStatus)
   const hasCancellationHistory =
-    !!booking.cancellationStatus &&
-    booking.cancellationStatus !== "None"
+    Boolean(cancellationStatus) &&
+    !["none", "declined", "cancellation declined"].includes(cancellationStatus)
 
   const showCancelAction =
     onCancel &&
@@ -3007,7 +3008,7 @@ export default function MyBookingsPage() {
       return
     }
     const payStatus = String(booking.paymentStatus || "").toLowerCase()
-    const records = getRecordsForBooking(paymentRecords, booking.id)
+    const records = getRecordsForBooking(paymentRecords, booking)
     const summary = calculatePaymentSummary(booking, records)
     const canIssueReceipt =
       summary.overallStatus === "partial" ||
@@ -3153,7 +3154,7 @@ export default function MyBookingsPage() {
             if (prevBooking) setViewingBooking(prevBooking)
           }}
           booking={receiptBooking}
-          paymentSummary={receiptBooking ? calculatePaymentSummary(receiptBooking, getRecordsForBooking(paymentRecords, receiptBooking.id)) : null}
+          paymentSummary={receiptBooking ? calculatePaymentSummary(receiptBooking, getRecordsForBooking(paymentRecords, receiptBooking)) : null}
         />
 
         <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-end">

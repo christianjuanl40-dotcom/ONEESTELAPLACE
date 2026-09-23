@@ -161,7 +161,7 @@ describe("authoritative payment verification transition", () => {
     expect(result.summary.acceptedVerifiedTotal).toBe(0)
     expect(result.summary.moneyReceivedTotal).toBe(5500)
     expect(result.summary.remainingDownpayment).toBe(2000)
-    expect(result.booking.amountPaid).toBe(0)
+    expect(result.booking.amountPaid).toBe(5500)
     expect(result.booking.remainingBalance).toBe(9500)
     expect(result.booking.status).toBe("verifying")
   })

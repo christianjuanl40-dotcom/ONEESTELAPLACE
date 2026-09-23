@@ -718,7 +718,7 @@ export default function AdminBookingsPage() {
         />
         <BalanceReminderModal
           booking={sendReminderTarget}
-          remainingBalance={sendReminderTarget ? calculatePaymentSummary(sendReminderTarget, getRecordsForBooking(bookingCtx?.paymentRecords || [], sendReminderTarget.id)).remainingBalance : undefined}
+          remainingBalance={sendReminderTarget ? calculatePaymentSummary(sendReminderTarget, getRecordsForBooking(bookingCtx?.paymentRecords || [], sendReminderTarget)).remainingBalance : undefined}
           open={!!sendReminderTarget}
           onCancel={() => setSendReminderTarget(null)}
           onConfirm={() => {
@@ -996,7 +996,7 @@ function BookingDetailsModal({
   // Canonical overall payment state — identical to the Payment Verification
   // page: the booking's overall status derives from its accepted/verified
   // payment records only, never from the latest record or stored fields.
-  const bookingPaymentRecords = getRecordsForBooking(paymentRecords, booking.id)
+  const bookingPaymentRecords = getRecordsForBooking(paymentRecords, booking)
   const hasPaymentRecords = bookingPaymentRecords.length > 0
   const paymentSummary = calculatePaymentSummary(
     booking,
@@ -1653,6 +1653,7 @@ function BookingDetailsModal({
 
           const hasCustomerSubmittedPayment =
             (booking as any).hasActivePaymentSubmission === true ||
+            paymentSummary.hasPendingSubmission ||
             paymentStatus === "for_review" ||
             paymentStatus === "cash_pending" ||
             paymentStatus === "slot_pending" ||
@@ -1662,7 +1663,6 @@ function BookingDetailsModal({
             !isFullyPaid &&
             !isCompleted &&
             !isCancelled &&
-            !isForVerificationStatus &&
             !hasActiveProof &&
             !hasCustomerSubmittedPayment
           const canDoBalanceReminder =
@@ -1755,7 +1755,40 @@ function BookingDetailsModal({
             )
           }
 
-          if (isForVerificationStatus) return null
+          if (hasCustomerSubmittedPayment && remainingBalance > 0) {
+            return (
+              <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
+                <Button
+                  type="button"
+                  disabled
+                  className="h-11 w-full rounded-xl bg-slate-200 px-4 text-sm font-black text-slate-500 sm:w-auto sm:ml-auto"
+                >
+                  <DollarSign className="mr-1.5 h-3.5 w-3.5" />
+                  Record Onsite Payment
+                </Button>
+                <p className="mt-2 text-right text-xs font-semibold text-slate-500">
+                  Resolve the pending payment before recording another onsite payment.
+                </p>
+              </footer>
+            )
+          }
+
+          if (isForVerificationStatus) {
+            if (!canDoRecordOnsite || !onRecordOnsitePayment) return null
+            return (
+              <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
+                <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                  <Button
+                    onClick={() => onRecordOnsitePayment(booking.id)}
+                    className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700 sm:w-auto"
+                  >
+                    <DollarSign className="mr-1.5 h-3.5 w-3.5" />
+                    Record Onsite Payment
+                  </Button>
+                </div>
+              </footer>
+            )
+          }
           if (isCompleted || isCancelled) return null
 
           if (normStatus === "contract_signing_required" || normStatus === "active_rental") {
@@ -1946,7 +1979,7 @@ function RecordOnsitePaymentModal({
 
   const summary = calculatePaymentSummary(
     booking,
-    getRecordsForBooking(paymentRecords, String(booking.id)),
+    getRecordsForBooking(paymentRecords, booking),
   )
   const totalAmount = summary.bookingTotal
   const currentAmountPaid = summary.moneyReceivedTotal

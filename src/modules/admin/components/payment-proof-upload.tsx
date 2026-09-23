@@ -51,22 +51,22 @@ export function PaymentProofUpload({ open, onOpenChange, bookingId }: PaymentPro
   const existingProof = getPaymentProofByBooking(bookingId)
 
   const handleFileSelect = (file: File) => {
-    // Validate file size (10MB limit)
-    if (file.size > 10 * 1024 * 1024) {
+    // Keep this legacy dialog aligned with the active image-only payment flow.
+    if (file.size > 5 * 1024 * 1024) {
       toast({
         title: "File too large",
-        description: "Please select a file smaller than 10MB",
+        description: "Please select an image smaller than 5MB",
         variant: "destructive",
       })
       return
     }
 
     // Validate file type
-    const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp", "application/pdf"]
+    const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"]
     if (!allowedTypes.includes(file.type)) {
       toast({
         title: "Invalid file type",
-        description: "Please upload an image (JPG, PNG, GIF, WebP) or PDF file",
+        description: "Please upload a JPG, JPEG, PNG, or WEBP image",
         variant: "destructive",
       })
       return
@@ -343,11 +343,11 @@ export function PaymentProofUpload({ open, onOpenChange, bookingId }: PaymentPro
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,.pdf"
+                accept="image/jpeg,image/jpg,image/png,image/webp"
                 onChange={handleFileInputChange}
                 className="hidden"
               />
-              <p className="text-xs text-gray-500">Supported formats: JPG, PNG, GIF, WebP, PDF. Maximum size: 10MB</p>
+              <p className="text-xs text-gray-500">Supported formats: JPG, JPEG, PNG, WEBP. Maximum size: 5MB</p>
             </div>
 
             {/* Payment Details */}

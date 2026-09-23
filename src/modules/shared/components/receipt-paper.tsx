@@ -3,17 +3,6 @@
 import React from "react"
 import { cn } from "@shared/lib/utils"
 
-function formatMoney(value?: number | string | null): string {
-  if (value === null || value === undefined || value === "") return "—"
-  const num = typeof value === "string" ? Number.parseFloat(value) : value
-  if (Number.isNaN(num) || num <= 0) return "—"
-  return new Intl.NumberFormat("en-PH", {
-    style: "currency",
-    currency: "PHP",
-    minimumFractionDigits: 2,
-  }).format(num)
-}
-
 function formatMoneyIncludingZero(value?: number | string | null): string {
   if (value === null || value === undefined || value === "") return "—"
   const num = typeof value === "string" ? Number.parseFloat(value) : value
@@ -219,6 +208,10 @@ export function ReceiptPaper({
               label="Payment Type"
               value={paymentTypeLabel || "—"}
             />
+            <ReceiptPaperLine
+              label="Total Booking Amount"
+              value={totalAmount != null ? formatMoneyIncludingZero(totalAmount) : "—"}
+            />
             {downpaymentBreakdown ? (
               <>
                 <ReceiptPaperLine
@@ -241,22 +234,19 @@ export function ReceiptPaper({
                   value={formatMoneyIncludingZero(downpaymentBreakdown.remainingBalance)}
                 />
               </>
-            ) : (
-              <>
-                <ReceiptPaperLine
-                  label="Amount Paid"
-                  value={amountPaid != null ? formatMoney(amountPaid) : "—"}
-                  highlight
-                />
-                {!isOfficeRental && (
-                  <ReceiptPaperLine
-                    label="Remaining Balance"
-                    value={
-                      remainingBalance != null ? formatMoney(remainingBalance) : "—"
-                    }
-                  />
-                )}
-              </>
+            ) : null}
+            <ReceiptPaperLine
+              label="Amount Paid"
+              value={amountPaid != null ? formatMoneyIncludingZero(amountPaid) : "—"}
+              highlight
+            />
+            {!isOfficeRental && (
+              <ReceiptPaperLine
+                label="Remaining Balance"
+                value={
+                  remainingBalance != null ? formatMoneyIncludingZero(remainingBalance) : "—"
+                }
+              />
             )}
           </ReceiptPaperSection>
 
