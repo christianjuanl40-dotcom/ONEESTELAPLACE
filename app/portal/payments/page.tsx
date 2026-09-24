@@ -69,10 +69,15 @@ import { db } from "@/lib/firebase";
 import type { PaymentRecord } from "@/src/modules/client/contexts/booking-context";
 import {
   calculatePaymentSummary,
+  getReceiptPaymentAmount,
+  getReceiptPaymentMethodLabel,
+  getReceiptPaymentNumber,
+  getReceiptPaymentTime,
+  getReceiptPresentation,
   getPaymentDisplayModel,
   getRecordsForBooking,
-  type PaymentSummary,
   type PaymentRecordLike,
+  type ReceiptPresentation,
 } from "@/src/modules/shared/lib/payment-calculations";
 
 const PAYMENT_WINDOW_HOURS = 24;
@@ -1020,6 +1025,11 @@ function TransactionsContent() {
     return storedReceiptsByBooking.get(viewingReceipt.id) || [];
   }, [viewingReceipt, storedReceiptsByBooking]);
 
+  const viewingReceiptRecords = useMemo(
+    () => viewingReceipt ? getRecordsForBooking(paymentRecords, viewingReceipt) : [],
+    [paymentRecords, viewingReceipt],
+  );
+
   const viewingReceiptHistory = useMemo(() => {
     if (!viewingReceipt) return [] as any[];
     const bookingAny = viewingReceipt as any;
@@ -1028,10 +1038,7 @@ function TransactionsContent() {
       : viewingReceipt.receipt
         ? [viewingReceipt.receipt]
         : [];
-    const bookingRecords: PaymentRecordLike[] = getRecordsForBooking(
-      paymentRecords,
-      viewingReceipt,
-    );
+    const bookingRecords: PaymentRecordLike[] = viewingReceiptRecords;
     const storedReceipts = viewingStoredReceipts as any[];
     // Same receipt may be persisted both inside the booking doc
     // (paymentReceipts) and in the `receipts` collection — dedupe by
@@ -1086,10 +1093,15 @@ function TransactionsContent() {
           break;
         }
       }
-      const amount = Number(record.amount ?? record.amountPaid ?? 0);
+      const amount = getReceiptPaymentAmount(record);
       entries.push({
         ...(matched || {}),
         paymentId: record.id,
+        paymentNumber: getReceiptPaymentNumber(record, bookingRecords),
+        term: record.term || matched?.paymentPurpose || matched?.paymentType,
+        paymentMethod: record.paymentMethod || record.method || matched?.paymentMethod || "",
+        method: record.method || record.paymentMethod || "",
+        referenceNo: record.referenceNo || matched?.referenceNo || matched?.bankReferenceNumber || "",
         proofUrl: record.proofUrl || "",
         amount,
         amountPaid: matched ? matched.amountPaid : amount,
@@ -1099,7 +1111,7 @@ function TransactionsContent() {
         rejectionReason: record.rejectionReason,
         verificationStatus: record.verificationStatus,
         submittedAt: record.submittedAt || record.updatedAt || "",
-        status: record.status || record.verificationStatus || "",
+        status: record.status || record.verificationStatus || matched?.paymentStatus || "",
         dateGenerated: matched
           ? matched.dateGenerated
           : record.submittedAt || "",
@@ -1113,6 +1125,7 @@ function TransactionsContent() {
       entries.push({
         ...receipt,
         paymentId: receipt.paymentId || "",
+        paymentNumber: getReceiptPaymentNumber(receipt, bookingRecords),
         submittedAt:
           receipt.paymentSubmittedAt ||
           receipt.dateGenerated ||
@@ -1124,18 +1137,15 @@ function TransactionsContent() {
       });
     }
 
-    const merged = entries.sort(
-      (a, b) =>
-        new Date(
-          b.submittedAt || b.dateGenerated || b.dateIssued || 0,
-        ).getTime() -
-        new Date(
-          a.submittedAt || a.dateGenerated || a.dateIssued || 0,
-        ).getTime(),
-    );
+    const merged = entries.sort((a, b) => {
+      const timeDifference = getReceiptPaymentTime(b) - getReceiptPaymentTime(a)
+      if (timeDifference !== 0) return timeDifference
+      return String(b.paymentNumber || b.receiptNumber || b.paymentId || "")
+        .localeCompare(String(a.paymentNumber || a.receiptNumber || a.paymentId || ""))
+    });
 
     return merged;
-  }, [viewingReceipt, paymentRecords, viewingStoredReceipts]);
+  }, [viewingReceipt, viewingReceiptRecords, viewingStoredReceipts]);
 
   const selectedViewingReceipt = useMemo(() => {
     if (viewingReceiptHistory.length === 0) return null;
@@ -1148,6 +1158,11 @@ function TransactionsContent() {
       ) || viewingReceiptHistory[0]
     );
   }, [viewingReceiptHistory, viewingReceiptNo]);
+
+  const selectedReceiptPresentation = useMemo<ReceiptPresentation | null>(() => {
+    if (!viewingReceipt) return null
+    return getReceiptPresentation(viewingReceipt, viewingReceiptRecords, selectedViewingReceipt)
+  }, [selectedViewingReceipt, viewingReceipt, viewingReceiptRecords]);
 
   const handlePay = (booking: Booking) => {
     markByBookingId(booking.id, CLIENT_PAYMENT_TYPES);
@@ -2645,14 +2660,9 @@ function TransactionsContent() {
                             >
                               <span className="min-w-0">
                                 <span className="block text-xs font-black text-slate-900">
-                                  Payment {viewingReceiptHistory.length - idx} —{" "}
+                                  Payment {receipt.paymentNumber || getReceiptPaymentNumber(receipt, viewingReceiptRecords)} —{" "}
                                   {formatMoney(
-                                    Number(
-                                      receipt.paymentAmount ??
-                                        receipt.amount ??
-                                        receipt.amountPaid ??
-                                        0,
-                                    ),
+                                    getReceiptPaymentAmount(receipt),
                                   )}
                                 </span>
                                 <span className="mt-0.5 block text-[10px] font-semibold text-slate-500">
@@ -2696,19 +2706,12 @@ function TransactionsContent() {
                             : ""
                       }
                       proofFileName={selectedViewingReceipt?.fileName || ""}
-                      paymentSummary={calculatePaymentSummary(
-                        viewingReceipt,
-                        getRecordsForBooking(paymentRecords, viewingReceipt),
-                      )}
+                      receiptPresentation={selectedReceiptPresentation}
                       reviewNote={selectedViewingReceipt?.adminNote || selectedViewingReceipt?.rejectionReason || ""}
                       isCancelled={
                         String(viewingReceipt.status).toLowerCase() === "cancelled" ||
                         String(viewingReceipt.status).toLowerCase() === "declined"
                       }
-                      displayTotal={calculatePaymentSummary(
-                        viewingReceipt,
-                        getRecordsForBooking(paymentRecords, viewingReceipt),
-                      ).totalBookingAmount}
                     />
                   </div>
                 </div>
@@ -2943,19 +2946,17 @@ function ReceiptDetails({
   receipt,
   proofUrl,
   proofFileName,
-  paymentSummary,
+  receiptPresentation,
   reviewNote,
   isCancelled,
-  displayTotal,
 }: {
   booking: Booking;
   receipt: any;
   proofUrl?: string;
   proofFileName?: string;
-  paymentSummary: PaymentSummary;
+  receiptPresentation: ReceiptPresentation | null;
   reviewNote?: string;
   isCancelled: boolean;
-  displayTotal: number;
 }) {
   const isOfficeRental = isOfficeRentalBooking(booking);
   const [proofPreviewOpen, setProofPreviewOpen] = useState(false);
@@ -2979,101 +2980,78 @@ function ReceiptDetails({
     />
   );
 
-  if (!receipt) {
-    return (
-      <div className="space-y-4">
-        <div>
-          <h2 className="text-xl font-black leading-tight text-slate-900">
-            No Receipt Record
-          </h2>
-          <p className="mt-1 text-sm font-bold leading-6 text-slate-900">
-            This payment has no transaction receipt on file. Every submitted
-            payment creates its own receipt automatically — if this payment is
-            missing one, please contact support.
-          </p>
-        </div>
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 sm:p-6 text-center">
-          <Receipt className="mx-auto mb-3 h-10 w-10 text-slate-300" />
-          <p className="text-sm font-black text-slate-900">No receipt record.</p>
-          <p className="mt-1 text-sm font-bold text-slate-900">
-            Booking ID: {booking.id}
-          </p>
-        </div>
-        {proofContent}
-        {proofPreview}
-      </div>
-    );
-  }
-
-  const totalAmount = displayTotal || paymentSummary.totalBookingAmount || null;
-  const amountPaid =
-    receipt?.amountPaid ??
-    receipt?.paymentAmount ??
-    receipt?.amount ??
-    null;
-  const remainingBalance = receipt?.remainingBalance ?? null;
-  const contractTerm =
-    receipt?.contractTerm || (booking as any).contractTerm || (booking as any).rentalTerm;
-  const paymentType = isOfficeRental
-    ? "Slot Reservation Only"
-    : receipt?.paymentType || receipt?.paymentPurpose || "Booking Payment";
-  const paymentMethod =
-    receipt?.paymentMethod || booking.paymentMethod || "Not specified";
-  const paymentStatus = receipt?.paymentStatus || booking.paymentStatus || "";
-  const dateGenerated =
-    receipt?.dateGenerated || receipt?.dateIssued || new Date().toISOString();
-  const payStatus = String(paymentStatus).toLowerCase();
-  // Receipt styling reflects the TRANSACTION's own state — a transaction
-  // receipt for an incomplete/rejected/for-review payment must NOT render as
-  // accepted. Only verified/paid transactions get the accepted treatment.
-  const isVerified =
-    payStatus === "verified" ||
-    payStatus === "paid" ||
-    payStatus === "slot_verified" ||
-    payStatus === "reservation secured";
-  const amountLabel = ["incomplete", "incomplete payment"].includes(payStatus)
+  const fallbackReceiptRecord: PaymentRecordLike | null = receipt
+    ? {
+        id: receipt.paymentId,
+        paymentId: receipt.paymentId,
+        paymentNumber: receipt.paymentNumber,
+        receiptNumber: receipt.receiptNumber,
+        paymentPurpose: receipt.paymentPurpose || receipt.paymentType,
+        paymentMethod: receipt.paymentMethod,
+        amount: receipt.amountPaid ?? receipt.paymentAmount ?? receipt.amount,
+        paymentStatus: receipt.paymentStatus,
+        submittedAt: receipt.paymentSubmittedAt || receipt.dateGenerated || receipt.dateIssued,
+      }
+    : null;
+  const presentation = receiptPresentation || getReceiptPresentation(booking, [], fallbackReceiptRecord);
+  const transaction = presentation.transaction;
+  const paymentSummary = presentation.summary;
+  const amountLabel = transaction.statusLabel === "Incomplete Payment"
     ? "Amount Received"
-    : isVerified
+    : transaction.isVerified
       ? "Amount Paid"
       : "Amount Submitted";
+  const contractTerm =
+    receipt?.contractTerm || (booking as any).contractTerm || (booking as any).rentalTerm;
+  const paymentType = transaction.paymentTypeLabel || "Booking Payment";
+  const paymentMethod = getReceiptPaymentMethodLabel(
+    transaction.paymentMethod || receipt?.paymentMethod || booking.paymentMethod,
+  );
+  const paymentStatus = transaction.statusLabel;
+  const dateGenerated =
+    transaction.paymentDate || receipt?.dateGenerated || receipt?.dateIssued || new Date().toISOString();
 
   const paperData: ReceiptPaperData = {
-    fullName: receipt.fullName || booking.userInfo?.name || "Client",
+    fullName: receipt?.fullName || booking.userInfo?.name || "Client",
     email: booking.userInfo?.email || null,
     contactNumber: booking.userInfo?.phone || null,
-    receiptNo: receipt.receiptNumber || receipt.receiptNo || "N/A",
+    receiptNo: receipt?.receiptNumber || receipt?.receiptNo || "No Receipt Record",
     generatedAt: dateGenerated,
-    bookingId: receipt.bookingId || booking.id,
+    bookingId: receipt?.bookingId || booking.id,
     eventType: isOfficeRental
       ? "Office Space Rental"
-      : receipt.eventType || (booking as any).eventType || "Event Venue Rental",
-    venue: receipt.venueReserved || receipt.venue || booking.venue || "N/A",
-    eventDate: receipt.startDate || booking.date || "Not set",
+      : receipt?.eventType || (booking as any).eventType || "Event Venue Rental",
+    venue: receipt?.venueReserved || receipt?.venue || booking.venue || "N/A",
+    eventDate: receipt?.startDate || booking.date || "Not set",
     reservationTime: isOfficeRental ? "" : getBookingTime(booking),
     paymentMethod: paymentMethod,
-    bankReference: booking.bankReferenceNumber || null,
+    bankReference: transaction.bankReference || receipt?.bankReferenceNumber || booking.bankReferenceNumber || null,
     paymentTypeLabel: paymentType,
-    totalAmount,
-    amountPaid,
+    paymentNumber: transaction.paymentNumber,
+    paymentDate: transaction.paymentDate || dateGenerated,
+    totalAmount: paymentSummary.totalBookingAmount,
+    amountPaid: transaction.amount,
     amountLabel,
-    acceptedAmountLabel: paymentSummary.requiredDpAmount > 0 ? "Verified DP Paid" : undefined,
-    remainingBalanceLabel: paymentSummary.requiredDpAmount > 0 ? "Remaining DP" : "Remaining Balance",
-    remainingBalance,
+    remainingBalanceLabel: transaction.paymentType === "downpayment" ? "Remaining DP" : "Remaining Balance",
+    remainingBalance: paymentSummary.remainingBalance,
     paymentStatus,
-    isVerified,
+    isVerified: transaction.isVerified,
     isOfficeRental,
     contractTerm: contractTerm || null,
-    downpaymentBreakdown: paymentSummary.requiredDpAmount > 0
-      ? {
-          totalAmount: paymentSummary.requiredDpAmount,
-          totalPaid: paymentSummary.verifiedDownpaymentPaid,
-          remainingBalance: paymentSummary.remainingDpBalance,
-        }
-      : undefined,
+    paymentSummary: {
+      ...paymentSummary,
+      isDownpayment: transaction.paymentType === "downpayment",
+    },
   };
 
   return (
     <div className="space-y-4">
+      {!receipt && (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-center">
+          <p className="text-sm font-black text-slate-900">No receipt record.</p>
+          <p className="mt-1 text-xs font-bold text-slate-600">Transaction information is shown from the selected payment record.</p>
+        </div>
+      )}
       <ReceiptPaper {...paperData} />
       {proofContent}
       {reviewNote && (

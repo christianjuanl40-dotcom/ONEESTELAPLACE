@@ -53,6 +53,9 @@ export type PaymentOverallStatus =
 
 export interface PaymentRecordLike {
   id?: string
+  paymentId?: unknown
+  paymentNumber?: unknown
+  paymentSequence?: unknown
   bookingId?: unknown
   bookingCode?: unknown
   customerId?: unknown
@@ -60,14 +63,20 @@ export interface PaymentRecordLike {
   eventName?: unknown
   venueName?: unknown
   term?: unknown
+  paymentType?: unknown
+  paymentPurpose?: unknown
+  paymentStatus?: unknown
   status?: unknown
   verificationStatus?: unknown
   method?: unknown
   paymentMethod?: unknown
   referenceNo?: unknown
+  referenceNumber?: unknown
+  bankReferenceNumber?: unknown
   proofUrl?: unknown
   amount?: unknown
   amountPaid?: unknown
+  paymentAmount?: unknown
   // Money the admin confirmed was ACTUALLY RECEIVED on an INCOMPLETE payment
   // (written by markIncompletePayment). Incomplete money is never ACCEPTED
   // ledger money, but it WAS received and must still be credited toward
@@ -77,6 +86,11 @@ export interface PaymentRecordLike {
   // amount/amountPaid to the actual money received. Informational only.
   requestedAmount?: unknown
   submittedAt?: unknown
+  paymentDate?: unknown
+  createdAt?: unknown
+  timestamp?: unknown
+  dateGenerated?: unknown
+  dateIssued?: unknown
   updatedAt?: unknown
   reviewedAt?: unknown
   reviewedBy?: unknown
@@ -153,6 +167,32 @@ export interface PaymentDisplayModel {
   acceptedAmount: number
   remainingLabel: string
   remainingAmount: number
+}
+
+export interface ReceiptPaymentSummary {
+  totalBookingAmount: number
+  requiredDpAmount: number
+  totalVerifiedDpPaid: number
+  remainingDp: number
+  totalVerifiedPaid: number
+  remainingBalance: number
+}
+
+export interface ReceiptTransactionDetails {
+  paymentNumber: number
+  paymentDate: string
+  paymentType: PaymentRecordType
+  paymentTypeLabel: string
+  paymentMethod: string
+  bankReference: string
+  amount: number
+  statusLabel: string
+  isVerified: boolean
+}
+
+export interface ReceiptPresentation {
+  transaction: ReceiptTransactionDetails
+  summary: ReceiptPaymentSummary
 }
 
 export function normalizePaymentStatusValue(value: unknown): string {
@@ -348,6 +388,328 @@ export function getPaymentRecordTime(record: PaymentRecordLike | null | undefine
   if (!raw) return 0
   const time = new Date(String(raw)).getTime()
   return Number.isFinite(time) ? time : 0
+}
+
+function getReceiptSequenceValue(value: unknown): number | null {
+  const text = String(value ?? "").trim()
+  if (!text) return null
+  const match = text.match(/(\d+(?:\.\d+)?)/)
+  if (!match) return null
+  const sequence = Number(match[1])
+  return Number.isFinite(sequence) ? sequence : null
+}
+
+function getReceiptPaymentSequence(record: PaymentRecordLike | null | undefined): number | null {
+  if (!record) return null
+  return (
+    getReceiptSequenceValue(record.paymentNumber) ??
+    getReceiptSequenceValue(record.paymentSequence)
+  )
+}
+
+export function getReceiptPaymentTime(record: PaymentRecordLike | null | undefined): number {
+  if (!record) return 0
+  const values = [
+    record.submittedAt,
+    record.paymentDate,
+    record.createdAt,
+    record.timestamp,
+    record.dateGenerated,
+    record.dateIssued,
+    record.updatedAt,
+  ]
+  for (const value of values) {
+    if (!value) continue
+    const time = new Date(String(value)).getTime()
+    if (Number.isFinite(time)) return time
+  }
+  return 0
+}
+
+export function sortReceiptPaymentRecords(
+  records: ReadonlyArray<PaymentRecordLike> | null | undefined,
+): PaymentRecordLike[] {
+  return [...(records || [])].sort((a, b) => {
+    const aSequence = getReceiptPaymentSequence(a)
+    const bSequence = getReceiptPaymentSequence(b)
+    if (aSequence !== null && bSequence !== null && aSequence !== bSequence) {
+      return aSequence - bSequence
+    }
+
+    const aTime = getReceiptPaymentTime(a)
+    const bTime = getReceiptPaymentTime(b)
+    if (aTime !== bTime) return aTime - bTime
+
+    if (aSequence !== null && bSequence === null) return -1
+    if (aSequence === null && bSequence !== null) return 1
+
+    const aReceipt = String(a.receiptNumber || "")
+    const bReceipt = String(b.receiptNumber || "")
+    if (aReceipt !== bReceipt) return aReceipt.localeCompare(bReceipt)
+    return String(a.id || a.paymentId || "").localeCompare(String(b.id || b.paymentId || ""))
+  })
+}
+
+function isSameReceiptPayment(
+  left: PaymentRecordLike | null | undefined,
+  right: PaymentRecordLike | null | undefined,
+): boolean {
+  if (!left || !right) return false
+  const leftId = String(left.id || left.paymentId || "")
+  const rightId = String(right.id || right.paymentId || "")
+  if (leftId && rightId && leftId === rightId) return true
+
+  const leftReceipt = String(left.receiptNumber || "")
+  const rightReceipt = String(right.receiptNumber || "")
+  if (leftReceipt && rightReceipt && leftReceipt === rightReceipt) return true
+
+  const leftSubmittedAt = String(left.submittedAt || left.paymentDate || "")
+  const rightSubmittedAt = String(right.submittedAt || right.paymentDate || "")
+  return Boolean(leftSubmittedAt && rightSubmittedAt && leftSubmittedAt === rightSubmittedAt)
+}
+
+function getReceiptTargetIndex(
+  ordered: ReadonlyArray<PaymentRecordLike>,
+  selected: PaymentRecordLike | null | undefined,
+): number {
+  if (!selected) return ordered.length - 1
+  const exactIndex = ordered.findIndex((record) => isSameReceiptPayment(record, selected))
+  if (exactIndex >= 0) return exactIndex
+
+  const selectedSequence = getReceiptPaymentSequence(selected)
+  if (selectedSequence !== null) {
+    let sequenceIndex = -1
+    ordered.forEach((record, index) => {
+      const sequence = getReceiptPaymentSequence(record)
+      if (sequence !== null && sequence <= selectedSequence) sequenceIndex = index
+    })
+    if (sequenceIndex >= 0) return sequenceIndex
+  }
+
+  const selectedTime = getReceiptPaymentTime(selected)
+  if (selectedTime > 0) {
+    let timeIndex = -1
+    ordered.forEach((record, index) => {
+      const time = getReceiptPaymentTime(record)
+      if (time > 0 && time <= selectedTime) timeIndex = index
+    })
+    if (timeIndex >= 0) return timeIndex
+  }
+
+  return ordered.length - 1
+}
+
+function getReceiptRecordsThroughSelected(
+  records: ReadonlyArray<PaymentRecordLike> | null | undefined,
+  selected: PaymentRecordLike | null | undefined,
+): PaymentRecordLike[] {
+  const ordered = sortReceiptPaymentRecords(records)
+  if (!selected) return ordered
+
+  const targetIndex = getReceiptTargetIndex(ordered, selected)
+  const through = targetIndex >= 0 ? ordered.slice(0, targetIndex + 1) : []
+  if (!ordered.some((record) => isSameReceiptPayment(record, selected))) {
+    through.push(selected)
+  }
+  return through
+}
+
+export function getReceiptPaymentNumber(
+  selected: PaymentRecordLike | null | undefined,
+  records: ReadonlyArray<PaymentRecordLike> | null | undefined = [],
+): number {
+  const explicit = getReceiptPaymentSequence(selected)
+  if (explicit !== null) return explicit
+
+  const ordered = sortReceiptPaymentRecords(records)
+  const index = ordered.findIndex((record) => isSameReceiptPayment(record, selected))
+  if (index >= 0) return index + 1
+
+  const selectedTime = getReceiptPaymentTime(selected)
+  if (selectedTime > 0) {
+    const countThroughSelected = ordered.filter((record) => {
+      const time = getReceiptPaymentTime(record)
+      return time > 0 && time <= selectedTime
+    }).length
+    if (countThroughSelected > 0) return countThroughSelected
+  }
+
+  return Math.max(ordered.length + 1, 1)
+}
+
+export function getReceiptPaymentAmount(record: PaymentRecordLike | null | undefined): number {
+  if (!record) return 0
+  const amount = getPaymentRecordAmount(record)
+  if (amount > 0) return amount
+  return Math.max(
+    toPaymentAmount(record.paymentAmount),
+    toPaymentAmount(record.amountPaid),
+    toPaymentAmount(record.requestedAmount),
+  )
+}
+
+export function getReceiptPaymentDate(record: PaymentRecordLike | null | undefined): string {
+  if (!record) return ""
+  for (const value of [
+    record.submittedAt,
+    record.paymentDate,
+    record.dateGenerated,
+    record.dateIssued,
+    record.createdAt,
+    record.updatedAt,
+  ]) {
+    const text = String(value || "").trim()
+    if (text) return text
+  }
+  return ""
+}
+
+export function getReceiptPaymentMethodLabel(value: unknown): string {
+  const normalized = String(value || "").toLowerCase()
+  if (normalized === "bank" || normalized.includes("bank")) return "Bank Transfer"
+  if (normalized === "cash" || normalized.includes("office") || normalized.includes("onsite")) {
+    return "Pay at the Office"
+  }
+  return String(value || "Not specified")
+}
+
+function getReceiptRawType(record: PaymentRecordLike | null | undefined): string {
+  return normalizePaymentStatusValue(
+    record?.term || record?.paymentPurpose || record?.paymentType,
+  )
+}
+
+export function getReceiptPaymentType(
+  record: PaymentRecordLike | null | undefined,
+  booking?: BookingLike,
+): PaymentRecordType {
+  if (record?.isRemainingDownPayment === true) return "downpayment"
+  const recordType = getPaymentRecordType(record)
+  if (recordType !== "unknown") return recordType
+
+  const rawType = getReceiptRawType(record)
+  if (rawType.includes("down payment") || rawType.includes("downpayment")) return "downpayment"
+  if (rawType.includes("remaining") || rawType.includes("balance") || rawType.includes("settle")) {
+    return "remaining_balance"
+  }
+  if (rawType.includes("full")) return "full"
+  if (rawType.includes("slot") || rawType.includes("reservation")) return "slot_reservation"
+  return booking ? getBookingPaymentType(booking) : "unknown"
+}
+
+function getReceiptPaymentTypeLabel(type: PaymentRecordType): string {
+  if (type === "downpayment") return "Down Payment"
+  if (type === "remaining_balance") return "Remaining Balance"
+  if (type === "slot_reservation") return "Slot Reservation Only"
+  if (type === "full") return "Full Payment"
+  return "Booking Payment"
+}
+
+export function isReceiptVerifiedPaymentRecord(record: PaymentRecordLike | null | undefined): boolean {
+  return isVerifiedPaymentRecord(record) || normalizePaymentStatusValue(record?.paymentStatus) === "verified"
+}
+
+function isReceiptRejectedPaymentRecord(record: PaymentRecordLike | null | undefined): boolean {
+  return isRejectedPaymentRecord(record) || normalizePaymentStatusValue(record?.paymentStatus) === "rejected"
+}
+
+function isReceiptIncompletePaymentRecord(record: PaymentRecordLike | null | undefined): boolean {
+  return isIncompletePaymentRecord(record) || normalizePaymentStatusValue(record?.paymentStatus) === "incomplete"
+}
+
+export function getReceiptPaymentStatusLabel(record: PaymentRecordLike | null | undefined): string {
+  if (!record) return "For Review"
+  if (isReceiptRejectedPaymentRecord(record)) return "Rejected"
+  if (isReceiptIncompletePaymentRecord(record)) return "Incomplete Payment"
+  if (isReceiptVerifiedPaymentRecord(record)) return "Verified"
+  if (isPendingPaymentRecord(record)) return "For Review"
+  const rawStatus = String(record.status || record.verificationStatus || record.paymentStatus || "").trim()
+  return rawStatus || "For Review"
+}
+
+function getReceiptRequiredDownpayment(
+  booking: BookingLike,
+  records: ReadonlyArray<PaymentRecordLike>,
+  selected: PaymentRecordLike | null | undefined,
+): number {
+  const configured = toPaymentAmount(booking.selectedDownpaymentAmount)
+  if (configured > 0) return configured
+
+  const selectedType = getReceiptPaymentType(selected, booking)
+  const hasDownpaymentRecord = records.some(
+    (record) => getReceiptPaymentType(record, booking) === "downpayment",
+  )
+  const bookingType = normalizePaymentStatusValue(booking.paymentType)
+  if (selectedType !== "downpayment" && !hasDownpaymentRecord && bookingType !== "downpayment") {
+    return 0
+  }
+
+  const total = getBookingTotal(booking)
+  const percentage = toPaymentAmount(booking.downPaymentPercentage) || 50
+  return total * (percentage / 100)
+}
+
+export function calculateReceiptPaymentSummary(
+  booking: BookingLike,
+  records: ReadonlyArray<PaymentRecordLike> | null | undefined,
+  selected?: PaymentRecordLike | null,
+): ReceiptPaymentSummary {
+  const sourceRecords = records || []
+  const throughSelected = getReceiptRecordsThroughSelected(sourceRecords, selected)
+  const requiredDpAmount = getReceiptRequiredDownpayment(booking, sourceRecords, selected)
+  const totalVerifiedPaid = throughSelected.reduce(
+    (sum, record) => sum + (isReceiptVerifiedPaymentRecord(record) ? getReceiptPaymentAmount(record) : 0),
+    0,
+  )
+  const totalVerifiedDpPaid = throughSelected.reduce(
+    (sum, record) => sum + (
+      isReceiptVerifiedPaymentRecord(record) &&
+      getReceiptPaymentType(record, booking) === "downpayment"
+        ? getReceiptPaymentAmount(record)
+        : 0
+    ),
+    0,
+  )
+  const totalBookingAmount = getBookingTotal(booking)
+
+  return {
+    totalBookingAmount,
+    requiredDpAmount,
+    totalVerifiedDpPaid,
+    remainingDp: Math.max(requiredDpAmount - totalVerifiedDpPaid, 0),
+    totalVerifiedPaid,
+    remainingBalance: Math.max(totalBookingAmount - totalVerifiedPaid, 0),
+  }
+}
+
+export function getReceiptPresentation(
+  booking: BookingLike,
+  records: ReadonlyArray<PaymentRecordLike> | null | undefined,
+  selected?: PaymentRecordLike | null,
+): ReceiptPresentation {
+  const sourceRecords = records || []
+  const ordered = sortReceiptPaymentRecords(sourceRecords)
+  const target = selected || ordered[ordered.length - 1] || null
+  const paymentType = getReceiptPaymentType(target, booking)
+  const paymentMethod = String(target?.paymentMethod || target?.method || "").trim()
+  const bankReference = String(
+    target?.referenceNo || target?.bankReferenceNumber || target?.referenceNumber || "",
+  ).trim()
+
+  return {
+    transaction: {
+      paymentNumber: getReceiptPaymentNumber(target, sourceRecords),
+      paymentDate: getReceiptPaymentDate(target),
+      paymentType,
+      paymentTypeLabel: getReceiptPaymentTypeLabel(paymentType),
+      paymentMethod,
+      bankReference,
+      amount: getReceiptPaymentAmount(target),
+      statusLabel: getReceiptPaymentStatusLabel(target),
+      isVerified: isReceiptVerifiedPaymentRecord(target),
+    },
+    summary: calculateReceiptPaymentSummary(booking, sourceRecords, target),
+  }
 }
 
 export function getPaymentRecordStatusLabel(

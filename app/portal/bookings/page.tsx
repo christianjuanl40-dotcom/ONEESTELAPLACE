@@ -56,8 +56,11 @@ import { Textarea } from "@/src/modules/shared/components/ui/textarea"
 import { getPaymentMethodLabel } from "@/src/modules/shared/lib/labels"
 import {
   calculatePaymentSummary,
+  getReceiptPaymentMethodLabel,
+  getReceiptPresentation,
   getRecordsForBooking,
   type PaymentRecordLike,
+  type ReceiptPresentation,
 } from "@/src/modules/shared/lib/payment-calculations"
 import { NotificationTargetWrapper } from "@/src/modules/shared/components/notification-target"
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
@@ -1480,32 +1483,31 @@ function ReceiptModal({
   open,
   onClose,
   booking,
-  paymentSummary,
+  receiptPresentation,
 }: {
   receipt: BookingReceipt | null
   open: boolean
   onClose: () => void
   booking?: Booking | null
-  paymentSummary?: ReturnType<typeof import("@/src/modules/shared/lib/payment-calculations").calculatePaymentSummary> | null
+  receiptPresentation?: ReceiptPresentation | null
 }) {
   if (!receipt) return null
 
   const isOfficeRental = booking ? isOfficeBooking(booking) : false
-
-  const totalAmount =
-    paymentSummary?.bookingTotal ??
-    (booking as any)?.totalPrice ??
-    (booking as any)?.totalAmount ??
-    (booking as any)?.amount ??
-    (booking as any)?.price ??
-    null
-
-  const amountPaid =
-    receipt.amountPaid ??
-    receipt.paymentAmount ??
-    null
-
-  const remainingBalance = receipt.remainingBalance ?? null
+  const receiptRecord: PaymentRecordLike = {
+    id: receipt.paymentId,
+    paymentId: receipt.paymentId,
+    paymentNumber: (receipt as any).paymentNumber,
+    receiptNumber: receipt.receiptNumber,
+    paymentPurpose: receipt.paymentPurpose,
+    paymentMethod: receipt.paymentMethod,
+    amount: receipt.amountPaid ?? receipt.paymentAmount,
+    paymentStatus: receipt.paymentStatus,
+    submittedAt: receipt.paymentSubmittedAt || receipt.dateGenerated || receipt.dateIssued,
+  }
+  const presentation = receiptPresentation || getReceiptPresentation(booking || {}, [], receiptRecord)
+  const transaction = presentation.transaction
+  const paymentSummary = presentation.summary
 
   const timeStr = booking
     ? booking.time ||
@@ -1513,16 +1515,9 @@ function ReceiptModal({
       "—"
     : "—"
 
-  const payStatus = String(
-    receipt.paymentStatus || booking?.paymentStatus || "",
-  ).toLowerCase()
-  const isVerified =
-    payStatus === "verified" ||
-    payStatus === "paid" ||
-    payStatus === "slot_verified"
-  const amountLabel = ["incomplete", "incomplete payment"].includes(payStatus)
+  const amountLabel = transaction.statusLabel === "Incomplete Payment"
     ? "Amount Received"
-    : isVerified
+    : transaction.isVerified
       ? "Amount Paid"
       : "Amount Submitted"
 
@@ -1530,9 +1525,7 @@ function ReceiptModal({
     ? "Office Space Rental"
     : booking?.eventType || receipt.bookingType || "Event Venue Rental"
 
-  const paymentTypeLabel = booking?.paymentType
-    ? formatTextLabel(booking.paymentType)
-    : receipt.paymentPurpose || "Booking Payment"
+  const paymentTypeLabel = transaction.paymentTypeLabel || receipt.paymentPurpose || "Booking Payment"
 
   const paperData: ReceiptPaperData = {
     fullName: receipt.fullName || booking?.userInfo?.name || "Client",
@@ -1545,20 +1538,24 @@ function ReceiptModal({
     venue: booking?.venue || "—",
     eventDate: booking?.date || receipt.startDate || "—",
     reservationTime: timeStr,
-    paymentMethod: receipt.paymentMethod
-      ? getPaymentMethodLabel(receipt.paymentMethod)
-      : "—",
-    bankReference: (booking as any)?.bankReferenceNumber || null,
+    paymentMethod: getReceiptPaymentMethodLabel(transaction.paymentMethod || receipt.paymentMethod),
+    bankReference: transaction.bankReference || (booking as any)?.bankReferenceNumber || null,
     paymentTypeLabel,
-    totalAmount,
-    amountPaid,
+    paymentNumber: transaction.paymentNumber,
+    paymentDate: transaction.paymentDate || receipt.dateGenerated || receipt.dateIssued,
+    totalAmount: paymentSummary.totalBookingAmount,
+    amountPaid: transaction.amount,
     amountLabel,
-    remainingBalanceLabel: paymentSummary?.requiredDpAmount ? "Remaining DP" : "Remaining Balance",
-    remainingBalance,
-    paymentStatus: receipt.paymentStatus || "—",
-    isVerified,
+    remainingBalanceLabel: transaction.paymentType === "downpayment" ? "Remaining DP" : "Remaining Balance",
+    remainingBalance: paymentSummary.remainingBalance,
+    paymentStatus: transaction.statusLabel || "—",
+    isVerified: transaction.isVerified,
     isOfficeRental,
     contractTerm: receipt.contractTerm || null,
+    paymentSummary: {
+      ...paymentSummary,
+      isDownpayment: transaction.paymentType === "downpayment",
+    },
   }
 
   return (
@@ -3055,6 +3052,26 @@ export default function MyBookingsPage() {
     }
   }
 
+  const receiptPresentation = useMemo<ReceiptPresentation | null>(() => {
+    if (!receiptBooking || !receiptToView) return null
+    const selectedReceipt: PaymentRecordLike = {
+      id: receiptToView.paymentId,
+      paymentId: receiptToView.paymentId,
+      paymentNumber: (receiptToView as any).paymentNumber,
+      receiptNumber: receiptToView.receiptNumber,
+      paymentPurpose: receiptToView.paymentPurpose,
+      paymentMethod: receiptToView.paymentMethod,
+      amount: receiptToView.amountPaid ?? receiptToView.paymentAmount,
+      paymentStatus: receiptToView.paymentStatus,
+      submittedAt: receiptToView.paymentSubmittedAt || receiptToView.dateGenerated || receiptToView.dateIssued,
+    }
+    return getReceiptPresentation(
+      receiptBooking,
+      getRecordsForBooking(paymentRecords, receiptBooking),
+      selectedReceipt,
+    )
+  }, [paymentRecords, receiptBooking, receiptToView])
+
   const submitCancellation = async () => {
     if (!bookingToCancel) return
     if (isSubmittingCancellation) return
@@ -3170,7 +3187,7 @@ export default function MyBookingsPage() {
             if (prevBooking) setViewingBooking(prevBooking)
           }}
           booking={receiptBooking}
-          paymentSummary={receiptBooking ? calculatePaymentSummary(receiptBooking, getRecordsForBooking(paymentRecords, receiptBooking)) : null}
+          receiptPresentation={receiptPresentation}
         />
 
         <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-end">

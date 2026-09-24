@@ -88,6 +88,8 @@ export interface ReceiptPaperData {
   paymentMethod: string
   bankReference?: string | null
   paymentTypeLabel: string
+  paymentNumber?: number | string | null
+  paymentDate?: string | null
   totalAmount: number | null
   amountPaid: number | null
   amountLabel?: string
@@ -98,6 +100,15 @@ export interface ReceiptPaperData {
   isVerified: boolean
   isOfficeRental?: boolean
   contractTerm?: string | null
+  paymentSummary?: {
+    totalBookingAmount: number | null
+    requiredDpAmount?: number | null
+    totalVerifiedDpPaid?: number | null
+    remainingDp?: number | null
+    totalVerifiedPaid?: number | null
+    remainingBalance: number | null
+    isDownpayment?: boolean
+  }
   downpaymentBreakdown?: {
     totalAmount: number
     totalPaid: number
@@ -120,6 +131,8 @@ export function ReceiptPaper({
   paymentMethod,
   bankReference,
   paymentTypeLabel,
+  paymentNumber,
+  paymentDate,
   totalAmount,
   amountPaid,
   amountLabel,
@@ -130,6 +143,7 @@ export function ReceiptPaper({
   isVerified,
   isOfficeRental,
   contractTerm,
+  paymentSummary,
   downpaymentBreakdown,
 }: ReceiptPaperData) {
   const normalizedPaymentStatus = String(paymentStatus || "").toLowerCase()
@@ -140,6 +154,14 @@ export function ReceiptPaper({
         ? "Amount Paid"
         : "Amount Submitted"
   )
+  const summaryTotal = paymentSummary?.totalBookingAmount ?? totalAmount
+  const summaryRequiredDp = paymentSummary?.requiredDpAmount ?? downpaymentBreakdown?.totalAmount
+  const summaryVerifiedDp = paymentSummary?.totalVerifiedDpPaid ?? downpaymentBreakdown?.totalPaid
+  const summaryRemainingDp = paymentSummary?.remainingDp ?? downpaymentBreakdown?.remainingBalance
+  const summaryRemainingBalance = paymentSummary?.remainingBalance ?? remainingBalance
+  const showVerifiedTotal = paymentSummary
+    ? paymentSummary.isDownpayment !== true
+    : false
   return (
     <div className="receipt-print mx-auto max-w-[680px]">
       {/* ── HEADER ── */}
@@ -206,8 +228,20 @@ export function ReceiptPaper({
 
           <ReceiptPaperDivider />
 
-          {/* Payment Details */}
-          <ReceiptPaperSection title="Payment Details">
+          {/* Selected transaction only */}
+          <ReceiptPaperSection title="Transaction Information">
+            <ReceiptPaperLine
+              label="Payment #"
+              value={paymentNumber != null ? paymentNumber : "—"}
+            />
+            <ReceiptPaperLine
+              label="Payment Date"
+              value={formatReceiptDate(paymentDate)}
+            />
+            <ReceiptPaperLine
+              label="Payment Type"
+              value={paymentTypeLabel || "—"}
+            />
             <ReceiptPaperLine
               label="Payment Method"
               value={paymentMethod || "—"}
@@ -219,80 +253,50 @@ export function ReceiptPaper({
               />
             )}
             <ReceiptPaperLine
-              label="Payment Type"
-              value={paymentTypeLabel || "—"}
-            />
-            <ReceiptPaperLine
-              label="Total Booking Amount"
-              value={totalAmount != null ? formatMoneyIncludingZero(totalAmount) : "—"}
-            />
-            {downpaymentBreakdown ? (
-              <>
-                <ReceiptPaperLine
-                  label="Total DP Amount"
-                  value={formatMoneyIncludingZero(downpaymentBreakdown.totalAmount)}
-                />
-                <ReceiptPaperLine
-                  label={acceptedAmountLabel || "Verified DP Paid"}
-                  value={formatMoneyIncludingZero(downpaymentBreakdown.totalPaid)}
-                />
-                {downpaymentBreakdown.paymentUnderReview != null && (
-                  <ReceiptPaperLine
-                    label="Payment Under Review"
-                    value={formatMoneyIncludingZero(downpaymentBreakdown.paymentUnderReview)}
-                    highlight
-                  />
-                )}
-                <ReceiptPaperLine
-                  label={remainingBalanceLabel || "Remaining DP"}
-                  value={formatMoneyIncludingZero(downpaymentBreakdown.remainingBalance)}
-                />
-              </>
-            ) : null}
-            <ReceiptPaperLine
               label={resolvedAmountLabel}
               value={amountPaid != null ? formatMoneyIncludingZero(amountPaid) : "—"}
               highlight
             />
-            {!isOfficeRental && (
-              <ReceiptPaperLine
-                label={remainingBalanceLabel || "Remaining Balance"}
-                value={
-                  remainingBalance != null ? formatMoneyIncludingZero(remainingBalance) : "—"
-                }
-              />
-            )}
+            <ReceiptPaperLine
+              label="Payment Status"
+              value={paymentStatus || "—"}
+            />
           </ReceiptPaperSection>
 
           <ReceiptPaperDivider />
 
-          {/* Payment Status */}
-          <ReceiptPaperSection title="Payment Status">
-            <div
-              className={cn(
-                "flex items-center justify-between gap-4 rounded-xl px-4 py-3",
-                isVerified
-                  ? "bg-emerald-50"
-                  : "bg-amber-50",
-              )}
-            >
-              <span
-                className={cn(
-                  "text-sm font-black uppercase tracking-[0.2em]",
-                  isVerified ? "text-emerald-700" : "text-amber-700",
-                )}
-              >
-                Status
-              </span>
-              <span
-                className={cn(
-                  "text-right text-sm font-black",
-                  isVerified ? "text-emerald-700" : "text-amber-700",
-                )}
-              >
-                {paymentStatus || "—"}
-              </span>
-            </div>
+          {/* Verified cumulative context through this transaction only */}
+          <ReceiptPaperSection title="Payment Summary">
+            <ReceiptPaperLine
+              label="Total Booking Amount"
+              value={summaryTotal != null ? formatMoneyIncludingZero(summaryTotal) : "—"}
+            />
+            {summaryRequiredDp != null && summaryRequiredDp > 0 && (
+              <>
+                <ReceiptPaperLine
+                  label="Required DP"
+                  value={formatMoneyIncludingZero(summaryRequiredDp)}
+                />
+                <ReceiptPaperLine
+                  label={paymentSummary ? "Total Verified DP Paid" : acceptedAmountLabel || "Verified DP Paid"}
+                  value={summaryVerifiedDp != null ? formatMoneyIncludingZero(summaryVerifiedDp) : "—"}
+                />
+                <ReceiptPaperLine
+                  label={remainingBalanceLabel === "Remaining Balance" ? "Remaining DP" : remainingBalanceLabel || "Remaining DP"}
+                  value={summaryRemainingDp != null ? formatMoneyIncludingZero(summaryRemainingDp) : "—"}
+                />
+              </>
+            )}
+            {showVerifiedTotal && paymentSummary?.totalVerifiedPaid != null && (
+              <ReceiptPaperLine
+                label="Total Verified Paid"
+                value={formatMoneyIncludingZero(paymentSummary.totalVerifiedPaid)}
+              />
+            )}
+            <ReceiptPaperLine
+              label="Remaining Balance"
+              value={summaryRemainingBalance != null ? formatMoneyIncludingZero(summaryRemainingBalance) : "—"}
+            />
           </ReceiptPaperSection>
 
           <ReceiptPaperDivider />

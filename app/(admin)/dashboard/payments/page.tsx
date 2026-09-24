@@ -67,6 +67,8 @@ import {
   getPaymentRecordCreditedAmount,
   getPaymentRecordStatusLabel,
   getPaymentDisplayModel,
+  getReceiptPaymentNumber,
+  getReceiptPresentation,
   calculatePaymentSummary,
   getRecordsForBooking,
   type PaymentRecordLike,
@@ -1107,6 +1109,21 @@ function PaymentReviewModal({
   // (verified payments + received amounts of incomplete payments).
   const paymentSummary = calculatePaymentSummary(summaryBase, submissions)
   const displayModel = getPaymentDisplayModel(summaryBase, selected, paymentSummary)
+  const receiptTarget: PaymentRecordLike | null = selected || (!selected && payment.receipt
+    ? {
+        id: payment.receipt.paymentId,
+        paymentId: payment.receipt.paymentId,
+        receiptNumber: payment.receipt.receiptNumber,
+        paymentPurpose: payment.receipt.paymentPurpose || payment.receipt.paymentType,
+        paymentMethod: payment.receipt.paymentMethod,
+        amount: payment.receipt.amountPaid ?? payment.receipt.paymentAmount,
+        paymentStatus: payment.receipt.paymentStatus,
+        submittedAt: payment.receipt.paymentSubmittedAt || payment.receipt.dateGenerated || payment.receipt.dateIssued,
+      }
+    : null)
+  const receiptPresentation = getReceiptPresentation(summaryBase, submissions, receiptTarget)
+  const receiptTransaction = receiptPresentation.transaction
+  const receiptSummary = receiptPresentation.summary
   const totalAmount = paymentSummary.totalBookingAmount
   const selectedAmount = selected
     ? getPaymentRecordAmount(selected)
@@ -1209,6 +1226,11 @@ function PaymentReviewModal({
     return exact || null
   }, [receiptPool, selected, payment.receipt])
   const receiptHasDownpaymentBreakdown = isDownpaymentPayment && Boolean(matchedReceipt || !selected)
+  const receiptAmountLabel = receiptTransaction.statusLabel === "Incomplete Payment"
+    ? "Amount Received"
+    : receiptTransaction.isVerified
+      ? "Amount Paid"
+      : "Amount Submitted"
 
   const paperData: ReceiptPaperData = {
     fullName:
@@ -1246,46 +1268,23 @@ function PaymentReviewModal({
       ? ""
       : getBookingTimeLabel(payment),
     paymentMethod:
-      matchedReceipt?.paymentMethod || getPaymentMethodLabel(selectedMethod),
+      getPaymentMethodLabel(selectedMethod || matchedReceipt?.paymentMethod || receiptTransaction.paymentMethod),
     bankReference:
-      selectedMethod === "bank" ? selectedBankReference || null : null,
-    paymentTypeLabel: isOfficeRental(payment)
-      ? "Slot Reservation Only"
-      : matchedReceipt?.paymentPurpose ||
-        matchedReceipt?.paymentType ||
-        getPaymentTypeLabel(selectedPaymentType),
-    totalAmount,
-    amountPaid: getSafePrice(
-      matchedReceipt?.amountPaid ??
-        matchedReceipt?.paymentAmount ??
-        displayAmount,
-    ),
-    amountLabel: displayModel.amountLabel,
-    acceptedAmountLabel: displayModel.acceptedLabel,
-    remainingBalanceLabel: displayModel.remainingLabel,
-    remainingBalance: getSafePrice(
-      matchedReceipt?.remainingBalance ?? remainingBalance,
-    ),
-    downpaymentBreakdown: isDownpaymentPayment
-      ? {
-          totalAmount: paymentSummary.requiredDpAmount,
-          totalPaid: paymentSummary.verifiedDownpaymentPaid,
-          paymentUnderReview: isPaymentUnderReview ? paymentUnderReviewAmount : null,
-          remainingBalance: paymentSummary.remainingDpBalance,
-        }
-      : undefined,
-    paymentStatus: matchedReceipt?.paymentStatus || submissionStatusLabel,
-    isVerified: matchedReceipt
-      ? [
-          "verified",
-          "paid",
-          "slot_verified",
-          "reservation secured",
-          "reservation_secured",
-        ].includes(String(matchedReceipt.paymentStatus || "").toLowerCase())
-      : selected
-        ? isVerifiedPaymentRecord(selected) || hasMatchingReceipt(selected, receiptPool)
-        : isVerifiedPayment(payment),
+      selectedMethod === "bank" ? selectedBankReference || receiptTransaction.bankReference || null : null,
+    paymentTypeLabel: receiptTransaction.paymentTypeLabel || getPaymentTypeLabel(selectedPaymentType),
+    paymentNumber: receiptTransaction.paymentNumber,
+    paymentDate: receiptTransaction.paymentDate || submittedAt,
+    totalAmount: receiptSummary.totalBookingAmount,
+    amountPaid: receiptTransaction.amount,
+    amountLabel: receiptAmountLabel,
+    remainingBalanceLabel: receiptTransaction.paymentType === "downpayment" ? "Remaining DP" : "Remaining Balance",
+    remainingBalance: receiptSummary.remainingBalance,
+    paymentSummary: {
+      ...receiptSummary,
+      isDownpayment: receiptTransaction.paymentType === "downpayment",
+    },
+    paymentStatus: receiptTransaction.statusLabel || submissionStatusLabel,
+    isVerified: receiptTransaction.isVerified,
     isOfficeRental: isOfficeRental(payment),
     contractTerm:
       matchedReceipt?.contractTerm ||
@@ -1376,6 +1375,7 @@ function PaymentReviewModal({
                 submissions.map((submission, index) => {
                   const isSelected = index === safeIndex
                   const submissionDisplay = getPaymentDisplayModel(summaryBase, submission, paymentSummary)
+                  const receiptPaymentNumber = getReceiptPaymentNumber(submission, submissions)
                   return (
                     <button
                       key={submission.id}
@@ -1390,7 +1390,7 @@ function PaymentReviewModal({
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs font-black text-slate-900">
-                          Payment #{submissions.length - index}
+                          Payment #{receiptPaymentNumber}
                         </span>
                         {isSelected && <CheckCircle2 className="h-4 w-4 shrink-0 text-orange-600" />}
                       </div>
@@ -1835,8 +1835,11 @@ function formatCurrency(value: number) {
 }
 
 function getPaymentMethodLabel(method?: string) {
-  if (method === "bank") return "Bank Transfer"
-  if (method === "cash") return "Pay at the Office"
+  const normalized = String(method || "").toLowerCase()
+  if (normalized === "bank" || normalized.includes("bank")) return "Bank Transfer"
+  if (normalized === "cash" || normalized.includes("office") || normalized.includes("onsite")) {
+    return "Pay at the Office"
+  }
   return "Payment Method"
 }
 
