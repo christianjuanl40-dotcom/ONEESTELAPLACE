@@ -67,9 +67,12 @@ import {
   type ReceiptPaperData,
 } from "@/src/modules/shared/components/receipt-paper"
 import { cn } from "@/src/modules/shared/lib/utils"
+import { getCancellationAudit } from "@/src/modules/shared/lib/cancellation"
 import {
   getCurrentBooking,
   hasActiveModificationRequest as bookingHasActiveModificationRequest,
+  getBookingLifecycleLabel,
+  getBookingLifecycleStatus,
   isActiveBooking,
 } from "@/src/modules/shared/lib/booking-helpers"
 import { getRemainingDurationFromDates } from "@/src/modules/shared/lib/date-utils"
@@ -103,7 +106,6 @@ type BookingFilter =
   | "all"
   | "current"
   | "pending"
-  | "verifying"
   | "confirmed"
   | "completed"
   | "cancelled"
@@ -116,8 +118,7 @@ const PAGE_SIZE = 10
 const FILTER_OPTIONS: { value: BookingFilter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "current", label: "Current" },
-  { value: "pending", label: "Pending Verification" },
-  { value: "verifying", label: "Verifying" },
+  { value: "pending", label: "Pending" },
   { value: "confirmed", label: "Confirmed" },
   { value: "cancellation_requested", label: "Cancel Requested" },
   { value: "completed", label: "Completed" },
@@ -339,20 +340,7 @@ function getStatusBadgeClass(status?: string) {
 }
 
 function getStatusLabel(status?: string) {
-  const normalized = String(status || "").toLowerCase()
-  if (normalized === "pending") return "Pending"
-  if (normalized === "verifying") return "Verifying"
-  if (normalized === "confirmed") return "Confirmed"
-  if (normalized === "completed" || normalized === "complete") return "Completed"
-  if (normalized === "cancelled") return "Cancelled"
-  if (normalized === "declined") return "Declined"
-  if (normalized === "cancellation_requested" || normalized === "cancellation requested")
-    return "Cancellation Under Review"
-  if (normalized === "reservation_secured") return "Reservation Secured"
-  if (normalized === "contract_signing_required") return "Contract Signing Required"
-  if (normalized === "active_rental") return "Active Rental"
-  if (normalized === "rental_expired") return "Rental Expired"
-  return formatTextLabel(status || "Unknown")
+  return getBookingLifecycleLabel({ status })
 }
 
 function hasPendingCancellationIndicator(booking: Booking) {
@@ -841,6 +829,7 @@ function BookingDetailsModal({
   )
 
   const cancellationStatus = normalizeStatus(booking.cancellationStatus)
+  const cancellationAudit = getCancellationAudit(booking as unknown as Record<string, unknown>)
   const hasCancellationHistory =
     Boolean(cancellationStatus) &&
     !["none", "declined", "cancellation declined"].includes(cancellationStatus)
@@ -1078,7 +1067,8 @@ function BookingDetailsModal({
               </>
               )}
 
-            {(booking.cancellationStatus && booking.cancellationStatus !== "None") ||
+            {isCancelled ||
+              (booking.cancellationStatus && booking.cancellationStatus !== "None") ||
               ((booking as any).cancelRequestStatus && (booking as any).cancelRequestStatus !== "None") ? (
               <section>
                 <div className="mb-4 flex items-center gap-2">
@@ -1096,22 +1086,38 @@ function BookingDetailsModal({
                         : booking.cancellationStatus || (booking as any).cancelRequestStatus || "None"}
                     </span>
                   </div>
-                  {(booking.cancellationReason || (booking as any).cancelReason) && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm font-black text-slate-900 shrink-0">Source</span>
+                    <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{cancellationAudit.source}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm font-black text-slate-900 shrink-0">Type</span>
+                    <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{cancellationAudit.type}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm font-black text-slate-900 shrink-0">Actor</span>
+                    <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{cancellationAudit.actorName}</span>
+                  </div>
+                  {booking.cancellationReviewedByName && (
                     <div className="flex justify-between gap-2">
-                      <span className="text-sm font-black text-slate-900 shrink-0">Reason</span>
-                      <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">
-                        {booking.cancellationReason || (booking as any).cancelReason}
-                      </span>
+                      <span className="text-sm font-black text-slate-900 shrink-0">Reviewed By</span>
+                      <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{booking.cancellationReviewedByName}</span>
                     </div>
                   )}
-                  {(booking.cancellationReviewedAt || booking.cancellationRequestedAt || (booking as any).cancelRequestedAt || (booking as any).cancelledAt) && (
-                    <div className="flex justify-between gap-2">
-                      <span className="text-sm font-black text-slate-900 shrink-0">Cancellation Date</span>
-                      <span className="text-sm font-black text-slate-900 text-right break-words">
-                        {formatDate(booking.cancellationReviewedAt || booking.cancellationRequestedAt || (booking as any).cancelRequestedAt || (booking as any).cancelledAt)}
-                      </span>
-                    </div>
-                  )}
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm font-black text-slate-900 shrink-0">Reason</span>
+                    <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{cancellationAudit.reason}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm font-black text-slate-900 shrink-0">Notes</span>
+                    <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{cancellationAudit.notes}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm font-black text-slate-900 shrink-0">Date</span>
+                    <span className="text-sm font-black text-slate-900 text-right break-words">
+                      {cancellationAudit.date === "Not recorded" ? cancellationAudit.date : formatDate(cancellationAudit.date)}
+                    </span>
+                  </div>
                   <div className="flex justify-between gap-2">
                     <span className="text-sm font-black text-slate-900 shrink-0">Refund</span>
                     <span className="text-sm font-black text-slate-900 text-right break-words">
@@ -1514,6 +1520,11 @@ function ReceiptModal({
     payStatus === "verified" ||
     payStatus === "paid" ||
     payStatus === "slot_verified"
+  const amountLabel = ["incomplete", "incomplete payment"].includes(payStatus)
+    ? "Amount Received"
+    : isVerified
+      ? "Amount Paid"
+      : "Amount Submitted"
 
   const eventTypeLabel = isOfficeRental
     ? "Office Space Rental"
@@ -1541,6 +1552,8 @@ function ReceiptModal({
     paymentTypeLabel,
     totalAmount,
     amountPaid,
+    amountLabel,
+    remainingBalanceLabel: paymentSummary?.requiredDpAmount ? "Remaining DP" : "Remaining Balance",
     remainingBalance,
     paymentStatus: receipt.paymentStatus || "—",
     isVerified,
@@ -2803,7 +2816,10 @@ export default function MyBookingsPage() {
   const matchesFilter = (booking: Booking, f: BookingFilter) => {
     if (f === "all") return true
     if (f === "current") return isCurrentBooking(booking)
-    return String(booking.status || "").toLowerCase() === f
+    if (f === "cancellation_requested") {
+      return String(booking.status || "").toLowerCase() === f
+    }
+    return getBookingLifecycleStatus(booking as unknown as Record<string, unknown>) === f
   }
 
   const filteredOtherActive = useMemo(

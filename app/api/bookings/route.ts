@@ -367,7 +367,7 @@ export async function POST(request: NextRequest) {
         startTime,
         endTime,
         status: "pending",
-        bookingStatus: "Pending Verification",
+        bookingStatus: "Pending",
         isSlotSecured: false,
         paymentStatus: "unpaid",
         paymentType: catalog.isOffice ? "slot_reservation" : "",

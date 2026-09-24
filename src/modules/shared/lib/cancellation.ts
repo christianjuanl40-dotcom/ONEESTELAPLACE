@@ -1,5 +1,17 @@
 export type CancellationRecord = Record<string, unknown>
 
+export type CancellationSource = "client" | "admin" | "system"
+export type CancellationType = "client_request" | "admin_action" | "automatic_expiry"
+
+export interface CancellationAuditView {
+  source: string
+  actorName: string
+  type: string
+  reason: string
+  notes: string
+  date: string
+}
+
 const CANCELLATION_CLOSED_DAYS = 7
 const REFUND_ELIGIBLE_DAYS = 14
 
@@ -37,8 +49,7 @@ function getNumber(value: unknown): number {
 }
 
 function getStatusLabel(status: string): string {
-  if (status === "pending") return "Pending Verification"
-  if (status === "verifying") return "Verifying"
+  if (status === "pending" || status === "verifying") return "Pending"
   if (status === "confirmed") return "Confirmed"
   if (status === "reservation_secured") return "Slot Secured"
   if (status === "contract_signing_required") return "Contract Signing Required"
@@ -155,6 +166,7 @@ export function buildCancellationRequestFields(
   booking: CancellationRecord,
   reason: string,
   requestedAt: string,
+  metadata: { actorId?: string; actorName?: string; notes?: string } = {},
 ): CancellationRecord {
   const status = normalize(booking.status)
   const previousBookingStatus = String(booking.bookingStatus || "").trim() || getStatusLabel(status)
@@ -170,6 +182,17 @@ export function buildCancellationRequestFields(
     cancellationRequestedAt: requestedAt,
     cancellationStatus: "Pending",
     cancellationStatusLabel: "Pending Review",
+    cancellationSource: "client" as CancellationSource,
+    cancellationType: "client_request" as CancellationType,
+    ...(metadata.actorId ? {
+      cancellationActorId: metadata.actorId,
+      cancellationRequestedBy: metadata.actorId,
+    } : {}),
+    ...(metadata.actorName ? {
+      cancellationActorName: metadata.actorName,
+      cancellationRequestedByName: metadata.actorName,
+    } : {}),
+    ...(metadata.notes ? { cancellationNotes: metadata.notes } : {}),
     cancellationReason: reason,
     cancellationReviewedAt: null,
     cancellationDeclineReason: null,
@@ -213,6 +236,7 @@ function addHoursToIso(value: string, hours: number): string {
 export function buildCancellationApprovalFields(
   booking: CancellationRecord,
   reviewedAt: string,
+  reviewer: { id?: string; name?: string } = {},
 ): CancellationRecord {
   const daysBeforeEvent = calculateCancellationDaysBeforeEvent(booking.date, new Date(reviewedAt))
   const eligible = daysBeforeEvent >= REFUND_ELIGIBLE_DAYS && hasVerifiedPayment(booking)
@@ -224,11 +248,23 @@ export function buildCancellationApprovalFields(
     cancellationRequested: false,
     cancellationStatus: "Approved",
     cancellationStatusLabel: "Cancellation Approved",
+    cancellationSource: booking.cancellationSource || "client",
+    cancellationType: booking.cancellationType || "client_request",
     cancellationReviewedAt: reviewedAt,
+    cancellationApprovedAt: reviewedAt,
+    cancelledAt: reviewedAt,
     cancellationUnderReview: false,
     cancelRequestStatus: null,
     adminCancelDecision: "approved",
     adminCancelReason: "",
+    ...(reviewer.id ? {
+      cancellationReviewedBy: reviewer.id,
+      cancellationApprovedBy: reviewer.id,
+    } : {}),
+    ...(reviewer.name ? {
+      cancellationReviewedByName: reviewer.name,
+      cancellationApprovedByName: reviewer.name,
+    } : {}),
     refundEligible: eligible,
     refundMethod: eligible ? "Cash" : null,
     refundMode: eligible ? "Cash" : null,
@@ -260,13 +296,21 @@ export function buildCancellationDeclineFields(
   booking: CancellationRecord,
   reason: string,
   reviewedAt: string,
+  reviewer: { id?: string; name?: string } = {},
 ): CancellationRecord {
   const previousStatus = normalize(String(booking.previousStatus || ""))
   const restoredStatus = previousStatus && previousStatus !== "cancellation_requested"
-    ? previousStatus
+    ? previousStatus === "verifying"
+      ? "pending"
+      : previousStatus === "fully_paid"
+        ? "confirmed"
+        : previousStatus
     : "confirmed"
   const previousBookingStatus = String(booking.previousBookingStatus || "").trim()
-  const restoredBookingStatus = previousBookingStatus && normalize(previousBookingStatus) !== restoredStatus
+  const normalizedPreviousBookingStatus = normalize(previousBookingStatus)
+  const restoredBookingStatus = previousBookingStatus &&
+    !["pending verification", "verifying"].includes(normalizedPreviousBookingStatus) &&
+    normalizedPreviousBookingStatus !== restoredStatus
     ? previousBookingStatus
     : getStatusLabel(restoredStatus)
   const restoredPaymentStatus = String(
@@ -287,6 +331,8 @@ export function buildCancellationDeclineFields(
     cancellationRequested: false,
     cancellationStatus: "Declined",
     cancellationStatusLabel: "Cancellation Declined",
+    cancellationSource: booking.cancellationSource || "client",
+    cancellationType: booking.cancellationType || "client_request",
     cancellationReviewedAt: reviewedAt,
     cancellationUnderReview: false,
     cancellationDeclinedAt: reviewedAt,
@@ -294,6 +340,9 @@ export function buildCancellationDeclineFields(
     cancelRequestStatus: null,
     adminCancelDecision: "declined",
     adminCancelReason: reason,
+    cancellationNotes: booking.cancellationNotes || reason,
+    ...(reviewer.id ? { cancellationReviewedBy: reviewer.id } : {}),
+    ...(reviewer.name ? { cancellationReviewedByName: reviewer.name } : {}),
     cancellationCooldownUntil: addHoursToIso(reviewedAt, 1),
     refundEligible: false,
     refundMethod: null,
@@ -316,6 +365,49 @@ export function buildCancellationDeclineFields(
       "DECLINE_CANCELLATION_REQUEST",
       `Cancellation request declined. Reason: ${reason}`,
       reviewedAt,
+    ),
+  }
+}
+
+function formatAuditValue(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value.trim() : "Not recorded"
+}
+
+function formatCancellationSource(value: unknown): string {
+  if (value === "client") return "Client"
+  if (value === "admin") return "Admin"
+  if (value === "system") return "System"
+  return "Not recorded"
+}
+
+function formatCancellationType(value: unknown): string {
+  if (value === "client_request") return "Client request"
+  if (value === "admin_action") return "Admin action"
+  if (value === "automatic_expiry") return "Automatic payment-window expiry"
+  return "Not recorded"
+}
+
+/** Returns only explicitly stored audit data; legacy gaps remain visible. */
+export function getCancellationAudit(booking: CancellationRecord): CancellationAuditView {
+  return {
+    source: formatCancellationSource(booking.cancellationSource),
+    actorName: formatAuditValue(
+      booking.cancellationActorName ||
+        booking.cancellationApprovedByName ||
+        booking.cancellationReviewedByName ||
+        booking.cancellationRequestedByName ||
+        booking.cancelledByName,
+    ),
+    type: formatCancellationType(booking.cancellationType),
+    reason: formatAuditValue(booking.cancellationReason || booking.cancelReason),
+    notes: formatAuditValue(
+      booking.cancellationNotes || booking.adminCancelReason || booking.cancellationDeclineReason,
+    ),
+    date: formatAuditValue(
+      booking.cancelledAt ||
+        booking.cancellationReviewedAt ||
+        booking.cancellationRequestedAt ||
+        booking.cancelRequestedAt,
     ),
   }
 }

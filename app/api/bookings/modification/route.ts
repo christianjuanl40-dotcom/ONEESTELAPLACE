@@ -267,7 +267,7 @@ function restoredStatus(booking: DataRecord): { status: string; bookingStatus: s
   if (booking.isSlotSecured === true || booking.verifiedByAdmin === true) {
     return { status: isOfficeBooking(booking) ? "reservation_secured" : "confirmed", bookingStatus: isOfficeBooking(booking) ? "Slot Secured" : "Confirmed" }
   }
-  return { status: "pending", bookingStatus: "Pending Verification" }
+  return { status: "pending", bookingStatus: "Pending" }
 }
 
 function errorResponse(error: unknown) {

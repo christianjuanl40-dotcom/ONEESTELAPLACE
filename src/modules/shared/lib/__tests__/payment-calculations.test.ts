@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 import {
   calculatePaymentSummary,
+  getPaymentDisplayModel,
   getPaymentRecordCreditedAmount,
   getRecordsForBooking,
   isAcceptedPaymentRecord,
@@ -561,6 +562,40 @@ describe("Canonical accepted ledger aliases", () => {
 })
 
 describe("Edge cases", () => {
+  it("labels a pending downpayment as submitted instead of paid", () => {
+    const booking = makeBooking()
+    const record = makeRecord({ term: "Down Payment", amount: 7500 })
+    const summary = calculatePaymentSummary(booking, [record])
+    const display = getPaymentDisplayModel(booking, record, summary)
+
+    expect(display.paymentTypeLabel).toBe("Down Payment")
+    expect(display.statusLabel).toBe("For Review")
+    expect(display.amountLabel).toBe("DP Submitted")
+    expect(display.amount).toBe(7500)
+    expect(display.acceptedAmount).toBe(0)
+    expect(display.remainingAmount).toBe(7500)
+  })
+
+  it("separates incomplete received money from verified DP paid", () => {
+    const booking = makeBooking()
+    const record = makeRecord({
+      term: "Down Payment",
+      status: "Incomplete",
+      amount: 7500,
+      amountReceived: 5500,
+      amountPaid: 5500,
+    })
+    const summary = calculatePaymentSummary(booking, [record])
+    const display = getPaymentDisplayModel(booking, record, summary)
+
+    expect(display.statusLabel).toBe("Incomplete Payment")
+    expect(display.amountLabel).toBe("Amount Received")
+    expect(display.amount).toBe(5500)
+    expect(display.acceptedLabel).toBe("Verified DP Paid")
+    expect(display.acceptedAmount).toBe(0)
+    expect(display.remainingAmount).toBe(2000)
+  })
+
   it("for_review record has ₱0 credit and is pending", () => {
     const record = makeRecord({ status: "for_review", amount: 7500 })
     expect(getPaymentRecordCreditedAmount(record)).toBe(0)

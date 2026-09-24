@@ -66,12 +66,10 @@ type BookingRecord = {
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 const STATUS_GROUPS = [
-  { name: "Active", color: "#10B981", statuses: ["confirmed", "active_rental"] },
-  { name: "Payment Verification", color: "#3B82F6", statuses: ["verifying"] },
+  { name: "Confirmed", color: "#10B981", statuses: ["confirmed"] },
   { name: "Pending", color: "#F59E0B", statuses: ["pending"] },
-  { name: "Contract Signing", color: "#8B5CF6", statuses: ["contract_signing_required"] },
-  { name: "Refund Requests", color: "#F97316", statuses: ["cancellation_requested", "cancellation requested"] },
-  { name: "Cancelled", color: "#EF4444", statuses: ["cancelled", "canceled"] },
+  { name: "Completed", color: "#3B82F6", statuses: ["completed"] },
+  { name: "Cancelled", color: "#EF4444", statuses: ["cancelled"] },
 ] as const
 
 const OTHER_STATUS_GROUP = { name: "Other", color: "#94a3b8" }
@@ -88,8 +86,8 @@ function getStatusGroupColor(groupName: string) {
   return STATUS_GROUPS.find((group) => group.name === groupName)?.color ?? OTHER_STATUS_GROUP.color
 }
 
-const CONFIRMED_STATUSES = ["confirmed", "completed"]
-const PENDING_STATUSES = ["pending", "pencil booking", "for review", "for verification", "awaiting payment"]
+const CONFIRMED_STATUSES = ["confirmed"]
+const PENDING_STATUSES = ["pending", "verifying", "pencil booking", "for review", "for verification", "awaiting payment"]
 const CANCELLED_STATUSES = ["cancelled", "canceled", "declined", "rejected"]
 
 function normalizeStatus(status?: string) {
@@ -179,8 +177,10 @@ const BOOKING_LIFECYCLE_MAP: Record<string, string> = {
   confirmed: "Confirmed",
   approved: "Confirmed",
   reservation_secured: "Confirmed",
+  slot_verified: "Confirmed",
+  fully_paid: "Confirmed",
   contract_signing_required: "Confirmed",
-  active_rental: "Ongoing",
+  active_rental: "Confirmed",
   completed: "Completed",
   rental_expired: "Completed",
   cancelled: "Cancelled",
@@ -433,7 +433,7 @@ export default function ReportsPage() {
     const statuses = new Set<string>()
 
     bookingList.forEach((booking) => {
-      statuses.add(normalizeStatus(booking.status))
+      statuses.add(getBookingLifecycleLabel(booking.status).toLowerCase())
     })
 
     return ["all", ...Array.from(statuses).filter(Boolean).sort()]
@@ -458,7 +458,7 @@ export default function ReportsPage() {
     return bookingList
       .filter((booking) => {
         const parsedDate = parseBookingDate(booking)
-        const bookingStatus = normalizeStatus(booking.status)
+        const bookingStatus = getBookingLifecycleLabel(booking.status).toLowerCase()
         const bookingYear = parsedDate ? parsedDate.getFullYear().toString() : ""
 
         const matchesMonth =
@@ -520,7 +520,7 @@ export default function ReportsPage() {
   )
 
   const confirmedBookings = useMemo(() => {
-    return filteredData.filter((booking) => CONFIRMED_STATUSES.includes(normalizeStatus(booking.status)))
+    return filteredData.filter((booking) => getBookingLifecycleLabel(booking.status) === "Confirmed")
   }, [filteredData])
 
   const totalRevenue = useMemo(() => {
@@ -551,7 +551,7 @@ export default function ReportsPage() {
       const monthIndex = parsedDate.getMonth()
       map[monthIndex].bookings += 1
 
-      if (CONFIRMED_STATUSES.includes(normalizeStatus(booking.status))) {
+       if (getBookingLifecycleLabel(booking.status) === "Confirmed") {
         map[monthIndex].revenue += getBookingAmount(booking)
       }
     })
@@ -576,7 +576,7 @@ export default function ReportsPage() {
     const map: Record<string, number> = {}
 
     filteredData.forEach((booking) => {
-      const group = getStatusGroupName(booking.status)
+       const group = getStatusGroupName(getBookingLifecycleLabel(booking.status))
       map[group] = (map[group] || 0) + 1
     })
 

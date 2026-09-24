@@ -142,6 +142,19 @@ export interface PaymentSummary {
   remainingDownpayment: number
 }
 
+export interface PaymentDisplayModel {
+  paymentType: "downpayment" | "full" | "remaining_balance" | "slot_reservation" | "unknown"
+  paymentTypeLabel: string
+  statusLabel: string
+  amountLabel: string
+  amount: number
+  submittedAmount: number
+  acceptedLabel: string
+  acceptedAmount: number
+  remainingLabel: string
+  remainingAmount: number
+}
+
 export function normalizePaymentStatusValue(value: unknown): string {
   return String(value || "").toLowerCase().trim()
 }
@@ -272,9 +285,9 @@ export function getPaymentRecordAmount(record: PaymentRecordLike | null | undefi
   return toPaymentAmount(record?.amount ?? record?.amountPaid ?? 0)
 }
 
-type PaymentRecordType = "downpayment" | "full" | "remaining_balance" | "slot_reservation" | "unknown"
+export type PaymentRecordType = "downpayment" | "full" | "remaining_balance" | "slot_reservation" | "unknown"
 
-function getPaymentRecordType(record: PaymentRecordLike | null | undefined): PaymentRecordType {
+export function getPaymentRecordType(record: PaymentRecordLike | null | undefined): PaymentRecordType {
   if (!record) return "unknown"
   const term = normalizePaymentStatusValue(record.term)
 
@@ -346,6 +359,103 @@ export function getPaymentRecordStatusLabel(
   if (isIncompletePaymentRecord(record)) return "Incomplete Payment"
   if (isVerifiedPaymentRecord(record)) return "Verified"
   return "For Review"
+}
+
+export function getPaymentOverallStatusLabel(status: PaymentOverallStatus): string {
+  if (status === "completed") return "Fully Paid"
+  if (status === "partial") return "Partial Payment"
+  if (status === "rejected") return "Rejected"
+  if (status === "incomplete") return "Incomplete Payment"
+  return "For Review"
+}
+
+function getBookingPaymentType(booking: BookingLike): PaymentRecordType {
+  const type = normalizePaymentStatusValue(booking.paymentType)
+  if (type === "downpayment") return "downpayment"
+  if (type === "slot_reservation") return "slot_reservation"
+  if (type === "full") return "full"
+  return "unknown"
+}
+
+function getPaymentTypeLabel(type: PaymentRecordType): string {
+  if (type === "downpayment") return "Down Payment"
+  if (type === "remaining_balance") return "Remaining Balance"
+  if (type === "slot_reservation") return "Slot Reservation Only"
+  if (type === "full") return "Full Payment"
+  return "Booking Payment"
+}
+
+/**
+ * Returns the financial labels for one transaction detail view. Pending money
+ * is always shown as submitted, while accepted/received ledger values use
+ * labels that cannot be mistaken for the pending transaction itself.
+ */
+export function getPaymentDisplayModel(
+  booking: BookingLike,
+  record: PaymentRecordLike | null | undefined,
+  summary: PaymentSummary,
+): PaymentDisplayModel {
+  const recordType = getPaymentRecordType(record)
+  const bookingType = getBookingPaymentType(booking)
+  const paymentType = recordType === "unknown" ? bookingType : recordType
+  const isDownpayment = paymentType === "downpayment" || isDownpaymentPaymentRecord(record, booking)
+  const isFinalPayment = paymentType === "remaining_balance" || (
+    paymentType === "full" && bookingType === "downpayment"
+  )
+  const effectiveType: PaymentRecordType = isDownpayment
+    ? "downpayment"
+    : isFinalPayment
+      ? "remaining_balance"
+      : paymentType
+  const verified = isVerifiedPaymentRecord(record)
+  const incomplete = isIncompletePaymentRecord(record)
+  const pending = record ? isPendingPaymentRecord(record) : summary.hasPendingSubmission
+  const recordAmount = record ? getPaymentRecordAmount(record) : 0
+  const submittedAmount = record
+    ? Math.max(toPaymentAmount(record.requestedAmount), recordAmount)
+    : summary.pendingCurrentAmount
+  const amount = incomplete
+    ? getPaymentRecordCreditedAmount(record)
+    : record
+      ? recordAmount
+      : summary.pendingCurrentAmount || summary.acceptedTotalPaid
+
+  let amountLabel = "Payment Amount"
+  if (incomplete) amountLabel = "Amount Received"
+  else if (effectiveType === "downpayment") amountLabel = verified ? "Verified DP Paid" : "DP Submitted"
+  else if (effectiveType === "remaining_balance") amountLabel = verified ? "Verified Payment" : "Final Payment Submitted"
+  else if (effectiveType === "full") amountLabel = verified ? "Verified Payment" : "Payment Submitted"
+  else if (pending) amountLabel = "Payment Submitted"
+
+  const acceptedLabel = effectiveType === "downpayment"
+    ? "Verified DP Paid"
+    : effectiveType === "remaining_balance"
+      ? "Total Paid"
+      : "Verified Payment"
+  const acceptedAmount = effectiveType === "downpayment"
+    ? summary.verifiedDownpaymentPaid
+    : effectiveType === "remaining_balance"
+      ? summary.moneyReceivedTotal
+      : summary.acceptedVerifiedTotal
+  const remainingLabel = effectiveType === "downpayment" ? "Remaining DP" : "Remaining Balance"
+  const remainingAmount = effectiveType === "downpayment"
+    ? summary.remainingDownpayment
+    : summary.remainingBalance
+
+  return {
+    paymentType: effectiveType,
+    paymentTypeLabel: getPaymentTypeLabel(effectiveType),
+    statusLabel: record
+      ? getPaymentRecordStatusLabel(record)
+      : getPaymentOverallStatusLabel(summary.overallStatus),
+    amountLabel,
+    amount,
+    submittedAmount,
+    acceptedLabel,
+    acceptedAmount,
+    remainingLabel,
+    remainingAmount,
+  }
 }
 
 // One canonical record→booking association rule used by EVERY surface

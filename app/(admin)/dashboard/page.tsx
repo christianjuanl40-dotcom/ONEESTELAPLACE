@@ -33,6 +33,7 @@ import {
 } from "firebase/firestore"
 
 const BOOKINGS_REF = collection(db, "bookings")
+const PAYMENTS_REF = collection(db, "payments")
 
 interface DashboardStats {
   totalRevenue: number
@@ -77,8 +78,16 @@ function useDashboardData() {
     const [total, pending, verifying, confirmed, cancelled, cancellationRequests] =
       await Promise.all([
         countOf(query(BOOKINGS_REF)),
-        countOf(query(BOOKINGS_REF, where("status", "==", "pending"))),
-        countOf(query(BOOKINGS_REF, where("status", "==", "verifying"))),
+        countOf(query(BOOKINGS_REF, where("status", "in", ["pending", "verifying"]))),
+        countOf(query(PAYMENTS_REF, where("status", "in", [
+          "For Verification",
+          "For Review",
+          "Awaiting Onsite Payment",
+          "Pending",
+          "Pending Verification",
+          "for_review",
+          "pending",
+        ]))),
         countOf(query(BOOKINGS_REF, where("status", "==", "confirmed"))),
         countOf(
           query(BOOKINGS_REF, where("status", "in", ["cancelled", "declined"])),
@@ -237,7 +246,7 @@ export default function AdminDashboardPage() {
           <StatCard
             href={ROUTES.verifyingPayments}
             icon={<CreditCard className="h-4 w-4" />}
-            label="Verifying"
+             label="Payment Review"
             value={stats.verifying.toString()}
             description="Payments awaiting verification"
             tone="purple"
@@ -327,7 +336,7 @@ export default function AdminDashboardPage() {
                 <ActionItem
                   href={ROUTES.verifyingPayments}
                   icon={<CreditCard className="h-4 w-4" />}
-                  label="Payment verifying"
+                   label="Payments under review"
                   value={stats.verifying}
                   tone="purple"
                 />
@@ -392,7 +401,7 @@ function getStatusBadge(status: string) {
     case "verifying":
       return (
         <span className={cn(baseClass, "bg-purple-100 text-purple-700")}>
-          Verifying
+          Pending
         </span>
       )
     case "confirmed":

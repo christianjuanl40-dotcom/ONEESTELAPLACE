@@ -5,6 +5,7 @@ import {
   buildCancellationDeclineFields,
   buildCancellationRequestFields,
   evaluateCancellationEligibility,
+  getCancellationAudit,
   hasPendingCancellation,
 } from "../cancellation"
 
@@ -53,6 +54,32 @@ describe("cancellation lifecycle", () => {
     expect(hasPendingCancellation({ ...booking, ...fields })).toBe(true)
   })
 
+  it("persists cancellation actors and returns honest audit fallbacks", () => {
+    const booking = makeBooking()
+    const fields = buildCancellationRequestFields(booking, "Schedule changed", reviewedAt, {
+      actorId: "client-1",
+      actorName: "Client One",
+      notes: "Please cancel before the event date.",
+    })
+    const pending = { ...booking, ...fields }
+    const audit = getCancellationAudit(pending)
+
+    expect(fields.cancellationSource).toBe("client")
+    expect(fields.cancellationType).toBe("client_request")
+    expect(audit.source).toBe("Client")
+    expect(audit.actorName).toBe("Client One")
+    expect(audit.notes).toBe("Please cancel before the event date.")
+
+    const approved = buildCancellationApprovalFields(pending, reviewedAt, {
+      id: "admin-1",
+      name: "Admin One",
+    })
+    const approvedAudit = getCancellationAudit({ ...pending, ...approved })
+    expect(approved.cancellationReviewedByName).toBe("Admin One")
+    expect(approvedAudit.date).toBe(reviewedAt)
+    expect(getCancellationAudit({ status: "cancelled" }).source).toBe("Not recorded")
+  })
+
   it("blocks a duplicate pending request", () => {
     const booking = makeBooking()
     expect(
@@ -94,6 +121,22 @@ describe("cancellation lifecycle", () => {
     expect(fields.cancellationStatus).toBe("Declined")
     expect(fields.cancellationDeclineReason).toBe("Date is reserved for maintenance")
     expect(fields.refundStatus).toBe("Not Applicable")
+  })
+
+  it("normalizes legacy payment labels when declining a cancellation", () => {
+    const fields = buildCancellationDeclineFields(
+      {
+        ...makeBooking(),
+        previousStatus: "verifying",
+        previousBookingStatus: "Pending Verification",
+        previousPaymentStatus: "paid",
+      },
+      "Date is reserved for maintenance",
+      reviewedAt,
+    )
+
+    expect(fields.status).toBe("pending")
+    expect(fields.bookingStatus).toBe("Pending")
   })
 
   it("does not allow an unsecured or too-near booking to request cancellation", () => {

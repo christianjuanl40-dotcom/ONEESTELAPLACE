@@ -90,6 +90,9 @@ export interface ReceiptPaperData {
   paymentTypeLabel: string
   totalAmount: number | null
   amountPaid: number | null
+  amountLabel?: string
+  acceptedAmountLabel?: string
+  remainingBalanceLabel?: string
   remainingBalance: number | null
   paymentStatus: string
   isVerified: boolean
@@ -119,6 +122,9 @@ export function ReceiptPaper({
   paymentTypeLabel,
   totalAmount,
   amountPaid,
+  amountLabel,
+  acceptedAmountLabel,
+  remainingBalanceLabel,
   remainingBalance,
   paymentStatus,
   isVerified,
@@ -126,6 +132,14 @@ export function ReceiptPaper({
   contractTerm,
   downpaymentBreakdown,
 }: ReceiptPaperData) {
+  const normalizedPaymentStatus = String(paymentStatus || "").toLowerCase()
+  const resolvedAmountLabel = amountLabel || (
+    ["incomplete", "incomplete payment"].includes(normalizedPaymentStatus)
+      ? "Amount Received"
+      : isVerified
+        ? "Amount Paid"
+        : "Amount Submitted"
+  )
   return (
     <div className="receipt-print mx-auto max-w-[680px]">
       {/* ── HEADER ── */}
@@ -219,7 +233,7 @@ export function ReceiptPaper({
                   value={formatMoneyIncludingZero(downpaymentBreakdown.totalAmount)}
                 />
                 <ReceiptPaperLine
-                  label="Total DP Paid"
+                  label={acceptedAmountLabel || "Verified DP Paid"}
                   value={formatMoneyIncludingZero(downpaymentBreakdown.totalPaid)}
                 />
                 {downpaymentBreakdown.paymentUnderReview != null && (
@@ -230,19 +244,19 @@ export function ReceiptPaper({
                   />
                 )}
                 <ReceiptPaperLine
-                  label="Remaining DP Balance"
+                  label={remainingBalanceLabel || "Remaining DP"}
                   value={formatMoneyIncludingZero(downpaymentBreakdown.remainingBalance)}
                 />
               </>
             ) : null}
             <ReceiptPaperLine
-              label="Amount Paid"
+              label={resolvedAmountLabel}
               value={amountPaid != null ? formatMoneyIncludingZero(amountPaid) : "—"}
               highlight
             />
             {!isOfficeRental && (
               <ReceiptPaperLine
-                label="Remaining Balance"
+                label={remainingBalanceLabel || "Remaining Balance"}
                 value={
                   remainingBalance != null ? formatMoneyIncludingZero(remainingBalance) : "—"
                 }

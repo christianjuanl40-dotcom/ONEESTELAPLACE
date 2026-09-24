@@ -48,7 +48,12 @@ import {
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { cn } from "@/src/modules/shared/lib/utils"
+import { getCancellationAudit } from "@/src/modules/shared/lib/cancellation"
 import { getRemainingDurationFromDates, getContractDurationLabel } from "@/src/modules/shared/lib/date-utils"
+import {
+  getBookingLifecycleLabel,
+  getBookingLifecycleStatus,
+} from "@/src/modules/shared/lib/booking-helpers"
 import { useBookingData, useBookings, type Booking } from "@/src/modules/client/contexts/booking-context"
 import { type NotificationType } from "@/src/modules/shared/lib/notifications"
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
@@ -221,20 +226,7 @@ function ContractSigningAction({ onClick }: { onClick: () => void }) {
 }
 
 function getStatusLabel(status?: string) {
-  const v = String(status || "").toLowerCase()
-  if (v === "pending") return "Pending"
-  if (v === "verifying") return "Verifying"
-  if (v === "confirmed") return "Confirmed"
-  if (v === "completed" || v === "complete") return "Completed"
-  if (v === "cancelled") return "Cancelled"
-  if (v === "declined") return "Declined"
-  if (v === "cancellation_requested") return "Cancel Req"
-  if (v === "modification_under_review") return "Modification Req"
-  if (v === "reservation_secured") return "Reservation Secured"
-  if (v === "contract_signing_required") return "Contract Signing"
-  if (v === "active_rental") return "Active Rental"
-  if (v === "rental_expired") return "Rental Expired"
-  return String(status || "Unknown").replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  return getBookingLifecycleLabel({ status })
 }
 
 function getRefundStatusLabel(status?: string) {
@@ -357,12 +349,10 @@ export default function AdminBookingsPage() {
     return bookings
       .filter((b) => {
         if (statusFilter !== "all") {
-          if (statusFilter === "confirmed") {
-            if (b.status !== "confirmed" && b.status !== "reservation_secured") return false
-          } else if (statusFilter === "requests") {
+          if (statusFilter === "requests") {
             if (!isCancellationRequestPending(b) && b.status !== "modification_under_review") return false
           } else {
-            if (b.status !== statusFilter) return false
+            if (getBookingLifecycleStatus(b as unknown as Record<string, unknown>) !== statusFilter) return false
           }
         }
         if (venueFilter === "office" && !isOfficeBooking(b)) return false
@@ -595,9 +585,8 @@ export default function AdminBookingsPage() {
 
   const STATUS_OPTIONS = [
     { value: "all", label: "All" },
-    { value: "pending", label: "Pencil Booking" },
-    { value: "verifying", label: "For Verification" },
-    { value: "confirmed", label: "Confirmed / Secured" },
+    { value: "pending", label: "Pending" },
+    { value: "confirmed", label: "Confirmed" },
     { value: "requests", label: "Requests" },
     { value: "completed", label: "Completed" },
     { value: "cancelled", label: "Cancelled" },
@@ -1034,6 +1023,7 @@ function BookingDetailsModal({
 
   const bookingStatus = normalizeStatus((booking as any).bookingStatus || booking.status)
   const isCancellationRequested = isCancellationRequestPending(booking)
+  const cancellationAudit = getCancellationAudit(booking as unknown as Record<string, unknown>)
   const isModificationUnderReview = normalizeStatus(booking.status) === "modification_under_review"
 
   const hasActiveProof = (() => {
@@ -1172,7 +1162,7 @@ function BookingDetailsModal({
 
           {isCancelled && (
             <div className="space-y-5">
-              {(booking.cancellationStatus && booking.cancellationStatus !== "None") && (
+              {(isCancelled || (booking.cancellationStatus && booking.cancellationStatus !== "None")) && (
                 <section>
                   <div className="mb-4 flex items-center gap-2">
                     <div className="h-1.5 w-1.5 rounded-full bg-rose-400" />
@@ -1183,18 +1173,36 @@ function BookingDetailsModal({
                       <span className="text-sm font-bold text-slate-900">Cancellation Status</span>
                       <span className="text-sm font-black text-slate-900">{booking.cancellationStatus || (booking as any).cancelRequestStatus || "Approved"}</span>
                     </div>
-                    {(booking.cancellationReason || (booking as any).cancelReason) && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-sm font-bold text-slate-900 shrink-0">Source</span>
+                      <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{cancellationAudit.source}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-sm font-bold text-slate-900 shrink-0">Type</span>
+                      <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{cancellationAudit.type}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-sm font-bold text-slate-900 shrink-0">Actor</span>
+                      <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{cancellationAudit.actorName}</span>
+                    </div>
+                    {booking.cancellationReviewedByName && (
                       <div className="flex justify-between gap-2">
-                        <span className="text-sm font-bold text-slate-900 shrink-0">Cancellation Reason</span>
-                        <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{booking.cancellationReason || (booking as any).cancelReason}</span>
+                        <span className="text-sm font-bold text-slate-900 shrink-0">Reviewed By</span>
+                        <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{booking.cancellationReviewedByName}</span>
                       </div>
                     )}
-                    {(booking.cancellationReviewedAt || booking.cancellationRequestedAt || (booking as any).cancelRequestedAt || (booking as any).cancelledAt) && (
-                      <div className="flex justify-between">
-                        <span className="text-sm font-bold text-slate-900">Cancellation Date</span>
-                        <span className="text-sm font-black text-slate-900">{formatDate(booking.cancellationReviewedAt || booking.cancellationRequestedAt || (booking as any).cancelRequestedAt || (booking as any).cancelledAt)}</span>
-                      </div>
-                    )}
+                    <div className="flex justify-between gap-2">
+                      <span className="text-sm font-bold text-slate-900 shrink-0">Cancellation Reason</span>
+                      <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{cancellationAudit.reason}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-sm font-bold text-slate-900 shrink-0">Notes</span>
+                      <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{cancellationAudit.notes}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-sm font-bold text-slate-900">Cancellation Date</span>
+                      <span className="text-sm font-black text-slate-900">{cancellationAudit.date === "Not recorded" ? cancellationAudit.date : formatDate(cancellationAudit.date)}</span>
+                    </div>
                   </div>
                 </section>
               )}
@@ -1342,9 +1350,9 @@ function BookingDetailsModal({
             </section>
           )}
 
-          {isCancellationRequested ||
+          {!isCancelled && (isCancellationRequested ||
             (booking.cancellationStatus && booking.cancellationStatus !== "None") ||
-            ((booking as any).cancelRequestStatus && (booking as any).cancelRequestStatus !== "None") ? (
+            ((booking as any).cancelRequestStatus && (booking as any).cancelRequestStatus !== "None")) ? (
             <section className="py-5 first:pt-0">
               <div className="mb-4 flex items-center gap-2">
                 <div className="h-1.5 w-1.5 rounded-full bg-rose-400" />
@@ -1361,18 +1369,36 @@ function BookingDetailsModal({
                       : booking.cancellationStatus || (booking as any).cancelRequestStatus || "None"}
                   </span>
                 </div>
-                {(booking.cancellationReason || (booking as any).cancelReason) && (
-                  <div className="flex justify-between">
-                    <span className="text-sm font-bold text-slate-900">Reason</span>
-                    <span className="text-sm font-black text-slate-900 max-w-[60%] text-right">{booking.cancellationReason || (booking as any).cancelReason}</span>
+                <div className="flex justify-between gap-2">
+                  <span className="text-sm font-bold text-slate-900">Source</span>
+                  <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{cancellationAudit.source}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-sm font-bold text-slate-900">Type</span>
+                  <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{cancellationAudit.type}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-sm font-bold text-slate-900">Actor</span>
+                  <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{cancellationAudit.actorName}</span>
+                </div>
+                {booking.cancellationReviewedByName && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm font-bold text-slate-900">Reviewed By</span>
+                    <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{booking.cancellationReviewedByName}</span>
                   </div>
                 )}
-                {(booking.cancellationRequestedAt || (booking as any).cancelRequestedAt) && (
-                  <div className="flex justify-between">
-                    <span className="text-sm font-bold text-slate-900">Requested</span>
-                    <span className="text-sm font-black text-slate-900">{formatDate(booking.cancellationRequestedAt || (booking as any).cancelRequestedAt)}</span>
-                  </div>
-                )}
+                <div className="flex justify-between gap-2">
+                  <span className="text-sm font-bold text-slate-900">Reason</span>
+                  <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{cancellationAudit.reason}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-sm font-bold text-slate-900">Notes</span>
+                  <span className="text-sm font-black text-slate-900 max-w-[60%] text-right break-words">{cancellationAudit.notes}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm font-bold text-slate-900">Date</span>
+                  <span className="text-sm font-black text-slate-900">{cancellationAudit.date === "Not recorded" ? cancellationAudit.date : formatDate(cancellationAudit.date)}</span>
+                </div>
                 <div className="flex justify-between">
                   <span className="text-sm font-bold text-slate-900">Refund</span>
                   <span className="text-sm font-black text-slate-900">{getRefundStatusLabel(booking.refundStatus)}</span>

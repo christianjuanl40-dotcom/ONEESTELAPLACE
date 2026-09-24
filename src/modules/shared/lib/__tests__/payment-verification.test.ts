@@ -14,8 +14,8 @@ function makeBooking() {
     downPaymentPercentage: 50,
     amountPaid: 0,
     downpaymentPaid: 0,
-    status: "verifying",
-    bookingStatus: "Pending Verification",
+    status: "pending",
+    bookingStatus: "Pending",
   }
 }
 
@@ -70,7 +70,7 @@ describe("authoritative payment verification transition", () => {
 
     expect(result.summary.fullyPaid).toBe(false)
     expect(result.summary.remainingBalance).toBe(12000)
-    expect(result.booking.status).toBe("verifying")
+    expect(result.booking.status).toBe("pending")
     expect(result.booking.paymentStatus).toBe("incomplete")
   })
 
@@ -163,7 +163,7 @@ describe("authoritative payment verification transition", () => {
     expect(result.summary.remainingDownpayment).toBe(2000)
     expect(result.booking.amountPaid).toBe(5500)
     expect(result.booking.remainingBalance).toBe(9500)
-    expect(result.booking.status).toBe("verifying")
+    expect(result.booking.status).toBe("pending")
   })
 
   it("lets incomplete received money complete the downpayment without counting it as verified", () => {

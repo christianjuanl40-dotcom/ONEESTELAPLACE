@@ -15,7 +15,11 @@ import {
 import Link from "next/link"
 
 import { useBookingData, type Booking } from "@/src/modules/client/contexts/booking-context"
-import { getCurrentBooking } from "@/src/modules/shared/lib/booking-helpers"
+import {
+  getBookingLifecycleLabel,
+  getBookingLifecycleStatus,
+  getCurrentBooking,
+} from "@/src/modules/shared/lib/booking-helpers"
 import { getRemainingDurationFromDates } from "@/src/modules/shared/lib/date-utils"
 import { cn } from "@/src/modules/shared/lib/utils"
 
@@ -28,22 +32,13 @@ function isOfficeBooking(booking: Booking) {
 
 function getBookingProgress(status?: string) {
   const s = String(status || "").toLowerCase()
-  if (s === "cancelled" || s === "declined") return "cancelled"
-  if (s === "completed" || s === "complete") return "completed"
-  if (
-    s === "confirmed" ||
-    s === "reservation_secured" ||
-    s === "slot_secured" ||
-    s === "active_rental" ||
-    s === "contract_signing_required"
-  ) return "confirmed"
   if (s === "verifying" || s === "for_review") return "verifying"
-  return "pending"
+  return getBookingLifecycleStatus({ status })
 }
 
 const STAGES = [
   { key: "pending", label: "Pending" },
-  { key: "verifying", label: "For Verification" },
+  { key: "verifying", label: "Payment Review" },
   { key: "confirmed", label: "Confirmed/Secured" },
   { key: "completed", label: "Completed" },
 ] as const
@@ -199,7 +194,7 @@ function getOfficeStatusDisplay(booking: Booking) {
   }
   if (s === "verifying" || s === "for_verification") {
     return {
-      badge: "FOR VERIFICATION",
+      badge: "PENDING",
       badgeClass: "border-orange-100 bg-orange-50 text-orange-700",
       icon: "🟠",
       remaining: null,
@@ -461,7 +456,7 @@ export default function ClientDashboardPage() {
                     <div className="flex flex-col sm:flex-row justify-between gap-4">
                       <div className="flex-1 min-w-0">
                         <Badge variant="outline" className="uppercase text-[10px] font-black tracking-[0.2em] px-2.5 py-1 rounded-full mb-3 border-emerald-100 bg-emerald-50 text-emerald-600 shadow-none">
-                          {String(activeEventBooking.status || "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
+                           {getBookingLifecycleLabel({ status: activeEventBooking.status })}
                         </Badge>
                         <h3 className="text-xl font-black text-slate-950 tracking-tight leading-snug mb-3 line-clamp-2">
                           {activeEventBooking.eventName || "Event"}
@@ -529,6 +524,7 @@ export default function ClientDashboardPage() {
                     const isOffice = isOfficeBooking(booking)
                     const officeStatus = isOffice ? getOfficeStatusDisplay(booking) : null
                     const normStatus = String(booking.status || "").toLowerCase()
+                    const lifecycleStatus = getBookingLifecycleStatus(booking as unknown as Record<string, unknown>)
                     const isTerminal = ["cancelled", "completed", "declined", "rental_expired"].includes(normStatus)
                     return (
                       <Link href={`/portal/bookings?bookingId=${booking.id}${isTerminal ? '&history=true' : ''}`} key={booking.id} className="p-4 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors group">
@@ -547,14 +543,13 @@ export default function ClientDashboardPage() {
                         ) : (
                           <Badge variant="outline" className={cn(
                             "text-[9px] font-black uppercase px-2.5 py-1 rounded-full shadow-none whitespace-nowrap",
-                            ["confirmed", "reservation_secured", "active_rental"].includes(String(booking.status || "").toLowerCase()) ? "text-emerald-600 border-emerald-100 bg-emerald-50" :
-                            ["completed", "complete"].includes(String(booking.status || "").toLowerCase()) ? "text-blue-600 border-blue-100 bg-blue-50" :
-                            ["pending", "verifying"].includes(String(booking.status || "").toLowerCase()) ? "text-orange-600 border-orange-100 bg-orange-50" :
-                            String(booking.status || "").toLowerCase() === "contract_signing_required" ? "text-yellow-600 border-yellow-100 bg-yellow-50" :
-                            ["cancelled", "declined", "rental_expired"].includes(String(booking.status || "").toLowerCase()) ? "text-rose-600 border-rose-100 bg-rose-50" :
-                            "text-slate-600 border-slate-200 bg-slate-50"
-                          )}>
-                            {String(booking.status || "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
+                             lifecycleStatus === "confirmed" ? "text-emerald-600 border-emerald-100 bg-emerald-50" :
+                             lifecycleStatus === "completed" ? "text-blue-600 border-blue-100 bg-blue-50" :
+                             lifecycleStatus === "pending" ? "text-orange-600 border-orange-100 bg-orange-50" :
+                             lifecycleStatus === "cancelled" ? "text-rose-600 border-rose-100 bg-rose-50" :
+                             "text-slate-600 border-slate-200 bg-slate-50"
+                           )}>
+                             {getBookingLifecycleLabel(booking as unknown as Record<string, unknown>)}
                           </Badge>
                         )}
                       </Link>
@@ -599,7 +594,7 @@ export default function ClientDashboardPage() {
                       payLabel = "Pending"
                       badgeClass = "text-orange-600 border-orange-100 bg-orange-50"
                     } else if (normStatus === "verifying") {
-                      payLabel = "For Verification"
+                      payLabel = "Payment Review"
                       badgeClass = "text-amber-600 border-amber-100 bg-amber-50"
                     } else if (["confirmed", "reservation_secured", "active_rental", "contract_signing_required"].includes(normStatus)) {
                       payLabel = "Paid"

@@ -166,7 +166,10 @@ export async function POST(request: NextRequest) {
       }
 
       const requestedAt = new Date().toISOString()
-      const fields = buildCancellationRequestFields(booking, reason, requestedAt)
+       const fields = buildCancellationRequestFields(booking, reason, requestedAt, {
+         actorId: user.uid,
+         actorName: user.fullName || user.email || "Client",
+       })
       transaction.update(bookingRef, fields as any)
       return {
         changed: true,
@@ -217,9 +220,13 @@ export async function PATCH(request: NextRequest) {
         throw new ApiAuthError(409, "This booking has no pending cancellation request.")
       }
 
-      const fields = action === "approve"
-        ? buildCancellationApprovalFields(booking, reviewedAt)
-        : buildCancellationDeclineFields(booking, reason, reviewedAt)
+       const reviewer = {
+         id: user.uid,
+         name: user.fullName || user.email || "Administrator",
+       }
+       const fields = action === "approve"
+         ? buildCancellationApprovalFields(booking, reviewedAt, reviewer)
+         : buildCancellationDeclineFields(booking, reason, reviewedAt, reviewer)
       transaction.update(bookingRef, fields as any)
       return {
         booking: getBookingResponse({ ...booking, ...fields }, bookingId),

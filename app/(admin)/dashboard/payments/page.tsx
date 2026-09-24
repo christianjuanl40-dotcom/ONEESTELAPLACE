@@ -18,13 +18,17 @@ import {
   ShieldCheck,
   X,
   XCircle,
-  ZoomIn,
 } from "lucide-react"
 
 import {
   ReceiptPaper,
   type ReceiptPaperData,
 } from "@/src/modules/shared/components/receipt-paper"
+import {
+  isPaymentProofImage,
+  PaymentProofPreview,
+  PaymentProofRow,
+} from "@/src/modules/shared/components/payment-proof-preview"
 
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { perfMark } from "@/src/modules/shared/lib/perf-trace"
@@ -47,6 +51,7 @@ import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { useBookingData } from "@/src/modules/client/contexts/booking-context"
 import type { PaymentRecord } from "@/src/modules/client/contexts/booking-context"
 import { cn } from "@/src/modules/shared/lib/utils"
+import { normalizeBookingLifecycleStatus } from "@/src/modules/shared/lib/booking-helpers"
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
 import type { NotificationType } from "@/src/modules/shared/lib/notifications"
 import { db } from "@/lib/firebase"
@@ -61,6 +66,7 @@ import {
   getPaymentRecordAmount,
   getPaymentRecordCreditedAmount,
   getPaymentRecordStatusLabel,
+  getPaymentDisplayModel,
   calculatePaymentSummary,
   getRecordsForBooking,
   type PaymentRecordLike,
@@ -1100,6 +1106,7 @@ function PaymentReviewModal({
   // and Client always agree. amountPaid shows ALL valid money received
   // (verified payments + received amounts of incomplete payments).
   const paymentSummary = calculatePaymentSummary(summaryBase, submissions)
+  const displayModel = getPaymentDisplayModel(summaryBase, selected, paymentSummary)
   const totalAmount = paymentSummary.totalBookingAmount
   const selectedAmount = selected
     ? getPaymentRecordAmount(selected)
@@ -1108,7 +1115,7 @@ function PaymentReviewModal({
     ? selectedAmount
     : getSafePrice(payment.pendingPaymentAmount || payment.paymentAmount || 0)
   const remainingBalance = paymentSummary.remainingBalance
-  const submissionStatusLabel = selected ? getPaymentRecordStatusLabel(selected, receiptPool) : getPaymentStatusText(payment)
+  const submissionStatusLabel = selected ? displayModel.statusLabel : getPaymentStatusText(payment)
   const submittedAt = selected?.submittedAt || payment.paymentSubmittedAt || ""
   const isDownpaymentPayment = selectedPaymentType === "downpayment"
   const isPaymentUnderReview = selected
@@ -1121,12 +1128,16 @@ function PaymentReviewModal({
     (selected ? isIncompletePaymentRecord(selected) : false) ||
     String(payment.paymentStatus || "").toLowerCase() === "incomplete" ||
     String(payment.verificationStatus || "").toLowerCase() === "incomplete"
-  const displayAmount = isIncompletePayment
-    ? selected
-      ? getPaymentRecordCreditedAmount(selected)
-      : getSafePrice(payment.paymentVerifiedAmount || payment.lastPaymentAmount || 0)
-    : selectedAmount
-  const displayLabel = isIncompletePayment ? "Amount Received" : "Amount Submitted"
+  const displayAmount = selected
+    ? displayModel.amount
+    : isIncompletePayment
+      ? getSafePrice(payment.paymentVerifiedAmount || payment.lastPaymentAmount || 0)
+      : selectedAmount
+  const displayLabel = selected
+    ? displayModel.amountLabel
+    : isIncompletePayment
+      ? "Amount Received"
+      : "Amount Submitted"
   const selectedMethod = selected?.paymentMethod || payment.paymentMethod
   const selectedBankReference = selected?.referenceNo || payment.bankReferenceNumber || payment.referenceNumber || payment.transactionReferenceNumber
   const reviewNote = String(
@@ -1143,23 +1154,15 @@ function PaymentReviewModal({
     : ""
   const bookingProof = payment.proofUrl || payment.paymentProof || payment.proofOfPayment || payment.proofImage || payment.receiptImage
   const effectiveProof = selected ? selectedProof : bookingProof
-  const hasImageProof = isImageProof(effectiveProof)
+  const proofFileName = (selected as any)?.fileName || payment.proofFileName || "Payment proof"
+  const hasImageProof = isPaymentProofImage(effectiveProof)
   const hasProof = !!effectiveProof
 
   const [proofPreviewOpen, setProofPreviewOpen] = useState(false)
-  const [proofLoadError, setProofLoadError] = useState(false)
-  const proofPreviewRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setProofPreviewOpen(false)
-    setProofLoadError(false)
   }, [selected?.id])
-
-  useEffect(() => {
-    if (proofPreviewOpen) {
-      proofPreviewRef.current?.focus()
-    }
-  }, [proofPreviewOpen])
 
   const openProofInNewTab = () => {
     const url = effectiveProof
@@ -1257,13 +1260,16 @@ function PaymentReviewModal({
         matchedReceipt?.paymentAmount ??
         displayAmount,
     ),
+    amountLabel: displayModel.amountLabel,
+    acceptedAmountLabel: displayModel.acceptedLabel,
+    remainingBalanceLabel: displayModel.remainingLabel,
     remainingBalance: getSafePrice(
       matchedReceipt?.remainingBalance ?? remainingBalance,
     ),
     downpaymentBreakdown: isDownpaymentPayment
       ? {
           totalAmount: paymentSummary.requiredDpAmount,
-          totalPaid: paymentSummary.acceptedDpPaid,
+          totalPaid: paymentSummary.verifiedDownpaymentPaid,
           paymentUnderReview: isPaymentUnderReview ? paymentUnderReviewAmount : null,
           remainingBalance: paymentSummary.remainingDpBalance,
         }
@@ -1369,6 +1375,7 @@ function PaymentReviewModal({
               ) : (
                 submissions.map((submission, index) => {
                   const isSelected = index === safeIndex
+                  const submissionDisplay = getPaymentDisplayModel(summaryBase, submission, paymentSummary)
                   return (
                     <button
                       key={submission.id}
@@ -1388,7 +1395,7 @@ function PaymentReviewModal({
                         {isSelected && <CheckCircle2 className="h-4 w-4 shrink-0 text-orange-600" />}
                       </div>
                       <span className="mt-1 block text-lg font-black tracking-tight text-slate-950">
-                        {formatCurrency(getPaymentRecordAmount(submission))}
+                        {formatCurrency(submissionDisplay.amount)}
                       </span>
                       <span className="mt-0.5 block text-[10px] font-semibold text-slate-500">
                         Submitted {formatSubmittedAt(submission.submittedAt)}
@@ -1409,7 +1416,7 @@ function PaymentReviewModal({
                         {isVerifiedPaymentRecord(submission) && (
                           <CheckCircle2 className="h-3 w-3" />
                         )}
-                        {getPaymentRecordStatusLabel(submission, receiptPool)}
+                         {submissionDisplay.statusLabel}
                       </span>
                     </button>
                   )
@@ -1461,37 +1468,11 @@ function PaymentReviewModal({
                   </div>
                 ) : hasImageProof ? (
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    {proofLoadError ? (
-                      <div className="flex min-h-[200px] flex-col items-center justify-center rounded-2xl border border-dashed border-rose-200 bg-white p-5 text-center">
-                        <FileImage className="mb-3 h-10 w-10 text-rose-300" />
-                        <p className="text-sm font-black text-rose-600">
-                          Unable to load payment proof.
-                        </p>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setProofLoadError(false)
-                          setProofPreviewOpen(true)
-                        }}
-                        className="mx-auto block w-full max-w-[320px] cursor-zoom-in"
-                        aria-label="Open payment proof image in full view"
-                      >
-                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-1 shadow-sm transition hover:opacity-90">
-                          <img
-                            src={effectiveProof}
-                            alt="Uploaded payment proof"
-                            onError={() => setProofLoadError(true)}
-                            className="h-auto w-full max-w-full object-contain"
-                          />
-                        </div>
-                        <span className="mt-2 inline-flex items-center justify-center gap-1 text-[10px] font-bold text-slate-500">
-                          <ZoomIn className="h-3 w-3" />
-                          Click to view full size
-                        </span>
-                      </button>
-                    )}
+                    <PaymentProofRow
+                      proofUrl={String(effectiveProof)}
+                      fileName={proofFileName}
+                      onPreview={() => setProofPreviewOpen(true)}
+                    />
                     <button
                       type="button"
                       onClick={openProofInNewTab}
@@ -1567,7 +1548,7 @@ function PaymentReviewModal({
                     {isDownpaymentPayment && !receiptHasDownpaymentBreakdown ? (
                       <>
                       <InfoLine label="Total DP Amount" value={formatCurrency(paymentSummary.requiredDpAmount)} />
-                      <InfoLine label="Total DP Paid" value={formatCurrency(paymentSummary.acceptedDpPaid)} />
+                      <InfoLine label={displayModel.acceptedLabel} value={formatCurrency(displayModel.acceptedAmount)} />
                       {isPaymentUnderReview && (
                         <InfoLine
                           label="Payment Under Review"
@@ -1576,13 +1557,14 @@ function PaymentReviewModal({
                         />
                       )}
                       <InfoLine
-                        label="Remaining DP Balance"
-                        value={formatCurrency(paymentSummary.remainingDpBalance)}
+                        label={displayModel.remainingLabel}
+                        value={formatCurrency(displayModel.remainingAmount)}
                       />
-                    </>
+                   </>
                   ) : null}
-                  <InfoLine label={displayLabel} value={formatCurrency(displayAmount)} />
-                  <InfoLine label="Remaining Booking Balance" value={formatCurrency(paymentSummary.remainingBookingBalance)} />
+                   <InfoLine label={displayLabel} value={formatCurrency(displayAmount)} />
+                   <InfoLine label={displayModel.acceptedLabel} value={formatCurrency(displayModel.acceptedAmount)} />
+                   <InfoLine label={displayModel.remainingLabel} value={formatCurrency(displayModel.remainingAmount)} />
                   <InfoLine label="Status" value={submissionStatusLabel} />
                   {submittedAt && (
                     <InfoLine label="Submitted" value={formatSubmittedAt(submittedAt)} />
@@ -1662,51 +1644,12 @@ function PaymentReviewModal({
         )}
       </div>
 
-      {proofPreviewOpen && hasImageProof && (
-        <div
-          ref={proofPreviewRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Payment proof image preview"
-          tabIndex={-1}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              e.stopPropagation()
-              setProofPreviewOpen(false)
-            }
-          }}
-          className="fixed inset-0 z-[10003] flex items-center justify-center bg-black/85 p-4 sm:p-6"
-          onClick={() => setProofPreviewOpen(false)}
-        >
-          <button
-            type="button"
-            aria-label="Close image preview"
-            onClick={(e) => {
-              e.stopPropagation()
-              setProofPreviewOpen(false)
-            }}
-            className="absolute top-4 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur transition hover:bg-white/25"
-          >
-            <X className="h-5 w-5" />
-          </button>
-          {proofLoadError ? (
-            <div className="flex flex-col items-center gap-3 rounded-2xl bg-slate-900 p-8 text-center">
-              <FileImage className="h-10 w-10 text-slate-500" />
-              <p className="text-sm font-black text-white">
-                Unable to load payment proof.
-              </p>
-            </div>
-          ) : (
-            <img
-              src={effectiveProof}
-              alt="Payment proof (full view)"
-              onClick={(e) => e.stopPropagation()}
-              onError={() => setProofLoadError(true)}
-              className="max-h-[90vh] max-w-[95vw] rounded-lg object-contain shadow-2xl sm:max-w-[90vw]"
-            />
-          )}
-        </div>
-      )}
+      <PaymentProofPreview
+        open={proofPreviewOpen && hasImageProof}
+        onOpenChange={setProofPreviewOpen}
+        proofUrl={String(effectiveProof || "")}
+        fileName={proofFileName}
+      />
     </div>
   )
 }
@@ -1915,13 +1858,6 @@ function getPaymentTypeLabel(type?: string) {
   return "Payment Type"
 }
 
-function isImageProof(proof: unknown) {
-  const value = String(proof || "").toLowerCase()
-  if (!value) return false
-  if (/^data:image\/(?:jpe?g|png|webp);/i.test(value)) return true
-  return /\.(jpe?g|png|webp)(\?|#|$)/.test(value)
-}
-
 function getPaymentTime(value?: string | number | Date | null) {
   if (!value) return 0
   const time = new Date(String(value)).getTime()
@@ -2077,7 +2013,9 @@ function buildPaymentBookingEntry(
     createdAt: base.createdAt || latest.submittedAt,
     updatedAt: latest.updatedAt || base.updatedAt,
     paymentReceipts: base.paymentReceipts,
-    status: base.status || (isPendingPaymentRecord(latest) ? "verifying" : "confirmed"),
+     status: normalizeBookingLifecycleStatus(
+       base.status || (isPendingPaymentRecord(latest) ? "pending" : "confirmed"),
+     ),
   }
 }
 
@@ -2262,7 +2200,7 @@ function buildVerifiedPaymentBooking(booking: BookingRecord) {
     const officeFullyPaid = officeNewPaid >= totalAmount
     return {
       ...booking,
-      status: officeFullyPaid ? "reservation_secured" : "verifying",
+      status: officeFullyPaid ? "reservation_secured" : "pending",
       bookingStatus: officeFullyPaid ? "Slot Secured" : "Pending Verification",
       paymentStatus: officeFullyPaid ? "slot_verified" : "partial",
       isSlotSecured: officeFullyPaid,
@@ -2289,7 +2227,7 @@ function buildVerifiedPaymentBooking(booking: BookingRecord) {
     let balanceStatus = "With Remaining Balance"
     let remainingBalance = Math.max(totalAmount - newAmountPaid, 0)
     let downpaymentRemaining = Math.max(selectedDP - newDownpaymentPaid, 0)
-    let status = dpComplete ? "confirmed" : "verifying"
+    let status = dpComplete ? "confirmed" : "pending"
 
     if (newAmountPaid >= totalAmount) {
       paymentStatus = "paid"
@@ -2425,8 +2363,8 @@ function buildIncompletePaymentBooking(booking: BookingRecord, note: string, _ve
   return {
     ...booking,
     status: office
-      ? (isFullyPaidAfter ? "reservation_secured" : (hasPriorVerifiedPayment ? booking.status : "verifying"))
-      : (isFullyPaidAfter ? "confirmed" : (hasPriorVerifiedPayment ? booking.status : "verifying")),
+      ? (isFullyPaidAfter ? "reservation_secured" : (hasPriorVerifiedPayment ? booking.status : "pending"))
+      : (isFullyPaidAfter ? "confirmed" : (hasPriorVerifiedPayment ? booking.status : "pending")),
     bookingStatus: office
       ? (isFullyPaidAfter ? "Slot Secured" : (hasPriorVerifiedPayment ? booking.bookingStatus : "Pending Verification"))
       : (isFullyPaidAfter ? "Confirmed" : (hasPriorVerifiedPayment ? booking.bookingStatus : "Pending Verification")),
@@ -2498,10 +2436,10 @@ function IncompletePaymentModal({
 
     const hasPriorVerifiedPayment = currentAmountPaid > 0
     const latestStatus = isDownpayment
-      ? "verifying"
+      ? "pending"
       : (office
-        ? (hasPriorVerifiedPayment ? booking.status : "verifying")
-        : (hasPriorVerifiedPayment ? "confirmed" : "verifying"))
+        ? (hasPriorVerifiedPayment ? booking.status : "pending")
+        : (hasPriorVerifiedPayment ? "confirmed" : "pending"))
     const latestBookingStatus = isDownpayment
       ? "Pending Verification"
       : (office

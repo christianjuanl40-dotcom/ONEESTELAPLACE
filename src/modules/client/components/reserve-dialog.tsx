@@ -853,7 +853,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
           ? selectedDuration.split("-")[1].trim()
           : selectedDuration,
       status: "pending" as BookingStatus,
-      bookingStatus: "Pending Verification" as BookingStatusLabel,
+      bookingStatus: "Pending" as BookingStatusLabel,
       isSlotSecured: false,
       paymentStatus: "unpaid" as PaymentStatus,
       paymentType: isOfficeBooking ? "slot_reservation" as const : "",

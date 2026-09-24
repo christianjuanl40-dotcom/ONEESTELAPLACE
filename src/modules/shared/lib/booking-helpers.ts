@@ -2,6 +2,57 @@ export function normalizeStatus(value: unknown): string {
   return String(value || "").toLowerCase().trim()
 }
 
+export type BookingLifecycleStatus = "pending" | "confirmed" | "cancelled" | "completed"
+
+/**
+ * Maps legacy and workflow-specific values to the four user-facing booking
+ * lifecycle states. Payment and request states belong in their own fields.
+ */
+export function normalizeBookingLifecycleStatus(value: unknown): BookingLifecycleStatus {
+  const status = normalizeStatus(value).replace(/[\s-]+/g, "_")
+
+  if (status === "completed" || status === "complete" || status === "rental_expired") return "completed"
+  if (["cancelled", "canceled", "declined", "expired"].includes(status)) return "cancelled"
+  if ([
+    "confirmed",
+    "reservation_secured",
+    "slot_secured",
+    "slot_verified",
+    "active_rental",
+    "contract_signing_required",
+    "fully_paid",
+  ].includes(status)) return "confirmed"
+  return "pending"
+}
+
+export function getBookingLifecycleStatus(
+  booking: Record<string, unknown>,
+): BookingLifecycleStatus {
+  const rawStatus = normalizeStatus(booking.status).replace(/[\s-]+/g, "_")
+  if (rawStatus === "cancellation_requested" || rawStatus === "cancellation_under_review") {
+    return normalizeBookingLifecycleStatus(
+      booking.previousStatus || booking.modificationPreviousStatus ||
+        (booking.isSlotSecured === true ? "confirmed" : "pending"),
+    )
+  }
+  if (rawStatus === "modification_under_review") {
+    return normalizeBookingLifecycleStatus(
+      booking.modificationPreviousStatus ||
+        (booking.isSlotSecured === true ? "confirmed" : "pending"),
+    )
+  }
+  if (rawStatus) return normalizeBookingLifecycleStatus(rawStatus)
+  return normalizeBookingLifecycleStatus(booking.bookingStatus)
+}
+
+export function getBookingLifecycleLabel(booking: Record<string, unknown>): string {
+  const status = getBookingLifecycleStatus(booking)
+  if (status === "confirmed") return "Confirmed"
+  if (status === "cancelled") return "Cancelled"
+  if (status === "completed") return "Completed"
+  return "Pending"
+}
+
 export function getAmount(value: unknown): number {
   if (typeof value === "number") return value
   const cleaned = String(value || "0").replace(/[^0-9.-]+/g, "")

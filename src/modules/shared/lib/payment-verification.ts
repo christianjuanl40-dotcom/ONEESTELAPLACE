@@ -105,13 +105,13 @@ function buildDecisionBookingFields(
   const status = modificationUnderReview
     ? String(booking.status || "modification_under_review")
     : officeBooking
-      ? paymentSecured ? "reservation_secured" : "verifying"
-      : slotSecured ? "confirmed" : "verifying"
+      ? paymentSecured ? "reservation_secured" : "pending"
+      : slotSecured ? "confirmed" : "pending"
   const bookingStatus = modificationUnderReview
     ? String(booking.bookingStatus || "Modification Under Review")
     : officeBooking
-      ? paymentSecured ? "Slot Secured" : "Pending Verification"
-      : slotSecured ? "Confirmed" : "Pending Verification"
+      ? paymentSecured ? "Slot Secured" : "Pending"
+      : slotSecured ? "Confirmed" : "Pending"
   const paymentStage = summary.fullyPaid
     ? "Fully Paid"
     : summary.downpaymentComplete
@@ -205,11 +205,11 @@ export function buildVerifiedPaymentTransition(
     ? Math.min(summary.acceptedDpPaid, selectedDownpaymentAmount)
     : 0
   const bookingStatus = officeBooking
-    ? summary.fullyPaid ? "Slot Secured" : "Pending Verification"
-    : slotSecured ? "Confirmed" : "Pending Verification"
+     ? summary.fullyPaid ? "Slot Secured" : "Pending"
+     : slotSecured ? "Confirmed" : "Pending"
   const status = officeBooking
-    ? summary.fullyPaid ? "reservation_secured" : "verifying"
-    : slotSecured ? "confirmed" : "verifying"
+    ? summary.fullyPaid ? "reservation_secured" : "pending"
+    : slotSecured ? "confirmed" : "pending"
   const paymentStage = summary.fullyPaid
     ? "Fully Paid"
     : summary.downpaymentComplete

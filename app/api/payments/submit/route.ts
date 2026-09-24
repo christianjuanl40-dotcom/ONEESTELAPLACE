@@ -303,6 +303,23 @@ export async function POST(request: NextRequest) {
         "contract_signing_required",
         "active_rental",
       ].includes(String(booking.status || "").toLowerCase())
+      const storedStatus = String(booking.status || "").toLowerCase()
+      const requestWorkflowStatus = [
+        "cancellation_requested",
+        "cancellation_under_review",
+        "modification_under_review",
+      ].includes(storedStatus)
+      const securedBookingStatus = requestWorkflowStatus
+        ? booking.status
+        : previouslySecured
+          ? isOfficeBooking(booking) && [
+              "reservation_secured",
+              "contract_signing_required",
+              "active_rental",
+            ].includes(storedStatus)
+            ? booking.status
+            : "confirmed"
+          : "pending"
       const paymentStatusBeforeSubmission = summary.fullyPaid
         ? "paid"
         : summary.downpaymentComplete
@@ -311,8 +328,10 @@ export async function POST(request: NextRequest) {
             ? "incomplete"
             : "for_review"
       const bookingUpdate = {
-        status: previouslySecured ? booking.status || "confirmed" : "verifying",
-        bookingStatus: previouslySecured ? booking.bookingStatus || "Confirmed" : "Pending Verification",
+        // Payment review is separate from booking lifecycle. A new submission
+        // cannot turn the booking into a payment-status value.
+        status: securedBookingStatus,
+         bookingStatus: previouslySecured ? booking.bookingStatus || "Confirmed" : "Pending",
         isSlotSecured: previouslySecured || summary.downpaymentComplete,
         paymentStatus: paymentStatusBeforeSubmission,
         paymentType: type,

@@ -66,7 +66,8 @@ export type CancellationStatus =
   | "declined"
   | "Cancellation Requested"
   | "Cancellation Approved"
-  | "Cancellation Declined";
+  | "Cancellation Declined"
+  | "Automatic Expiry";
 
 export type RefundStatus =
   | "Not Applicable"
@@ -89,6 +90,7 @@ export type ContractStatus =
   | "Pending";
 
 export type BookingStatusLabel =
+  | "Pending"
   | "Pending Verification"
   | "Confirmed"
   | "Slot Secured"
@@ -247,6 +249,19 @@ export interface Booking {
   cancellationReviewedAt?: string;
   cancellationStatus?: CancellationStatus;
   cancellationStatusLabel?: string;
+  cancellationSource?: "client" | "admin" | "system";
+  cancellationType?: "client_request" | "admin_action" | "automatic_expiry";
+  cancellationActorId?: string;
+  cancellationActorName?: string;
+  cancellationRequestedBy?: string;
+  cancellationRequestedByName?: string;
+  cancellationReviewedBy?: string;
+  cancellationReviewedByName?: string;
+  cancellationApprovedBy?: string;
+  cancellationApprovedByName?: string;
+  cancellationApprovedAt?: string;
+  cancellationNotes?: string;
+  cancelledAt?: string;
   cancellationReason?: string;
   cancellationDeclineReason?: string;
   cancellationDeclinedAt?: string;
@@ -667,7 +682,7 @@ function getDisplayBookingStatus(booking: Partial<Booking>): BookingStatusLabel 
   if (booking.status === "contract_signing_required") return "Contract Signing Required"
   if (booking.status === "active_rental") return "Active Rental"
   if (booking.status === "rental_expired") return "Rental Expired"
-  return "Pending Verification"
+  return "Pending"
 }
 
 function isBookingSlotSecured(booking: Partial<Booking>) {
@@ -1884,10 +1899,10 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         verifiedByAdmin: true,
         verifiedAt: new Date().toISOString(),
         status: isOfficeBooking(booking)
-          ? (newRemainingBalance === 0 ? "reservation_secured" as BookingStatus : "verifying" as BookingStatus)
+          ? (newRemainingBalance === 0 ? "reservation_secured" as BookingStatus : "pending" as BookingStatus)
           : (newRemainingBalance === 0 ? "confirmed" as BookingStatus : "confirmed" as BookingStatus),
         bookingStatus: isOfficeBooking(booking)
-          ? (newRemainingBalance === 0 ? "Slot Secured" : "Pending Verification")
+           ? (newRemainingBalance === 0 ? "Slot Secured" : "Pending")
           : "Confirmed",
         isSlotSecured: isOfficeBooking(booking)
           ? newRemainingBalance === 0

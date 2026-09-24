@@ -39,6 +39,10 @@ import {
   SelectValue,
 } from "@/src/modules/shared/components/ui/select"
 import { cn } from "@/src/modules/shared/lib/utils"
+import {
+  getBookingLifecycleLabel,
+  getBookingLifecycleStatus,
+} from "@/src/modules/shared/lib/booking-helpers"
 import { getPaymentMethodLabel } from "@/src/modules/shared/lib/labels"
 import Link from "next/link"
 
@@ -109,25 +113,6 @@ function getBookingStatusTone(status?: string): "emerald" | "amber" | "rose" | "
   if (["cancellation_requested", "cancellation requested"].includes(v)) return "amber"
   if (["cancelled", "declined", "rental_expired"].includes(v)) return "rose"
   return "slate"
-}
-
-function getBookingStatusLabel(status?: string) {
-  const v = String(status || "").toLowerCase()
-  if (v === "pending") return "Pending"
-  if (v === "verifying") return "Verifying"
-  if (v === "confirmed") return "Confirmed"
-  if (v === "completed" || v === "complete") return "Completed"
-  if (v === "cancelled") return "Cancelled"
-  if (v === "declined") return "Declined"
-  if (v === "cancellation_requested" || v === "cancellation requested")
-    return "Cancellation Under Review"
-  if (v === "reservation_secured") return "Reservation Secured"
-  if (v === "contract_signing_required") return "Contract Signing Required"
-  if (v === "active_rental") return "Active Rental"
-  if (v === "rental_expired") return "Rental Expired"
-  return v
-    ? v.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
-    : "Unknown"
 }
 
 function getPaymentStatusTone(
@@ -231,17 +216,11 @@ function StatusCard({
     getRecordsForBooking(paymentRecords, booking),
   )
   const canonicalPayStatus = paymentSummary.overallStatus
+  const lifecycleStatus = getBookingLifecycleStatus(booking as unknown as Record<string, unknown>)
 
-  const isCancelled =
-    String(booking.status).toLowerCase() === "cancelled" ||
-    String(booking.status).toLowerCase() === "declined"
-  const isCompleted =
-    String(booking.status).toLowerCase() === "completed" ||
-    String(booking.status).toLowerCase() === "complete"
-  const isConfirmed =
-    String(booking.status).toLowerCase() === "confirmed" ||
-    String(booking.status).toLowerCase() === "reservation_secured" ||
-    String(booking.status).toLowerCase() === "slot_secured"
+  const isCancelled = lifecycleStatus === "cancelled"
+  const isCompleted = lifecycleStatus === "completed"
+  const isConfirmed = lifecycleStatus === "confirmed"
 
     const cancellationStatus = String(
       booking.cancellationStatus || "",
@@ -283,8 +262,8 @@ function StatusCard({
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <StatusPill
-            label={getBookingStatusLabel(booking.status)}
-            tone={getBookingStatusTone(booking.status)}
+            label={getBookingLifecycleLabel(booking as unknown as Record<string, unknown>)}
+            tone={getBookingStatusTone(lifecycleStatus)}
           />
           <StatusPill
             label={`Pay: ${getPaymentStatusLabel(canonicalPayStatus)}`}
@@ -306,20 +285,20 @@ function StatusCard({
               active
             />
             <StatusTimelineRow
-              label="For Verification"
+              label="Payment Review"
               status={
                 isCancelled
                   ? "rejected"
-                  : isCompleted || isConfirmed
+                  : paymentSummary.hasPendingSubmission || canonicalPayStatus === "for_review"
+                    ? "current"
+                    : isCompleted || isConfirmed
                     ? "done"
-                    : String(booking.status).toLowerCase() === "verifying"
-                      ? "done"
-                      : "pending"
+                    : "pending"
               }
               active={
                 isCancelled
                   ? true
-                  : isCompleted || isConfirmed || String(booking.status).toLowerCase() === "verifying"
+                  : paymentSummary.hasPendingSubmission || canonicalPayStatus === "for_review" || isCompleted || isConfirmed
               }
             />
             <StatusTimelineRow

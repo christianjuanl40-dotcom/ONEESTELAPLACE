@@ -57,12 +57,19 @@ import {
   ReceiptPaper,
   type ReceiptPaperData,
 } from "@/src/modules/shared/components/receipt-paper";
+import {
+  isPaymentProofImage,
+  PaymentProofPreview,
+  PaymentProofRow,
+} from "@/src/modules/shared/components/payment-proof-preview";
 import { cn } from "@/src/modules/shared/lib/utils";
+import { getBookingLifecycleLabel } from "@/src/modules/shared/lib/booking-helpers";
 import { collection, getDocs, orderBy, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import type { PaymentRecord } from "@/src/modules/client/contexts/booking-context";
 import {
   calculatePaymentSummary,
+  getPaymentDisplayModel,
   getRecordsForBooking,
   type PaymentSummary,
   type PaymentRecordLike,
@@ -349,20 +356,7 @@ function getBookingStatusBadgeClass(status?: string) {
 }
 
 function getBookingStatusLabel(status?: string) {
-  const v = String(status || "").toLowerCase();
-  if (v === "pending") return "Pending";
-  if (v === "verifying") return "Verifying";
-  if (v === "confirmed") return "Confirmed";
-  if (v === "completed" || v === "complete") return "Completed";
-  if (v === "cancelled") return "Cancelled";
-  if (v === "declined") return "Declined";
-  if (v === "cancellation_requested" || v === "cancellation requested")
-    return "Cancel Req";
-  if (v === "reservation_secured") return "Secured";
-  if (v === "contract_signing_required") return "Contract Signing Required";
-  if (v === "active_rental") return "Active Rental";
-  if (v === "rental_expired") return "Rental Expired";
-  return v ? v.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "—";
+  return getBookingLifecycleLabel({ status });
 }
 
 async function readStoredReceipts(bookingId?: string): Promise<any[]> {
@@ -557,6 +551,12 @@ function CurrentTransactionCard({
   records?: PaymentRecordLike[] | null;
 }) {
   const paymentSummary = calculatePaymentSummary(booking, records || []);
+  const latestRecord = [...(records || [])].sort(
+    (a, b) => new Date(String(b.submittedAt || b.updatedAt || 0)).getTime() - new Date(String(a.submittedAt || a.updatedAt || 0)).getTime(),
+  )[0];
+  const displayModel = latestRecord
+    ? getPaymentDisplayModel(booking, latestRecord, paymentSummary)
+    : null;
   const amountPaid = paymentSummary.moneyReceivedTotal;
   const remaining = paymentSummary.remainingBalance;
   const storedPaymentStatus = String(booking.paymentStatus || "").toLowerCase();
@@ -604,7 +604,7 @@ function CurrentTransactionCard({
           </div>
           <div className="mt-3 grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
             <div>
-              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Amount Paid</p>
+               <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Money Received</p>
               <p className="mt-0.5 text-xs font-black text-emerald-700">{formatMoney(amountPaid)}</p>
             </div>
             <div>
@@ -685,7 +685,7 @@ function CurrentTransactionCard({
               getStatusBadgeClass(paymentStatus, booking.status, (booking as any).paymentStage, remaining, booking),
             )}
           >
-            {getStatusLabel(paymentStatus, booking.status, (booking as any).paymentStage, remaining, booking)}
+            {displayModel?.statusLabel || getStatusLabel(paymentStatus, booking.status, (booking as any).paymentStage, remaining, booking)}
           </span>
           <div className="flex flex-col items-stretch gap-2 w-full sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-2">
             {hasPaymentRecord(booking) && (
@@ -726,6 +726,12 @@ function HistoryRow({
     String(booking.status).toLowerCase() === "declined";
   const paymentRecords = getRecordsForBooking(records, booking);
   const paymentSummary = calculatePaymentSummary(booking, paymentRecords);
+  const latestRecord = [...paymentRecords].sort(
+    (a, b) => new Date(String(b.submittedAt || b.updatedAt || 0)).getTime() - new Date(String(a.submittedAt || a.updatedAt || 0)).getTime(),
+  )[0];
+  const displayModel = latestRecord
+    ? getPaymentDisplayModel(booking, latestRecord, paymentSummary)
+    : null;
   const paymentStatus = paymentRecords.length > 0
     ? paymentSummary.overallStatus
     : String(booking.paymentStatus || "").toLowerCase();
@@ -800,7 +806,7 @@ function HistoryRow({
               getStatusBadgeClass(paymentStatus, booking.status, (booking as any).paymentStage, remainingBalance, booking),
             )}
           >
-            {getStatusLabel(paymentStatus, booking.status, (booking as any).paymentStage, remainingBalance, booking)}
+            {displayModel?.statusLabel || getStatusLabel(paymentStatus, booking.status, (booking as any).paymentStage, remainingBalance, booking)}
           </span>
           {isUnpaid ? (
             <Button
@@ -845,8 +851,8 @@ function HistoryRow({
             </span>
           } />
           <DetailItem label="Type" value={isOfficeRental ? "Slot Reservation" : (booking as any).paymentType === "downpayment" ? "Down Payment" : "Full Payment"} />
-          <DetailItem label="Amount Paid" value={formatMoney(amountPaid)} />
-          <DetailItem label="Remaining Balance" value={formatMoney(remainingBalance)} />
+           <DetailItem label={displayModel?.acceptedLabel || "Money Received"} value={formatMoney(displayModel?.acceptedAmount ?? amountPaid)} />
+           <DetailItem label={displayModel?.remainingLabel || "Remaining Balance"} value={formatMoney(displayModel?.remainingAmount ?? remainingBalance)} />
           <div className="sm:col-span-3 flex justify-end mt-1">
             {isUnpaid ? (
               <Button
@@ -950,6 +956,9 @@ function TransactionsContent() {
   const [paymentType, setPaymentType] = useState<"full" | "downpayment">("full");
   const [paymentMethod, setPaymentMethod] = useState<"bank" | "cash">("bank");
   const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofPreviewUrl, setProofPreviewUrl] = useState<string | null>(null);
+  const [proofPreviewOpen, setProofPreviewOpen] = useState(false);
+  const proofObjectUrlRef = useRef<string | null>(null);
   const [bankReferenceNumber, setBankReferenceNumber] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPaymentConfirmOpen, setIsPaymentConfirmOpen] = useState(false);
@@ -968,6 +977,27 @@ function TransactionsContent() {
   const [viewingReceiptNo, setViewingReceiptNo] = useState<string | null>(null);
   const [isPaymentHistoryOpen, setIsPaymentHistoryOpen] = useState(false);
   const [storedReceiptsByBooking, setStoredReceiptsByBooking] = useState<Map<string, any[]>>(new Map());
+
+  const setSelectedProofFile = (file: File | null) => {
+    if (proofObjectUrlRef.current) {
+      URL.revokeObjectURL(proofObjectUrlRef.current);
+      proofObjectUrlRef.current = null;
+    }
+
+    const nextPreviewUrl = file ? URL.createObjectURL(file) : null;
+    proofObjectUrlRef.current = nextPreviewUrl;
+    setProofFile(file);
+    setProofPreviewUrl(nextPreviewUrl);
+    setProofPreviewOpen(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (proofObjectUrlRef.current) {
+        URL.revokeObjectURL(proofObjectUrlRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!viewingReceipt?.id) return;
@@ -1060,6 +1090,7 @@ function TransactionsContent() {
       entries.push({
         ...(matched || {}),
         paymentId: record.id,
+        proofUrl: record.proofUrl || "",
         amount,
         amountPaid: matched ? matched.amountPaid : amount,
         paymentAmount: matched ? matched.paymentAmount : amount,
@@ -1644,7 +1675,7 @@ function TransactionsContent() {
         return;
       }
 
-      setProofFile(file);
+      setSelectedProofFile(file);
     };
 
     const submitSelectedPayment = async () => {
@@ -1699,7 +1730,7 @@ function TransactionsContent() {
 
         setIsPaymentConfirmOpen(false);
         setSelectedBookingToPay(null);
-        setProofFile(null);
+        setSelectedProofFile(null);
         setBankReferenceNumber("");
         setPaymentType("full");
         setPaymentMethod("bank");
@@ -1922,15 +1953,23 @@ function TransactionsContent() {
                     ? "Yes, Pay at the Office"
                     : "Yes, Submit Bank Transfer"}
               </Button>
-            </footer>
+              </footer>
             </div>
           </DialogContent>
         </Dialog>
+
+        <PaymentProofPreview
+          open={proofPreviewOpen}
+          onOpenChange={setProofPreviewOpen}
+          proofUrl={proofPreviewUrl}
+          fileName={proofFile?.name}
+        />
 
         <Button
           variant="ghost"
           onClick={() => {
             setSelectedBookingToPay(null);
+            setSelectedProofFile(null);
             router.replace("/portal/payments");
           }}
           className="-ml-3 h-10 rounded-xl text-sm font-bold text-slate-500 hover:text-slate-900"
@@ -2246,20 +2285,12 @@ function TransactionsContent() {
                         </p>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                        <div className="flex min-w-0 items-center gap-3">
-                          <FileImage className="h-5 w-5 shrink-0 text-emerald-600" />
-                          <p className="break-all text-xs font-bold text-emerald-900">
-                            {proofFile.name}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => setProofFile(null)}
-                          className="shrink-0 p-1 text-emerald-600"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
+                      <PaymentProofRow
+                        proofUrl={proofPreviewUrl || ""}
+                        fileName={proofFile.name}
+                        onPreview={() => setProofPreviewOpen(true)}
+                        onRemove={() => setSelectedProofFile(null)}
+                      />
                     )}
                   </div>
                 </div>
@@ -2651,6 +2682,20 @@ function TransactionsContent() {
                     <ReceiptDetails
                       booking={viewingReceipt}
                       receipt={selectedViewingReceipt?.receipt || null}
+                      proofUrl={
+                        selectedViewingReceipt?.source === "payment"
+                          ? String(selectedViewingReceipt.proofUrl || "")
+                          : viewingReceiptHistory.length === 1
+                            ? String(
+                                selectedViewingReceipt?.proofUrl ||
+                                  (viewingReceipt as any).proofUrl ||
+                                  (viewingReceipt as any).paymentProof ||
+                                  (viewingReceipt as any).proofOfPayment ||
+                                  "",
+                              )
+                            : ""
+                      }
+                      proofFileName={selectedViewingReceipt?.fileName || ""}
                       paymentSummary={calculatePaymentSummary(
                         viewingReceipt,
                         getRecordsForBooking(paymentRecords, viewingReceipt),
@@ -2896,6 +2941,8 @@ function OfficePaymentTracker({
 function ReceiptDetails({
   booking,
   receipt,
+  proofUrl,
+  proofFileName,
   paymentSummary,
   reviewNote,
   isCancelled,
@@ -2903,12 +2950,34 @@ function ReceiptDetails({
 }: {
   booking: Booking;
   receipt: any;
+  proofUrl?: string;
+  proofFileName?: string;
   paymentSummary: PaymentSummary;
   reviewNote?: string;
   isCancelled: boolean;
   displayTotal: number;
 }) {
   const isOfficeRental = isOfficeRentalBooking(booking);
+  const [proofPreviewOpen, setProofPreviewOpen] = useState(false);
+  const hasImageProof = isPaymentProofImage(proofUrl);
+  const proofLabel = proofFileName || "Payment proof";
+  const proofContent = proofUrl && hasImageProof ? (
+    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
+      <PaymentProofRow
+        proofUrl={proofUrl}
+        fileName={proofLabel}
+        onPreview={() => setProofPreviewOpen(true)}
+      />
+    </div>
+  ) : null;
+  const proofPreview = (
+    <PaymentProofPreview
+      open={proofPreviewOpen}
+      onOpenChange={setProofPreviewOpen}
+      proofUrl={proofUrl}
+      fileName={proofLabel}
+    />
+  );
 
   if (!receipt) {
     return (
@@ -2930,6 +2999,8 @@ function ReceiptDetails({
             Booking ID: {booking.id}
           </p>
         </div>
+        {proofContent}
+        {proofPreview}
       </div>
     );
   }
@@ -2960,6 +3031,11 @@ function ReceiptDetails({
     payStatus === "paid" ||
     payStatus === "slot_verified" ||
     payStatus === "reservation secured";
+  const amountLabel = ["incomplete", "incomplete payment"].includes(payStatus)
+    ? "Amount Received"
+    : isVerified
+      ? "Amount Paid"
+      : "Amount Submitted";
 
   const paperData: ReceiptPaperData = {
     fullName: receipt.fullName || booking.userInfo?.name || "Client",
@@ -2979,6 +3055,9 @@ function ReceiptDetails({
     paymentTypeLabel: paymentType,
     totalAmount,
     amountPaid,
+    amountLabel,
+    acceptedAmountLabel: paymentSummary.requiredDpAmount > 0 ? "Verified DP Paid" : undefined,
+    remainingBalanceLabel: paymentSummary.requiredDpAmount > 0 ? "Remaining DP" : "Remaining Balance",
     remainingBalance,
     paymentStatus,
     isVerified,
@@ -2987,7 +3066,7 @@ function ReceiptDetails({
     downpaymentBreakdown: paymentSummary.requiredDpAmount > 0
       ? {
           totalAmount: paymentSummary.requiredDpAmount,
-          totalPaid: paymentSummary.acceptedDpPaid,
+          totalPaid: paymentSummary.verifiedDownpaymentPaid,
           remainingBalance: paymentSummary.remainingDpBalance,
         }
       : undefined,
@@ -2996,6 +3075,7 @@ function ReceiptDetails({
   return (
     <div className="space-y-4">
       <ReceiptPaper {...paperData} />
+      {proofContent}
       {reviewNote && (
         <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-700">
@@ -3006,6 +3086,7 @@ function ReceiptDetails({
           </p>
         </div>
       )}
+      {proofPreview}
     </div>
   );
 }

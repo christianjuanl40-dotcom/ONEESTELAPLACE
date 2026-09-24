@@ -76,7 +76,7 @@ function displayBookingStatus(status: string, booking: DataRecord): string {
   if (status === "reservation_secured") return "Slot Secured"
   if (status === "confirmed") return isOfficeBooking(booking) ? "Slot Secured" : "Confirmed"
   if (status === "contract_signing_required") return "Contract Signing Required"
-  return "Pending Verification"
+  return "Pending"
 }
 
 async function readPaymentRecords(
@@ -303,6 +303,17 @@ export async function POST(request: NextRequest) {
           status: "cancelled",
           bookingStatus: "Cancelled",
           paymentStatus: "cancelled",
+          cancellationRequested: false,
+          cancellationStatus: "Automatic Expiry",
+          cancellationStatusLabel: "Automatically Cancelled",
+          cancellationSource: "system",
+          cancellationType: "automatic_expiry",
+          cancellationActorId: "system",
+          cancellationActorName: "System",
+          cancellationReason: "Payment window expired",
+          cancellationNotes: "Automatically cancelled after the 24-hour payment window expired.",
+          cancelledAt: now,
+          adminCancelDecision: "automatic_expiry",
           lastActivityAt: now,
           updatedAt: now,
           adminLogs: appendLog(booking, "AUTO_EXPIRE_BOOKING", "Booking was automatically cancelled after the 24-hour payment window expired.", now),
