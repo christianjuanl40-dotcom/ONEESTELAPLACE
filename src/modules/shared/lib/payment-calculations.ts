@@ -468,52 +468,6 @@ function isSameReceiptPayment(
   return Boolean(leftSubmittedAt && rightSubmittedAt && leftSubmittedAt === rightSubmittedAt)
 }
 
-function getReceiptTargetIndex(
-  ordered: ReadonlyArray<PaymentRecordLike>,
-  selected: PaymentRecordLike | null | undefined,
-): number {
-  if (!selected) return ordered.length - 1
-  const exactIndex = ordered.findIndex((record) => isSameReceiptPayment(record, selected))
-  if (exactIndex >= 0) return exactIndex
-
-  const selectedSequence = getReceiptPaymentSequence(selected)
-  if (selectedSequence !== null) {
-    let sequenceIndex = -1
-    ordered.forEach((record, index) => {
-      const sequence = getReceiptPaymentSequence(record)
-      if (sequence !== null && sequence <= selectedSequence) sequenceIndex = index
-    })
-    if (sequenceIndex >= 0) return sequenceIndex
-  }
-
-  const selectedTime = getReceiptPaymentTime(selected)
-  if (selectedTime > 0) {
-    let timeIndex = -1
-    ordered.forEach((record, index) => {
-      const time = getReceiptPaymentTime(record)
-      if (time > 0 && time <= selectedTime) timeIndex = index
-    })
-    if (timeIndex >= 0) return timeIndex
-  }
-
-  return ordered.length - 1
-}
-
-function getReceiptRecordsThroughSelected(
-  records: ReadonlyArray<PaymentRecordLike> | null | undefined,
-  selected: PaymentRecordLike | null | undefined,
-): PaymentRecordLike[] {
-  const ordered = sortReceiptPaymentRecords(records)
-  if (!selected) return ordered
-
-  const targetIndex = getReceiptTargetIndex(ordered, selected)
-  const through = targetIndex >= 0 ? ordered.slice(0, targetIndex + 1) : []
-  if (!ordered.some((record) => isSameReceiptPayment(record, selected))) {
-    through.push(selected)
-  }
-  return through
-}
-
 export function getReceiptPaymentNumber(
   selected: PaymentRecordLike | null | undefined,
   records: ReadonlyArray<PaymentRecordLike> | null | undefined = [],
@@ -605,7 +559,22 @@ function getReceiptPaymentTypeLabel(type: PaymentRecordType): string {
   return "Booking Payment"
 }
 
+const RECEIPT_NON_VERIFIED_TERMINAL_STATUSES = new Set([
+  "rejected",
+  "incomplete",
+  "failed",
+  "failure",
+  "void",
+  "voided",
+  "cancelled",
+  "canceled",
+  "refunded",
+])
+
 export function isReceiptVerifiedPaymentRecord(record: PaymentRecordLike | null | undefined): boolean {
+  const recordStatuses = [record?.status, record?.verificationStatus, record?.paymentStatus]
+    .map(normalizePaymentStatusValue)
+  if (recordStatuses.some((status) => RECEIPT_NON_VERIFIED_TERMINAL_STATUSES.has(status))) return false
   return isVerifiedPaymentRecord(record) || normalizePaymentStatusValue(record?.paymentStatus) === "verified"
 }
 
@@ -630,17 +599,15 @@ export function getReceiptPaymentStatusLabel(record: PaymentRecordLike | null | 
 function getReceiptRequiredDownpayment(
   booking: BookingLike,
   records: ReadonlyArray<PaymentRecordLike>,
-  selected: PaymentRecordLike | null | undefined,
 ): number {
   const configured = toPaymentAmount(booking.selectedDownpaymentAmount)
   if (configured > 0) return configured
 
-  const selectedType = getReceiptPaymentType(selected, booking)
   const hasDownpaymentRecord = records.some(
     (record) => getReceiptPaymentType(record, booking) === "downpayment",
   )
   const bookingType = normalizePaymentStatusValue(booking.paymentType)
-  if (selectedType !== "downpayment" && !hasDownpaymentRecord && bookingType !== "downpayment") {
+  if (!hasDownpaymentRecord && bookingType !== "downpayment") {
     return 0
   }
 
@@ -649,26 +616,27 @@ function getReceiptRequiredDownpayment(
   return total * (percentage / 100)
 }
 
-export function calculateReceiptPaymentSummary(
+export function calculateBookingVerifiedPaymentSummary(
   booking: BookingLike,
   records: ReadonlyArray<PaymentRecordLike> | null | undefined,
-  selected?: PaymentRecordLike | null,
 ): ReceiptPaymentSummary {
   const sourceRecords = records || []
-  const throughSelected = getReceiptRecordsThroughSelected(sourceRecords, selected)
-  const requiredDpAmount = getReceiptRequiredDownpayment(booking, sourceRecords, selected)
-  const totalVerifiedPaid = throughSelected.reduce(
-    (sum, record) => sum + (isReceiptVerifiedPaymentRecord(record) ? getReceiptPaymentAmount(record) : 0),
+  const requiredDpAmount = getReceiptRequiredDownpayment(booking, sourceRecords)
+  const verifiedRecords = sourceRecords.filter(isReceiptVerifiedPaymentRecord)
+  const totalVerifiedPaid = verifiedRecords.reduce(
+    (sum, record) => sum + getReceiptPaymentAmount(record),
     0,
   )
-  const totalVerifiedDpPaid = throughSelected.reduce(
-    (sum, record) => sum + (
-      isReceiptVerifiedPaymentRecord(record) &&
-      getReceiptPaymentType(record, booking) === "downpayment"
-        ? getReceiptPaymentAmount(record)
-        : 0
+  const totalVerifiedDpPaid = Math.min(
+    verifiedRecords.reduce(
+      (sum, record) => sum + (
+        getReceiptPaymentType(record, booking) === "downpayment"
+          ? getReceiptPaymentAmount(record)
+          : 0
+      ),
+      0,
     ),
-    0,
+    requiredDpAmount,
   )
   const totalBookingAmount = getBookingTotal(booking)
 
@@ -680,6 +648,17 @@ export function calculateReceiptPaymentSummary(
     totalVerifiedPaid,
     remainingBalance: Math.max(totalBookingAmount - totalVerifiedPaid, 0),
   }
+}
+
+// Existing callers may still use the receipt-named entry point, but its
+// Payment Summary is always booking-wide. The selected transaction is never a
+// historical cutoff.
+export function calculateReceiptPaymentSummary(
+  booking: BookingLike,
+  records: ReadonlyArray<PaymentRecordLike> | null | undefined,
+  _selected?: PaymentRecordLike | null,
+): ReceiptPaymentSummary {
+  return calculateBookingVerifiedPaymentSummary(booking, records)
 }
 
 export function getReceiptPresentation(
@@ -708,7 +687,7 @@ export function getReceiptPresentation(
       statusLabel: getReceiptPaymentStatusLabel(target),
       isVerified: isReceiptVerifiedPaymentRecord(target),
     },
-    summary: calculateReceiptPaymentSummary(booking, sourceRecords, target),
+    summary: calculateBookingVerifiedPaymentSummary(booking, sourceRecords),
   }
 }
 

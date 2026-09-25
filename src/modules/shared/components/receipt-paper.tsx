@@ -265,7 +265,7 @@ export function ReceiptPaper({
 
           <ReceiptPaperDivider />
 
-          {/* Verified cumulative context through this transaction only */}
+          {/* Booking-wide verified payment context */}
           <ReceiptPaperSection title="Payment Summary">
             <ReceiptPaperLine
               label="Total Booking Amount"

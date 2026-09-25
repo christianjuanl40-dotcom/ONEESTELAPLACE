@@ -68,6 +68,7 @@ import {
   getPaymentRecordStatusLabel,
   getPaymentDisplayModel,
   getReceiptPaymentNumber,
+  getReceiptPaymentType,
   getReceiptPresentation,
   calculatePaymentSummary,
   getRecordsForBooking,
@@ -197,7 +198,11 @@ export default function AdminPaymentsPage() {
       list.sort((a, b) => getPaymentTime(b.submittedAt) - getPaymentTime(a.submittedAt))
       const latest = list[0]
       const base = bookingById.get(bookingKey) || {}
-      built.push(buildPaymentBookingEntry(base, list, latest, latest.bookingId || base.id || bookingKey))
+      // Keep the real booking document id as the row id when legacy records
+      // identify the same booking by code only. This lets the modal's object
+      // matching include both the current id and legacy booking code.
+      const canonicalBookingId = base.id || bookingKey || latest.bookingId || latest.bookingCode
+      built.push(buildPaymentBookingEntry(base, list, latest, canonicalBookingId))
     })
 
     // Legacy bookings that carry payment info but have no individual
@@ -396,8 +401,8 @@ export default function AdminPaymentsPage() {
     return (bookingCtx.paymentRecords || []).find((record) => record.id === recordId)
   }
 
-  const submissionListFor = (bookingId: string): PaymentRecord[] => {
-    return getRecordsForBooking(bookingCtx.paymentRecords || [], bookingId)
+  const submissionListFor = (booking: BookingRecord): PaymentRecord[] => {
+    return getRecordsForBooking(bookingCtx.paymentRecords || [], booking)
       .slice()
       .sort((a, b) =>
         getPaymentTime(b.submittedAt as string | undefined) - getPaymentTime(a.submittedAt as string | undefined)
@@ -720,7 +725,7 @@ export default function AdminPaymentsPage() {
                 onClose={() => setSelectedPayment(null)}
                 onAction={(type, submission) => openActionModal(selectedPayment, type, submission)}
                 childModalOpen={!!pendingAction || !!incompletePaymentTarget || !!onsiteVerifyTarget}
-                liveSubmissions={submissionListFor(selectedPayment.id)}
+                liveSubmissions={submissionListFor(selectedPayment)}
               />
             )}
           </DialogContent>
@@ -1094,13 +1099,15 @@ function PaymentReviewModal({
   }, [payment.paymentReceipts, payment.receipt, storedReceipts])
 
   const selectedPaymentType = selected
-    ? mapPaymentTerm(selected.term, payment.paymentType)
+    ? getReceiptPaymentType(selected, payment)
     : payment.paymentType
-  // A selected older Down Payment can belong to a booking whose newest
-  // submission is a balance/full payment. Keep the shared helper aware of the
-  // booking's DP requirement while still showing the selected record's type.
+  // A booking's DP requirement is based on its complete payment history, not
+  // on whichever history item is currently selected.
+  const hasDownpaymentHistory = submissions.some(
+    (record) => getReceiptPaymentType(record, payment) === "downpayment",
+  )
   const summaryBase =
-    selectedPaymentType === "downpayment" && payment.paymentType !== "downpayment"
+    hasDownpaymentHistory && payment.paymentType !== "downpayment"
       ? { ...payment, paymentType: "downpayment" }
       : payment
   // Canonical money ledger / remaining balance — derived from the booking's
@@ -1155,8 +1162,8 @@ function PaymentReviewModal({
     : isIncompletePayment
       ? "Amount Received"
       : "Amount Submitted"
-  const selectedMethod = selected?.paymentMethod || payment.paymentMethod
-  const selectedBankReference = selected?.referenceNo || payment.bankReferenceNumber || payment.referenceNumber || payment.transactionReferenceNumber
+  const selectedMethod = selected?.paymentMethod || selected?.method || payment.paymentMethod
+  const selectedBankReference = selected?.referenceNo || (selected as any)?.bankReferenceNumber || (selected as any)?.referenceNumber || payment.bankReferenceNumber || payment.referenceNumber || payment.transactionReferenceNumber
   const reviewNote = String(
     selected?.adminNote ||
     selected?.rejectionReason ||

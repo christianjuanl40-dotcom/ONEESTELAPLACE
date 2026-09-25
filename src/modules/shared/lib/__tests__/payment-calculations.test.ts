@@ -141,6 +141,21 @@ describe("Authoritative record edge cases", () => {
     ])
   })
 
+  it("matches the selected booking's current and legacy identifiers without crossing bookings", () => {
+    const records = [
+      makeRecord({ id: "CURRENT_ID", bookingId: "BK001", customerId: "CLIENT-1" }),
+      makeRecord({ id: "LEGACY_CODE", bookingId: "", bookingCode: " CODE-001 ", customerId: "CLIENT-1" }),
+      makeRecord({ id: "OTHER_BOOKING", bookingId: "BK999", bookingCode: "CODE-999", customerId: "CLIENT-1" }),
+      makeRecord({ id: "OTHER_CODE", bookingId: "", bookingCode: "CODE-999", customerId: "CLIENT-1" }),
+    ]
+    const selectedBooking: BookingLike = { id: " BK001 ", bookingCode: "code-001" }
+
+    expect(getRecordsForBooking(records, selectedBooking).map((record) => record.id)).toEqual([
+      "CURRENT_ID",
+      "LEGACY_CODE",
+    ])
+  })
+
   it("does not let stale booking fields override a partial payment history", () => {
     const booking = makeBooking({
       amountPaid: 15000,
