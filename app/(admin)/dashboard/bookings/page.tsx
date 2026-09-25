@@ -172,7 +172,7 @@ function MarkCompletedAction({
   return (
     <div
       className={cn(
-        "rounded-xl border p-3",
+        "rounded-2xl border p-3",
         enabled
           ? "border-emerald-100 bg-emerald-50/40"
           : "border-slate-200 bg-slate-50",
@@ -184,7 +184,7 @@ function MarkCompletedAction({
         disabled={!enabled}
         variant={enabled ? "default" : "outline"}
         className={cn(
-          "h-10 w-full rounded-lg px-4 text-sm font-black transition-colors disabled:cursor-not-allowed disabled:opacity-100",
+          "h-11 w-full rounded-xl px-4 text-sm font-black shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-100",
           enabled
             ? "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700"
             : "border-slate-200 bg-white text-slate-400 hover:bg-white hover:text-slate-400",
@@ -204,13 +204,13 @@ function MarkCompletedAction({
 
 function ContractSigningAction({ onClick }: { onClick: () => void }) {
   return (
-    <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3">
+    <div className="rounded-2xl border border-blue-100 bg-blue-50/40 p-3">
       <TooltipProvider delayDuration={400}>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               onClick={onClick}
-              className="h-10 w-full rounded-lg bg-blue-600 px-4 text-sm font-black text-white shadow-sm transition-transform hover:bg-blue-700 active:scale-[0.97]"
+              className="h-11 w-full rounded-xl bg-blue-600 px-4 text-sm font-black text-white shadow-sm transition-colors hover:bg-blue-700"
             >
               <ShieldCheck className="mr-1.5 h-3.5 w-3.5" />
               Mark Contract as Signed
@@ -1710,19 +1710,19 @@ function BookingDetailsModal({
 
           if (isCancellationRequested && !isCompleted && !isCancelled) {
             return (
-              <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
+              <footer className="shrink-0 border-t border-slate-100 bg-white px-4 py-4 sm:px-6 sm:py-5">
                 <div className="rounded-xl bg-amber-50 p-3 text-center mb-4">
                   <p className="text-sm font-black uppercase tracking-[0.2em] text-amber-600">Cancellation Request</p>
                   <p className="mt-1 text-sm font-bold text-amber-700">
                     The customer has requested to cancel this booking. Please review and take action.
                   </p>
                 </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                   {onContinueBooking && (
                     <Button
                       onClick={() => onContinueBooking(booking.id)}
                       variant="outline"
-                      className="h-11 w-full rounded-xl border-emerald-200 px-4 text-sm font-black text-emerald-700 hover:bg-emerald-50"
+                      className="h-11 w-full rounded-xl border-emerald-200 px-4 text-sm font-black text-emerald-700 shadow-sm transition-colors hover:bg-emerald-50"
                     >
                       <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
                       Reject Cancellation
@@ -1731,7 +1731,7 @@ function BookingDetailsModal({
                   {onApproveCancellation && (
                     <Button
                       onClick={() => onApproveCancellation(booking.id)}
-                      className="h-11 w-full rounded-xl bg-rose-600 px-4 text-sm font-black text-white shadow-sm hover:bg-rose-700"
+                      className="h-11 w-full rounded-xl bg-rose-600 px-4 text-sm font-black text-white shadow-sm transition-colors hover:bg-rose-700"
                     >
                       <AlertCircle className="mr-1.5 h-3.5 w-3.5" />
                       Approve Cancellation
@@ -1744,7 +1744,7 @@ function BookingDetailsModal({
 
           if (isModificationUnderReview && !isCompleted && !isCancelled) {
             return (
-              <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
+              <footer className="shrink-0 border-t border-slate-100 bg-white px-4 py-4 sm:px-6 sm:py-5">
                 <div className="rounded-xl bg-purple-50 p-3 text-center mb-4">
                   <p className="text-sm font-black uppercase tracking-[0.2em] text-purple-600">Modification Under Review</p>
                   <p className="mt-1 text-sm font-bold text-purple-700">
@@ -1756,12 +1756,12 @@ function BookingDetailsModal({
                     </p>
                   )}
                 </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                   {onDeclineModification && (
                     <Button
                       onClick={() => onDeclineModification(booking.id)}
                       variant="outline"
-                      className="h-11 w-full rounded-xl border-amber-200 px-4 text-sm font-black text-amber-700 hover:bg-amber-50"
+                      className="h-11 w-full rounded-xl border-amber-200 px-4 text-sm font-black text-amber-700 shadow-sm transition-colors hover:bg-amber-50"
                     >
                       <XCircle className="mr-1.5 h-3.5 w-3.5" />
                       Decline Modification
@@ -1770,7 +1770,7 @@ function BookingDetailsModal({
                   {onApproveModification && (
                     <Button
                       onClick={() => onApproveModification(booking.id)}
-                      className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700"
+                      className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm transition-colors hover:bg-emerald-700"
                     >
                       <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
                       Approve Modification
@@ -1783,11 +1783,11 @@ function BookingDetailsModal({
 
           if (hasCustomerSubmittedPayment && remainingBalance > 0) {
             return (
-              <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
+              <footer className="shrink-0 border-t border-slate-100 bg-white px-4 py-4 sm:px-6 sm:py-5">
                 <Button
                   type="button"
                   disabled
-                  className="h-11 w-full rounded-xl bg-slate-200 px-4 text-sm font-black text-slate-500 sm:w-auto sm:ml-auto"
+                  className="h-11 w-full rounded-xl bg-slate-200 px-4 text-sm font-black text-slate-500 shadow-sm sm:ml-auto sm:w-auto"
                 >
                   <DollarSign className="mr-1.5 h-3.5 w-3.5" />
                   Record Onsite Payment
@@ -1802,11 +1802,11 @@ function BookingDetailsModal({
           if (isForVerificationStatus) {
             if (!canDoRecordOnsite || !onRecordOnsitePayment) return null
             return (
-              <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
-                <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <footer className="shrink-0 border-t border-slate-100 bg-white px-4 py-4 sm:px-6 sm:py-5">
+                <div className="flex flex-col gap-2.5 sm:flex-row sm:justify-end">
                   <Button
                     onClick={() => onRecordOnsitePayment(booking.id)}
-                    className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700 sm:w-auto"
+                    className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm transition-colors hover:bg-emerald-700 sm:w-auto"
                   >
                     <DollarSign className="mr-1.5 h-3.5 w-3.5" />
                     Record Onsite Payment
@@ -1822,13 +1822,13 @@ function BookingDetailsModal({
             const canRemind = isApprovedOrConfirmed && remainingBalance > 0 && onSendReminder
             if (!canRecord && !canRemind) return null
             return (
-              <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
-                <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <footer className="shrink-0 border-t border-slate-100 bg-white px-4 py-4 sm:px-6 sm:py-5">
+                <div className="flex flex-col gap-2.5 sm:flex-row sm:justify-end">
                   {canRemind && (
                     <Button
                       onClick={() => onSendReminder(booking.id)}
                       variant="outline"
-                      className="h-11 w-full rounded-xl border-blue-200 px-4 text-sm font-black text-blue-700 hover:bg-blue-50 sm:w-auto"
+                      className="h-11 w-full rounded-xl border-blue-200 px-4 text-sm font-black text-blue-700 shadow-sm transition-colors hover:bg-blue-50 sm:w-auto"
                     >
                       <Bell className="mr-1.5 h-3.5 w-3.5" />
                       Send Balance Reminder
@@ -1837,7 +1837,7 @@ function BookingDetailsModal({
                   {canRecord && (
                     <Button
                       onClick={() => onRecordOnsitePayment(booking.id)}
-                      className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700 sm:w-auto"
+                      className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm transition-colors hover:bg-emerald-700 sm:w-auto"
                     >
                       <DollarSign className="mr-1.5 h-3.5 w-3.5" />
                       Record Onsite Payment
@@ -1852,9 +1852,9 @@ function BookingDetailsModal({
             const canMarkCompleted = isFullyPaid && !isCompleted && onMarkCompleted
             if (!canMarkCompleted && !showContractSigningActionInFooter) return null
             return (
-              <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
+              <footer className="shrink-0 border-t border-slate-100 bg-white px-4 py-4 sm:px-6 sm:py-5">
                 <div className={cn(
-                  "grid grid-cols-1 gap-3",
+                  "grid grid-cols-1 gap-2.5",
                   showContractSigningActionInFooter && Boolean(canMarkCompleted) && "sm:grid-cols-2",
                 )}>
                   {showContractSigningActionInFooter && (
@@ -1875,11 +1875,11 @@ function BookingDetailsModal({
           if (isPencilBooking) {
             if (!canDoRecordOnsite || !onRecordOnsitePayment) return null
             return (
-              <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
-                <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <footer className="shrink-0 border-t border-slate-100 bg-white px-4 py-4 sm:px-6 sm:py-5">
+                <div className="flex flex-col gap-2.5 sm:flex-row sm:justify-end">
                   <Button
                     onClick={() => onRecordOnsitePayment(booking.id)}
-                    className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700 sm:w-auto"
+                    className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm transition-colors hover:bg-emerald-700 sm:w-auto"
                   >
                     <DollarSign className="mr-1.5 h-3.5 w-3.5" />
                     Record Onsite Payment
@@ -1892,14 +1892,14 @@ function BookingDetailsModal({
           if (isApprovedOrConfirmed) {
             if (!remainingBalance && !canDoBalanceReminder && !canDoRecordOnsite && !isMarkCompletedVisible && !showContractSigningActionInFooter) return null
             return (
-              <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
+              <footer className="shrink-0 border-t border-slate-100 bg-white px-4 py-4 sm:px-6 sm:py-5">
                 {(canDoBalanceReminder || canDoRecordOnsite) && (
-                  <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                  <div className="flex flex-col gap-2.5 sm:flex-row sm:justify-end">
                     {canDoBalanceReminder && onSendReminder && (
                       <Button
                         onClick={() => onSendReminder(booking.id)}
                         variant="outline"
-                        className="h-11 w-full rounded-xl border-blue-200 px-4 text-sm font-black text-blue-700 hover:bg-blue-50 sm:w-auto"
+                        className="h-11 w-full rounded-xl border-blue-200 px-4 text-sm font-black text-blue-700 shadow-sm transition-colors hover:bg-blue-50 sm:w-auto"
                       >
                         <Bell className="mr-1.5 h-3.5 w-3.5" />
                         Send Balance Reminder
@@ -1908,7 +1908,7 @@ function BookingDetailsModal({
                     {canDoRecordOnsite && onRecordOnsitePayment && (
                       <Button
                         onClick={() => onRecordOnsitePayment(booking.id)}
-                        className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700 sm:w-auto"
+                        className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm transition-colors hover:bg-emerald-700 sm:w-auto"
                       >
                         <DollarSign className="mr-1.5 h-3.5 w-3.5" />
                         Record Onsite Payment
@@ -1918,7 +1918,7 @@ function BookingDetailsModal({
                 )}
                 {(showContractSigningActionInFooter || isMarkCompletedVisible) && (
                   <div className={cn(
-                    "grid grid-cols-1 gap-3",
+                    "grid grid-cols-1 gap-2.5",
                     (remainingBalance > 0 || canDoBalanceReminder || canDoRecordOnsite) && "mt-3",
                     showContractSigningActionInFooter && isMarkCompletedVisible && "sm:grid-cols-2",
                   )}>
@@ -1941,9 +1941,9 @@ function BookingDetailsModal({
           if (isFullyPaid && !isCompleted && !isCancelled) {
             if (!isMarkCompletedVisible && !showContractSigningActionInFooter) return null
             return (
-              <footer className="shrink-0 border-t border-slate-100 bg-white px-5 py-5">
+              <footer className="shrink-0 border-t border-slate-100 bg-white px-4 py-4 sm:px-6 sm:py-5">
                 <div className={cn(
-                  "grid grid-cols-1 gap-3",
+                  "grid grid-cols-1 gap-2.5",
                   showContractSigningActionInFooter && isMarkCompletedVisible && "sm:grid-cols-2",
                 )}>
                   {showContractSigningActionInFooter && (

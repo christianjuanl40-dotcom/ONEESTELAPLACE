@@ -3052,8 +3052,7 @@ function ReceiptDetails({
           <p className="mt-1 text-xs font-bold text-slate-600">Transaction information is shown from the selected payment record.</p>
         </div>
       )}
-      <ReceiptPaper {...paperData} />
-      {proofContent}
+      <ReceiptPaper {...paperData} beforeNotice={proofContent} />
       {reviewNote && (
         <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-700">

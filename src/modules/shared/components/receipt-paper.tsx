@@ -74,6 +74,25 @@ function ReceiptPaperDivider() {
   return <div className="border-t border-dashed border-slate-200" />
 }
 
+export function ReceiptPaperNotice({
+  isOfficeRental,
+}: {
+  isOfficeRental?: boolean
+}) {
+  return (
+    <div className="rounded-xl bg-orange-50 p-4 text-center">
+      <p className="text-sm font-black uppercase tracking-[0.2em] text-orange-700">
+        Important Notice
+      </p>
+      <p className="mt-2 text-sm font-bold leading-5 text-orange-950">
+        {isOfficeRental
+          ? "This receipt serves as proof that the slot reservation payment has been verified. This is not full payment, not monthly rental payment, and not cheque payment. Succeeding payments are settled onsite via check."
+          : "This receipt serves as proof that the reservation payment has been verified by the administrator of One Estela Place."}
+      </p>
+    </div>
+  )
+}
+
 export interface ReceiptPaperData {
   fullName: string
   email?: string | null
@@ -115,6 +134,7 @@ export interface ReceiptPaperData {
     paymentUnderReview?: number | null
     remainingBalance: number
   }
+  beforeNotice?: React.ReactNode
 }
 
 export function ReceiptPaper({
@@ -145,6 +165,7 @@ export function ReceiptPaper({
   contractTerm,
   paymentSummary,
   downpaymentBreakdown,
+  beforeNotice,
 }: ReceiptPaperData) {
   const normalizedPaymentStatus = String(paymentStatus || "").toLowerCase()
   const resolvedAmountLabel = amountLabel || (
@@ -299,19 +320,15 @@ export function ReceiptPaper({
             />
           </ReceiptPaperSection>
 
-          <ReceiptPaperDivider />
+          {beforeNotice && (
+            <>
+              <ReceiptPaperDivider />
+              {beforeNotice}
+            </>
+          )}
 
-          {/* Important Notice */}
-          <div className="rounded-xl bg-orange-50 p-4 text-center">
-            <p className="text-sm font-black uppercase tracking-[0.2em] text-orange-700">
-              Important Notice
-            </p>
-            <p className="mt-2 text-sm font-bold leading-5 text-orange-950">
-              {isOfficeRental
-                ? "This receipt serves as proof that the slot reservation payment has been verified. This is not full payment, not monthly rental payment, and not cheque payment. Succeeding payments are settled onsite via check."
-                : "This receipt serves as proof that the reservation payment has been verified by the administrator of One Estela Place."}
-            </p>
-          </div>
+          <ReceiptPaperDivider />
+          <ReceiptPaperNotice isOfficeRental={isOfficeRental} />
 
           {/* Thank You */}
           <p className="text-center text-sm font-black text-slate-900">

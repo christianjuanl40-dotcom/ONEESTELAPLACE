@@ -22,6 +22,7 @@ import {
 
 import {
   ReceiptPaper,
+  ReceiptPaperNotice,
   type ReceiptPaperData,
 } from "@/src/modules/shared/components/receipt-paper"
 import {
@@ -963,37 +964,6 @@ function PaymentCard({
   )
 }
 
-function getContractStatusBadge(b: BookingRecord) {
-  const status = b.contractStatus
-  const baseClass =
-    "inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em]"
-
-  if (status === "Signed") {
-    return (
-      <span className={`${baseClass} border-emerald-100 bg-emerald-50 text-emerald-600`}>
-        <CheckCircle2 className="h-3 w-3" />
-        Signed
-      </span>
-    )
-  }
-
-  if (status === "Pending Signature" || b.contractSigned) {
-    return (
-      <span className={`${baseClass} border-amber-100 bg-amber-50 text-amber-600`}>
-        <FileText className="h-3 w-3" />
-        Pending Signature
-      </span>
-    )
-  }
-
-  return (
-    <span className={`${baseClass} border-slate-200 bg-slate-50 text-slate-500`}>
-      <FileText className="h-3 w-3" />
-      Not Available
-    </span>
-  )
-}
-
 function formatSubmittedAt(value?: string) {
   if (!value) return "—"
   try {
@@ -1021,19 +991,6 @@ function getBookingTimeLabel(payment: BookingRecord) {
   if (start) return start
   if (end) return end
   return "N/A"
-}
-
-function formatContractDate(date?: string) {
-  if (!date) return ""
-  try {
-    return new Intl.DateTimeFormat("en-PH", {
-      month: "short",
-      day: "2-digit",
-      year: "numeric",
-    }).format(new Date(date))
-  } catch {
-    return date
-  }
 }
 
 function PaymentReviewModal({
@@ -1131,37 +1088,11 @@ function PaymentReviewModal({
   const receiptPresentation = getReceiptPresentation(summaryBase, submissions, receiptTarget)
   const receiptTransaction = receiptPresentation.transaction
   const receiptSummary = receiptPresentation.summary
-  const totalAmount = paymentSummary.totalBookingAmount
-  const selectedAmount = selected
-    ? getPaymentRecordAmount(selected)
-    : getSafePrice(payment.pendingPaymentAmount || payment.paymentAmount || paymentSummary.moneyReceivedTotal)
-  const paymentUnderReviewAmount = selected
-    ? selectedAmount
-    : getSafePrice(payment.pendingPaymentAmount || payment.paymentAmount || 0)
-  const remainingBalance = paymentSummary.remainingBalance
   const submissionStatusLabel = selected ? displayModel.statusLabel : getPaymentStatusText(payment)
   const submittedAt = selected?.submittedAt || payment.paymentSubmittedAt || ""
-  const isDownpaymentPayment = selectedPaymentType === "downpayment"
-  const isPaymentUnderReview = selected
-    ? isPendingPaymentRecord(selected)
-    : isForReviewPayment(payment)
   const isActionable = selected
     ? isPendingPaymentRecord(selected)
     : isForReviewPayment(payment)
-  const isIncompletePayment =
-    (selected ? isIncompletePaymentRecord(selected) : false) ||
-    String(payment.paymentStatus || "").toLowerCase() === "incomplete" ||
-    String(payment.verificationStatus || "").toLowerCase() === "incomplete"
-  const displayAmount = selected
-    ? displayModel.amount
-    : isIncompletePayment
-      ? getSafePrice(payment.paymentVerifiedAmount || payment.lastPaymentAmount || 0)
-      : selectedAmount
-  const displayLabel = selected
-    ? displayModel.amountLabel
-    : isIncompletePayment
-      ? "Amount Received"
-      : "Amount Submitted"
   const selectedMethod = selected?.paymentMethod || selected?.method || payment.paymentMethod
   const selectedBankReference = selected?.referenceNo || (selected as any)?.bankReferenceNumber || (selected as any)?.referenceNumber || payment.bankReferenceNumber || payment.referenceNumber || payment.transactionReferenceNumber
   const reviewNote = String(
@@ -1232,7 +1163,6 @@ function PaymentReviewModal({
     )
     return exact || null
   }, [receiptPool, selected, payment.receipt])
-  const receiptHasDownpaymentBreakdown = isDownpaymentPayment && Boolean(matchedReceipt || !selected)
   const receiptAmountLabel = receiptTransaction.statusLabel === "Incomplete Payment"
     ? "Amount Received"
     : receiptTransaction.isVerified
@@ -1299,6 +1229,76 @@ function PaymentReviewModal({
       payment.rentalTerm ||
       null,
   }
+
+  const receiptSupplement = (
+    <div className={cn("grid gap-5", reviewNote ? "sm:grid-cols-2" : "grid-cols-1")}>
+      <ModalSection title="Payment Proof">
+        {selectedMethod === "cash" ? (
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-5 text-center">
+            <Banknote className="mx-auto mb-3 h-10 w-10 text-emerald-500" />
+
+            <p className="text-sm font-black text-emerald-950">
+              Cash Payment at Office
+            </p>
+
+            <p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-emerald-700">
+              No uploaded proof required. Confirm this booking only after the physical cash payment is received.
+            </p>
+          </div>
+        ) : hasImageProof ? (
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <PaymentProofRow
+              proofUrl={String(effectiveProof)}
+              fileName={proofFileName}
+              onPreview={() => setProofPreviewOpen(true)}
+            />
+            <button
+              type="button"
+              onClick={openProofInNewTab}
+              className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-black text-slate-700 transition hover:bg-slate-50"
+            >
+              <Eye className="h-3.5 w-3.5" />
+              Open proof in new tab
+            </button>
+          </div>
+        ) : hasProof ? (
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex min-h-[120px] flex-col items-center justify-center rounded-xl border border-dashed border-amber-200 bg-amber-50 p-5 text-center">
+              <FileText className="mb-2 h-8 w-8 text-amber-400" />
+              <p className="text-sm font-black text-amber-900">Unsupported proof format</p>
+              <p className="mt-1 text-xs leading-5 text-amber-700">
+                Payment proof must be a JPG, JPEG, PNG, or WEBP image.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="mx-auto flex min-h-[200px] w-full max-w-[300px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-center">
+              <FileImage className="mb-3 h-10 w-10 text-slate-300" />
+
+              <p className="text-sm font-black text-slate-900">
+                No proof uploaded
+              </p>
+
+              <p className="mt-1 max-w-sm text-xs leading-5 text-slate-500">
+                The customer did not upload a proof image for this bank transfer payment.
+              </p>
+            </div>
+          </div>
+        )}
+      </ModalSection>
+
+      {reviewNote && (
+        <ModalSection title="Review Note">
+          <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+            <p className="whitespace-pre-wrap break-words text-sm font-semibold leading-6 text-amber-950">
+              {reviewNote}
+            </p>
+          </div>
+        </ModalSection>
+      )}
+    </div>
+  )
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -1438,174 +1438,34 @@ function PaymentReviewModal({
               <ModalSection title="Payment Transaction Receipt">
                 {matchedReceipt ? (
                   <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3 sm:p-4">
-                    <ReceiptPaper {...paperData} />
+                    <ReceiptPaper {...paperData} beforeNotice={receiptSupplement} />
                   </div>
                 ) : selected ? (
-                  <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center">
-                    <FileText className="mx-auto mb-3 h-10 w-10 text-slate-300" />
-                    <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
-                      No Receipt Record
-                    </p>
-                    <p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-slate-500">
-                      The database has no transaction receipt for this exact
-                      payment (receipt.paymentId = {selected.id || "—"}).
-                      Payments submitted before transaction receipts existed
-                      may lack one.
-                    </p>
-                  </div>
+                  <>
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center">
+                      <FileText className="mx-auto mb-3 h-10 w-10 text-slate-300" />
+                      <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                        No Receipt Record
+                      </p>
+                      <p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-slate-500">
+                        The database has no transaction receipt for this exact
+                        payment (receipt.paymentId = {selected.id || "—"}).
+                        Payments submitted before transaction receipts existed
+                        may lack one.
+                      </p>
+                    </div>
+                    <div className="mt-5">{receiptSupplement}</div>
+                    <div className="mt-5">
+                      <ReceiptPaperNotice isOfficeRental={Boolean(paperData.isOfficeRental)} />
+                    </div>
+                  </>
                 ) : (
                   <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3 sm:p-4">
-                    <ReceiptPaper {...paperData} />
+                    <ReceiptPaper {...paperData} beforeNotice={receiptSupplement} />
                   </div>
                 )}
               </ModalSection>
 
-              <ModalSection title="Payment Proof">
-                {selectedMethod === "cash" ? (
-                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-5 text-center">
-                    <Banknote className="mx-auto mb-3 h-10 w-10 text-emerald-500" />
-
-                    <p className="text-sm font-black text-emerald-950">
-                      Cash Payment at Office
-                    </p>
-
-                    <p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-emerald-700">
-                      No uploaded proof required. Confirm this booking only after the physical cash payment is received.
-                    </p>
-                  </div>
-                ) : hasImageProof ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <PaymentProofRow
-                      proofUrl={String(effectiveProof)}
-                      fileName={proofFileName}
-                      onPreview={() => setProofPreviewOpen(true)}
-                    />
-                    <button
-                      type="button"
-                      onClick={openProofInNewTab}
-                      className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-black text-slate-700 transition hover:bg-slate-50"
-                    >
-                      <Eye className="h-3.5 w-3.5" />
-                      Open proof in new tab
-                    </button>
-                  </div>
-                ) : hasProof ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex min-h-[120px] flex-col items-center justify-center rounded-xl border border-dashed border-amber-200 bg-amber-50 p-5 text-center">
-                      <FileText className="mb-2 h-8 w-8 text-amber-400" />
-                      <p className="text-sm font-black text-amber-900">Unsupported proof format</p>
-                      <p className="mt-1 text-xs leading-5 text-amber-700">
-                        Payment proof must be a JPG, JPEG, PNG, or WEBP image.
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="mx-auto flex min-h-[200px] w-full max-w-[300px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-center">
-                      <FileImage className="mb-3 h-10 w-10 text-slate-300" />
-
-                      <p className="text-sm font-black text-slate-900">
-                        No proof uploaded
-                      </p>
-
-                      <p className="mt-1 max-w-sm text-xs leading-5 text-slate-500">
-                        The customer did not upload a proof image for this bank transfer payment.
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </ModalSection>
-
-              <ModalSection title="Client Details">
-                <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                  <p className="text-sm font-black text-slate-950">
-                    {payment.userInfo?.name || "No Name"}
-                  </p>
-
-                  <p className="mt-1 break-all text-sm text-slate-500">
-                    {payment.userInfo?.email || "No email"}
-                  </p>
-                </div>
-              </ModalSection>
-
-              <ModalSection title="Amount Summary">
-                  <div className="rounded-2xl border border-orange-100 bg-orange-50 p-5">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">
-                      {displayLabel}
-                    </p>
-
-                    <p className="mt-1 text-3xl font-black tracking-tight text-orange-600">
-                      {formatCurrency(displayAmount)}
-                    </p>
-
-                    <p className="mt-2 text-xs font-semibold text-orange-700/70">
-                      {getPaymentTypeLabel(selectedPaymentType)}
-                    </p>
-                  </div>
-              </ModalSection>
-
-              <ModalSection title="Payment Details">
-                <div className="space-y-3 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                  <InfoLine label="Payment Method" value={getPaymentMethodLabel(selectedMethod)} />
-                  {selectedMethod === "bank" && (
-                    <InfoLine label="Bank Reference No." value={String(selectedBankReference || "No reference number")} />
-                  )}
-                  <InfoLine label="Payment Type" value={getPaymentTypeLabel(selectedPaymentType)} />
-                    <InfoLine label="Total Booking Amount" value={formatCurrency(paymentSummary.totalBookingAmount)} />
-                    {isDownpaymentPayment && !receiptHasDownpaymentBreakdown ? (
-                      <>
-                      <InfoLine label="Total DP Amount" value={formatCurrency(paymentSummary.requiredDpAmount)} />
-                      <InfoLine label={displayModel.acceptedLabel} value={formatCurrency(displayModel.acceptedAmount)} />
-                      {isPaymentUnderReview && (
-                        <InfoLine
-                          label="Payment Under Review"
-                          value={formatCurrency(paymentUnderReviewAmount)}
-                          valueClassName="text-orange-600"
-                        />
-                      )}
-                      <InfoLine
-                        label={displayModel.remainingLabel}
-                        value={formatCurrency(displayModel.remainingAmount)}
-                      />
-                   </>
-                  ) : null}
-                   <InfoLine label={displayLabel} value={formatCurrency(displayAmount)} />
-                   <InfoLine label={displayModel.acceptedLabel} value={formatCurrency(displayModel.acceptedAmount)} />
-                   <InfoLine label={displayModel.remainingLabel} value={formatCurrency(displayModel.remainingAmount)} />
-                  <InfoLine label="Status" value={submissionStatusLabel} />
-                  {submittedAt && (
-                    <InfoLine label="Submitted" value={formatSubmittedAt(submittedAt)} />
-                  )}
-                </div>
-              </ModalSection>
-
-              <ModalSection title="Contract Status">
-                <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                  <div className="flex items-center gap-2">
-                    {getContractStatusBadge(payment)}
-                  </div>
-                  {payment.contractSignedDate && (
-                    <p className="mt-2 text-[10px] font-semibold text-slate-500">
-                      Signed on {formatContractDate(payment.contractSignedDate)}
-                      {payment.contractSignedBy ? ` by ${payment.contractSignedBy}` : ""}
-                    </p>
-                  )}
-                  {payment.contractStatus !== "Signed" && isVerifiedPayment(payment) && (
-                    <p className="mt-2 text-[10px] font-semibold text-amber-600">
-                      Customer must visit the office to sign the contract.
-                    </p>
-                  )}
-                </div>
-              </ModalSection>
-              {reviewNote && (
-                <ModalSection title="Review Note">
-                  <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
-                    <p className="whitespace-pre-wrap break-words text-sm font-semibold leading-6 text-amber-950">
-                      {reviewNote}
-                    </p>
-                  </div>
-                </ModalSection>
-              )}
             </div>
           </div>
       </div>
@@ -1751,23 +1611,6 @@ function PaymentRecordBadge({ record }: { record: PaymentRecord }) {
   }
   // Pending / For Review
   return <span className={`${baseClass} border-amber-100 bg-amber-50 text-amber-700`}><ShieldCheck className="h-3 w-3" />{label}</span>
-}
-
-function InfoLine({
-  label,
-  value,
-  valueClassName,
-}: {
-  label: string
-  value: string
-  valueClassName?: string
-}) {
-  return (
-    <div className="flex items-start justify-between gap-4 border-b border-slate-200/70 pb-3 last:border-b-0 last:pb-0">
-      <p className="text-xs font-bold text-slate-500 shrink-0">{label}</p>
-      <p className={cn("text-right text-xs font-black text-slate-900 break-words min-w-0", valueClassName)}>{value}</p>
-    </div>
-  )
 }
 
 function ModalSection({
