@@ -196,7 +196,7 @@ export function CMSOfficeMaintenance({ buildingName, open, onClose }: Props) {
                   <div className="border-t border-orange-200 px-4 py-4 space-y-4">
                     {records.length > 0 && (
                       <div>
-                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-2">
+                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black mb-2">
                           Blocked Dates
                         </p>
                         <div className="space-y-1.5 max-h-[180px] overflow-y-auto">
@@ -240,7 +240,7 @@ export function CMSOfficeMaintenance({ buildingName, open, onClose }: Props) {
 
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">
+                        <label className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
                           Start Date
                         </label>
                         <Input
@@ -252,7 +252,7 @@ export function CMSOfficeMaintenance({ buildingName, open, onClose }: Props) {
                         />
                       </div>
                       <div>
-                        <label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">
+                        <label className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
                           End Date
                         </label>
                         <Input
@@ -266,7 +266,7 @@ export function CMSOfficeMaintenance({ buildingName, open, onClose }: Props) {
                     </div>
 
                     <div>
-                      <label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">
+                      <label className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
                         Reason <span className="text-slate-300">(optional)</span>
                       </label>
                       <textarea

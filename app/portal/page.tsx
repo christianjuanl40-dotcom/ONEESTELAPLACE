@@ -325,7 +325,7 @@ export default function ClientDashboardPage() {
         <div className="space-y-6">
           {activeRental && (
             <div>
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black mb-3">
                 Active Office Rental
               </h2>
               <Card className="rounded-2xl border-emerald-200 bg-white shadow-sm overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -360,7 +360,7 @@ export default function ClientDashboardPage() {
 
           {contractSigning && (
             <div>
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black mb-3">
                 Action Required
               </h2>
               <Card className="rounded-2xl border-yellow-200 bg-white shadow-sm overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -386,7 +386,7 @@ export default function ClientDashboardPage() {
 
           {expiredRental && (
             <div>
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black mb-3">
                 Past Rental
               </h2>
               <Card className="rounded-2xl border-red-200 bg-white shadow-sm overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -415,7 +415,7 @@ export default function ClientDashboardPage() {
             if (!display) return null
             return (
               <div>
-                <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+                <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black mb-3">
                   Office Rental
                 </h2>
                 <Card className="rounded-2xl border-slate-200 bg-white shadow-sm overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -447,7 +447,7 @@ export default function ClientDashboardPage() {
 
           {activeEventBooking && (
             <div>
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black mb-3">
                 Active Event Booking
               </h2>
               <Card className="rounded-2xl border-slate-200 shadow-sm overflow-hidden bg-white">
@@ -472,7 +472,7 @@ export default function ClientDashboardPage() {
                       </Button>
                     </div>
                     <div className="border-t border-slate-100 pt-4">
-                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">Progress</p>
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black mb-3">Progress</p>
                       <BookingProgressIndicator status={activeEventBooking.status} />
                     </div>
                   </div>
@@ -483,7 +483,7 @@ export default function ClientDashboardPage() {
 
           {!activeRental && !contractSigning && !expiredRental && !earlyStageRental && !activeEventBooking && (
             <div>
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">Your Next Event</h2>
+              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black mb-3">Your Next Event</h2>
               <Card className="rounded-2xl border-slate-200 shadow-sm overflow-hidden bg-white">
                 <CardContent className="p-4 sm:p-5 flex flex-col items-center text-center py-8">
                   <Calendar className="mb-3 h-10 w-10 text-slate-300" />
@@ -508,7 +508,7 @@ export default function ClientDashboardPage() {
 
           <div>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Other Bookings</h2>
+              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black">Other Bookings</h2>
               <Button variant="link" className="text-orange-600 text-xs font-bold h-auto p-0" asChild>
                 <Link href="/portal/bookings">View All <ArrowRight className="w-3 h-3 ml-1" /></Link>
               </Button>
@@ -562,7 +562,7 @@ export default function ClientDashboardPage() {
 
           <div>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Recent Payments</h2>
+              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black">Recent Payments</h2>
               <Button variant="link" className="text-orange-600 text-xs font-bold h-auto p-0" asChild>
                 <Link href="/portal/payments">Manage <ArrowRight className="w-3 h-3 ml-1" /></Link>
               </Button>

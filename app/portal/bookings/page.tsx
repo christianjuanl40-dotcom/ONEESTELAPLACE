@@ -507,11 +507,11 @@ function HorizontalBookingCard({
         </div>
         <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
           <div className="min-w-0">
-            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Booking ID</p>
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Booking ID</p>
             <p className="mt-0.5 break-all text-xs font-black text-slate-800">{booking.id}</p>
           </div>
           <div className="min-w-0">
-            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Venue</p>
             <p className="mt-0.5 break-words text-xs font-bold text-slate-800">{booking.venue || "N/A"}</p>
           </div>
         </div>
@@ -523,16 +523,16 @@ function HorizontalBookingCard({
           {isOfficeRental ? <FileText className="h-5 w-5" /> : <Calendar className="h-5 w-5" />}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
             {isOfficeRental ? "Rental" : "Event"}
           </p>
           <p className="mt-0.5 flex items-center gap-1.5 text-sm font-black text-slate-900">
             <span className="break-words whitespace-normal min-w-0">{booking.eventName || "Untitled"}</span>
             <span className="shrink-0 whitespace-nowrap text-xs font-black text-slate-800">• {booking.id}</span>
           </p>
-          <p className="mt-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
+          <p className="mt-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-black">Venue</p>
           <p className="mt-0.5 truncate text-xs font-bold text-slate-800">{booking.venue || "N/A"}</p>
-          <p className="mt-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Type</p>
+          <p className="mt-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-black">Type</p>
           <p className="mt-0.5 break-words text-[11px] font-bold text-orange-600">{typeLabel}</p>
         </div>
       </div>
@@ -543,7 +543,7 @@ function HorizontalBookingCard({
           {isOfficeRental ? <FileText className="h-5 w-5" /> : <Calendar className="h-5 w-5" />}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
             {isOfficeRental ? "Rental" : "Event"}
           </p>
           <p className="break-words whitespace-normal text-sm font-black leading-snug text-slate-900 min-w-0">
@@ -557,11 +557,11 @@ function HorizontalBookingCard({
 
       <div className="hidden min-w-0 flex-1 grid-cols-[1fr_1fr] gap-x-8 md:grid">
         <div className="min-w-0 max-w-full">
-          <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Booking ID</p>
+          <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-black">Booking ID</p>
           <p className="whitespace-normal break-words text-xs font-black text-slate-800 truncate">{booking.id}</p>
         </div>
         <div className="min-w-0 max-w-full">
-          <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
+          <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-black">Venue</p>
           <p className="whitespace-normal break-words text-xs font-bold text-slate-800">{booking.venue || "N/A"}</p>
         </div>
       </div>
@@ -627,9 +627,9 @@ function HistoryRow({
             <span className="break-words whitespace-normal min-w-0">{booking.eventName || "Untitled"}</span>
             <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-slate-500">• {booking.id}</span>
           </p>
-          <p className="mt-1 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
+          <p className="mt-1 text-[9px] font-black uppercase tracking-[0.2em] text-black">Venue</p>
           <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-700">{booking.venue || "N/A"}</p>
-          <p className="mt-1 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Type</p>
+          <p className="mt-1 text-[9px] font-black uppercase tracking-[0.2em] text-black">Type</p>
           <p className="mt-0.5 whitespace-nowrap text-[10px] font-semibold text-orange-600">{typeLabel}</p>
         </div>
       </div>
@@ -903,7 +903,7 @@ function BookingDetailsModal({
               <section>
                 <div className="mb-4 flex items-center gap-2">
                   <div className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-                  <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                  <p className="text-sm font-black uppercase tracking-[0.2em] text-black">
                     Booking Information
                   </p>
                 </div>
@@ -965,7 +965,7 @@ function BookingDetailsModal({
                 <section>
                   <div className="mb-4 flex items-center gap-2">
                     <div className="h-1.5 w-1.5 rounded-full bg-blue-400" />
-                    <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                    <p className="text-sm font-black uppercase tracking-[0.2em] text-black">
                       Rental Information
                     </p>
                   </div>
@@ -1001,7 +1001,7 @@ function BookingDetailsModal({
                   <section>
                     <div className="mb-4 flex items-center gap-2">
                       <div className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                      <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                      <p className="text-sm font-black uppercase tracking-[0.2em] text-black">
                         Rental Progress
                       </p>
                     </div>
@@ -1030,7 +1030,7 @@ function BookingDetailsModal({
                 <section>
                   <div className="mb-4 flex items-center gap-2">
                     <div className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-                    <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                    <p className="text-sm font-black uppercase tracking-[0.2em] text-black">
                       Special Requests
                     </p>
                   </div>
@@ -1076,7 +1076,7 @@ function BookingDetailsModal({
               <section>
                 <div className="mb-4 flex items-center gap-2">
                   <div className="h-1.5 w-1.5 rounded-full bg-rose-400" />
-                  <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                  <p className="text-sm font-black uppercase tracking-[0.2em] text-black">
                     {hasActiveCancellationRequest ? "Cancellation Request" : "Cancellation / Refund Status"}
                   </p>
                 </div>
@@ -1198,7 +1198,7 @@ function BookingDetailsModal({
                   <section>
                     <div className="mb-4 flex items-center gap-2">
                       <FileText className="h-3.5 w-3.5 text-slate-500" />
-                      <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                      <p className="text-sm font-black uppercase tracking-[0.2em] text-black">
                         Contract
                       </p>
                     </div>
@@ -1675,7 +1675,7 @@ const WriteReviewModal = ({
           </p>
           <div className="min-h-0 flex-1 overflow-y-auto mt-5 space-y-4">
           <div>
-            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
               Rating
             </Label>
             <div className="mt-2 flex gap-1">
@@ -1699,7 +1699,7 @@ const WriteReviewModal = ({
             </div>
           </div>
           <div>
-            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
               Review
             </Label>
             <Textarea
@@ -1858,7 +1858,7 @@ const CancellationDialog = ({
 
               {allowed && (
                 <div>
-                  <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                  <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
                     Reason for Cancellation *
                   </Label>
                   <Textarea
@@ -2288,7 +2288,7 @@ function ModifyBookingFlowModal({
                   {venueInfo && (
                     <p className="text-[#ea580c] font-black text-lg leading-tight">
                       ₱{venueInfo.price.toLocaleString()}
-                      <span className="text-slate-400 font-bold text-[9px] tracking-[0.2em] uppercase ml-1">
+                      <span className="text-black font-bold text-[9px] tracking-[0.2em] uppercase ml-1">
                         / {isOffice ? 'Per Month' : 'Per 6 Hrs'}
                       </span>
                     </p>
@@ -2325,7 +2325,7 @@ function ModifyBookingFlowModal({
                           <h5 className="text-[13px] font-black leading-none text-slate-950 md:text-sm">
                             {calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                           </h5>
-                          <p className="mt-0.5 text-[7px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                          <p className="mt-0.5 text-[7px] font-bold uppercase tracking-[0.2em] text-black">
                             Choose an available day
                           </p>
                         </div>
@@ -2345,7 +2345,7 @@ function ModifyBookingFlowModal({
                       {/* Day-of-week headers */}
                       <div className="mt-3 mb-1.5 grid grid-cols-7 text-center px-2">
                         {["Su","Mo","Tu","We","Th","Fr","Sa"].map(dayLabel => (
-                          <div key={dayLabel} className="text-[7px] font-black uppercase tracking-[0.1em] text-slate-400">
+                          <div key={dayLabel} className="text-[7px] font-black uppercase tracking-[0.1em] text-black">
                             {dayLabel}
                           </div>
                         ))}
@@ -2390,7 +2390,7 @@ function ModifyBookingFlowModal({
                       Select {isOffice ? 'Duration' : 'Time'}
                     </h3>
                     {!selectedDate ? (
-                      <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-[1rem] min-h-[120px] flex items-center justify-center text-slate-400 font-bold text-[9px] uppercase tracking-[0.2em] p-2 text-center">
+                      <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-[1rem] min-h-[120px] flex items-center justify-center text-black font-black text-[9px] uppercase tracking-[0.2em] p-2 text-center">
                         Select a date first
                       </div>
                     ) : (
@@ -2498,7 +2498,7 @@ function ModifyBookingFlowModal({
                       </h3>
 
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold text-slate-700 uppercase tracking-[0.2em]">
+                        <label className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
                           Company Name <span className="text-rose-500">*</span>
                         </label>
                         <Input
@@ -2510,7 +2510,7 @@ function ModifyBookingFlowModal({
                       </div>
 
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold text-slate-700 uppercase tracking-[0.2em]">
+                        <label className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
                           Nature of Business <span className="text-rose-500">*</span>
                         </label>
                         <select
@@ -2536,7 +2536,7 @@ function ModifyBookingFlowModal({
                       </div>
 
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold text-slate-700 uppercase tracking-[0.2em]">
+                        <label className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
                           Rental Term / Contract Duration <span className="text-rose-500">*</span>
                         </label>
                         <div className="flex flex-col gap-2">
@@ -2573,7 +2573,7 @@ function ModifyBookingFlowModal({
                       </h3>
 
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold text-slate-700 uppercase tracking-[0.2em]">
+                        <label className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
                           Event Name <span className="text-rose-500">*</span>
                         </label>
                         <Input
@@ -2586,7 +2586,7 @@ function ModifyBookingFlowModal({
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1.5">
-                          <label className="text-[10px] font-bold text-slate-700 uppercase tracking-[0.2em]">
+                          <label className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
                             Event Type <span className="text-rose-500">*</span>
                           </label>
                           <Select value={eventType} onValueChange={setEventType}>
@@ -2603,7 +2603,7 @@ function ModifyBookingFlowModal({
                           </Select>
                         </div>
                         <div className="space-y-1.5">
-                          <label className="text-[10px] font-bold text-slate-700 uppercase tracking-[0.2em]">
+                          <label className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
                             Estimated Guests <span className="text-rose-500">*</span>
                           </label>
                           <Input
@@ -2627,7 +2627,7 @@ function ModifyBookingFlowModal({
 
                   {/* Reason for Modification */}
                   <div className="space-y-1.5 pt-3 border-t border-slate-100">
-                    <label className="text-[10px] font-bold text-slate-700 uppercase tracking-[0.2em]">
+                    <label className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
                       Reason for Modification <span className="text-rose-500">*</span>
                     </label>
                     <Textarea
@@ -3504,7 +3504,7 @@ function SectionHeader({
         </div>
       )}
       <div className="min-w-0">
-        <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+        <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
           {title}
         </h2>
         {subtitle && (

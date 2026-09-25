@@ -265,41 +265,41 @@ className="h-full w-full object-cover"
             <div className="grid gap-4 p-5">
               <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Client Name</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Client Name</label>
                   <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Juan Dela Cruz" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Company Name</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Company Name</label>
                   <Input value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} placeholder="ABC Corp" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Event Name</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Event Name</label>
                   <Input value={form.eventName} onChange={(e) => setForm({ ...form, eventName: e.target.value })} placeholder="Santos Birthday" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Event Type</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Event Type</label>
                   <Input value={form.eventType} onChange={(e) => setForm({ ...form, eventType: e.target.value })} placeholder="Birthday, Wedding, etc." className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Event Date</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Event Date</label>
                   <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div className="flex items-end pb-2">
                   <div className="flex items-center gap-2">
                     <Switch checked={form.display} onCheckedChange={(v) => setForm({ ...form, display: v })} />
-                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Display on site</label>
+                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Display on site</label>
                   </div>
                 </div>
               </div>
               <div>
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Testimonial</label>
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Testimonial</label>
                 <Textarea value={form.testimonial} onChange={(e) => setForm({ ...form, testimonial: e.target.value })} placeholder="Client testimonial..."
                   className="mt-1 w-full min-h-[140px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
               </div>
 
               <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3.5">
                 <div className="mb-2.5 flex items-center justify-between gap-2">
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Photos</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Photos</label>
                   <ImageIcon className="h-3.5 w-3.5 text-slate-400" />
                 </div>
 

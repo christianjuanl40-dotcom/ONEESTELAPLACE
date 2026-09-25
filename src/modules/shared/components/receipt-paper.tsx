@@ -62,7 +62,7 @@ function ReceiptPaperSection({
 }) {
   return (
     <div>
-      <h3 className="mb-2 text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+      <h3 className="mb-2 text-sm font-black uppercase tracking-[0.2em] text-black">
         {title}
       </h3>
       <div className="space-y-1.5">{children}</div>

@@ -44,7 +44,7 @@ export function CMSVirtualTourTab({ onNavigate }: { onNavigate: (tab: string) =>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-slate-100 text-left text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                <tr className="border-b border-slate-100 text-left text-[10px] font-bold uppercase tracking-[0.2em] text-black">
                   <th className="px-4 py-2.5">Space Name</th>
                   <th className="px-4 py-2.5 hidden sm:table-cell">Type</th>
                   <th className="px-4 py-2.5">360 Image</th>

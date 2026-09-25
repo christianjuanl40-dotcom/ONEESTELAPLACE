@@ -194,7 +194,7 @@ function FileUploader({
           </div>
         ) : (
           <div className="space-y-2">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
               Available Contracts
             </p>
             <div className="space-y-1">

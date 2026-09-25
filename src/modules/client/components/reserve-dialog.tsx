@@ -356,7 +356,7 @@ function BookingConfirmationDialog({
 function ConfirmBookingLine({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2.5 md:rounded-xl md:px-4 md:py-3">
-      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 md:text-[10px]">{label}</p>
+      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black md:text-[10px]">{label}</p>
       <p className="max-w-[55%] break-words text-right text-xs font-bold text-slate-900">{value}</p>
     </div>
   )
@@ -1007,7 +1007,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
                 <div className="p-4 flex flex-col gap-3 bg-white shrink-0">
                   <div className="flex items-center justify-between">
                       <div>
-                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-[0.2em] mb-0.5">{category === 'venue' ? 'Starting at' : 'Per Month'}</p>
+                          <p className="text-[9px] text-black font-bold uppercase tracking-[0.2em] mb-0.5">{category === 'venue' ? 'Starting at' : 'Per Month'}</p>
                           <p className="text-base md:text-lg font-black text-[#ea580c]">₱{item.price.toLocaleString()}</p>
                       </div>
                       
@@ -1127,7 +1127,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
             <h5 className="text-[13px] font-black leading-none text-slate-950 md:text-sm">
               {calendarMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
             </h5>
-            <p className="mt-0.5 text-[7px] font-bold uppercase tracking-[0.12em] text-slate-400">
+            <p className="mt-0.5 text-[7px] font-bold uppercase tracking-[0.12em] text-black">
               Choose an available day
             </p>
           </div>
@@ -1149,7 +1149,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
         <div className="p-2.5">
           <div className="mb-1.5 grid grid-cols-7 text-center">
             {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((dayLabel) => (
-              <div key={dayLabel} className="text-[7px] font-black uppercase tracking-[0.1em] text-slate-400">
+              <div key={dayLabel} className="text-[7px] font-black uppercase tracking-[0.1em] text-black">
                 {dayLabel}
               </div>
             ))}
@@ -1244,7 +1244,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
     const timePanel = (
       <>
       {!selectedDate ? (
-        <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-[1rem] min-h-[160px] flex items-center justify-center text-slate-400 font-bold text-[9px] uppercase tracking-wider p-2 text-center">Select a date first</div>
+              <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-[1rem] min-h-[160px] flex items-center justify-center text-black font-black text-[9px] uppercase tracking-wider p-2 text-center">Select a date first</div>
       ) : (
         <div className="space-y-3 animate-in fade-in rounded-[1rem] border border-slate-200 bg-white p-3 shadow-sm">
           {category === 'venue' ? (
@@ -1306,7 +1306,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
     const titlePriceBlock = (
       <div>
         <h2 className="text-xl font-black text-slate-900 tracking-tight leading-tight">{displayName}</h2>
-        <p className="text-[#ea580c] font-black text-lg leading-tight mt-0.5">₱{selectedItem?.price.toLocaleString()} <span className="text-slate-400 font-bold text-[9px] tracking-[0.2em] uppercase">/ {category === 'venue' ? 'Per 6 Hrs' : 'Per Month'}</span></p>
+        <p className="text-[#ea580c] font-black text-lg leading-tight mt-0.5">₱{selectedItem?.price.toLocaleString()} <span className="text-black font-bold text-[9px] tracking-[0.2em] uppercase">/ {category === 'venue' ? 'Per 6 Hrs' : 'Per Month'}</span></p>
       </div>
     )
 
@@ -1475,7 +1475,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
             </h3>
             
             <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-700 uppercase tracking-[0.2em]">
+                <label className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
                     {isOffice ? 'Company / Tenant Name *' : 'Event Name *'}
                 </label>
                 <Input required value={eventName} onChange={e => setEventName(e.target.value)} placeholder={isOffice ? "e.g. Acme Corp / Juan Dela Cruz" : "e.g. 18th Birthday Party"} className="h-10 w-full rounded-xl bg-slate-50 border border-slate-200 px-3 text-xs focus-visible:ring-2 focus-visible:ring-[#ea580c]" />
@@ -1483,7 +1483,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
 
             {isOffice ? (
                 <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-700 uppercase tracking-[0.2em]">
+                    <label className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
                         Nature of Business *
                     </label>
                     <select
@@ -1508,7 +1508,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
             ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-slate-700 uppercase tracking-[0.2em]">
+                    <label className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
                             Event Type *
                         </label>
                         <select
@@ -1531,7 +1531,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
                     </div>
                     
                     <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-slate-700 uppercase tracking-[0.2em]">
+                    <label className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
                             Expected Guests *
                         </label>
                         <Input 

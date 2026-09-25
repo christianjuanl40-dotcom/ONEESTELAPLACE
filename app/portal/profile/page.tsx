@@ -366,7 +366,7 @@ function FieldWrapper({
 }) {
   return (
     <div className="space-y-2">
-      <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">
+      <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">
         {label}
       </Label>
       {children}

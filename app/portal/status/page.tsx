@@ -274,7 +274,7 @@ function StatusCard({
 
       <CardContent className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
             Booking Status
           </p>
           <div className="mt-3">
@@ -325,13 +325,13 @@ function StatusCard({
 
         <div className="space-y-4">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
               Payment Status
             </p>
             <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
               <div className="grid grid-cols-2 gap-2 text-[11px] font-bold text-slate-700">
                 <div>
-                  <p className="text-[9px] uppercase tracking-[0.2em] text-slate-400">
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
                     Method
                   </p>
                   <p className="mt-0.5 text-slate-900">
@@ -339,7 +339,7 @@ function StatusCard({
                   </p>
                 </div>
                 <div>
-                  <p className="text-[9px] uppercase tracking-[0.2em] text-slate-400">
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
                     Amount
                   </p>
                   <p className="mt-0.5 text-slate-900">
@@ -347,7 +347,7 @@ function StatusCard({
                   </p>
                 </div>
                 <div>
-                  <p className="text-[9px] uppercase tracking-[0.2em] text-slate-400">
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
                     Type
                   </p>
                   <p className="mt-0.5 text-slate-900">
@@ -359,7 +359,7 @@ function StatusCard({
                   </p>
                 </div>
                 <div>
-                  <p className="text-[9px] uppercase tracking-[0.2em] text-slate-400">
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
                     Payment Status
                   </p>
                   <p className="mt-0.5 text-slate-900">
@@ -372,7 +372,7 @@ function StatusCard({
 
           {isCancelReq && (
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
                 Cancellation Status
               </p>
               <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-1">
@@ -399,7 +399,7 @@ function StatusCard({
 
           {isCancelled && (
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
                 Cancellation Status
               </p>
               <div className={cn(
@@ -446,7 +446,7 @@ function StatusCard({
 
           {refundStatus && !isCancelled && !isCancelReq && (
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
                 Refund Status
               </p>
               <div
@@ -473,7 +473,7 @@ function StatusCard({
 
           {hasContractFile && (
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
                 Contract Document
               </p>
               <div
@@ -516,7 +516,7 @@ function StatusCard({
           )}
 
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
               Contract Status
             </p>
             <div

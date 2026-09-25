@@ -24,11 +24,14 @@ import {
 } from "@/src/modules/shared/components/ui/select"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { useBookingData } from "@/src/modules/client/contexts/booking-context"
+import { getBookingTotal } from "@/src/modules/shared/lib/payment-calculations"
 import {
-  calculatePaymentSummary,
-  getBookingStoredAmountPaid,
-  getRecordsForBooking,
-} from "@/src/modules/shared/lib/payment-calculations"
+  buildReportSummary,
+  calculateReportBookingFinancials,
+  type ReportBookingFinancials,
+  type ReportBookingLike,
+} from "@/src/modules/shared/lib/report-calculations"
+import { getBookingLifecycleLabel as getCanonicalBookingLifecycleLabel } from "@/src/modules/shared/lib/booking-helpers"
 import {
   Bar,
   BarChart,
@@ -115,32 +118,24 @@ function parseBookingDate(booking: BookingRecord) {
 }
 
 function getBookingAmount(booking: BookingRecord) {
-  const value = booking.totalPrice ?? booking.totalAmount ?? booking.amount ?? 0
-  const amount = Number(value)
-
-  return Number.isFinite(amount) ? amount : 0
+  return getBookingTotal(booking as ReportBookingLike)
 }
 
 function formatMoney(value: number) {
   return `₱${Number(value || 0).toLocaleString("en-PH")}`
 }
 
+function formatReportMoney(value: number) {
+  return `₱${Number(value || 0).toLocaleString("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`
+}
+
 function abbreviateMoney(value: number) {
   if (value >= 1_000_000) return `₱${(value / 1_000_000).toFixed(1)}M`
   if (value >= 1_000) return `₱${Math.round(value / 1_000)}k`
   return `₱${value}`
-}
-
-function formatDate(booking: BookingRecord) {
-  const parsed = parseBookingDate(booking)
-
-  if (!parsed) return getBookingDate(booking) || "No date"
-
-  return new Intl.DateTimeFormat("en-PH", {
-    month: "short",
-    day: "2-digit",
-    year: "numeric",
-  }).format(parsed)
 }
 
 function getVenueName(venue?: string) {
@@ -166,26 +161,26 @@ const EXCEL_HEADERS = [
   "Refund Amount",
 ]
 
-const BOOKING_LIFECYCLE_MAP: Record<string, string> = {
-  pending: "Pending",
-  verifying: "Pending",
-  for_review: "Pending",
-  "for review": "Pending",
-  modification_under_review: "Pending",
-  cancellation_requested: "Pending",
-  "cancellation requested": "Pending",
-  confirmed: "Confirmed",
-  approved: "Confirmed",
-  reservation_secured: "Confirmed",
-  slot_verified: "Confirmed",
-  fully_paid: "Confirmed",
-  contract_signing_required: "Confirmed",
-  active_rental: "Confirmed",
-  completed: "Completed",
-  rental_expired: "Completed",
-  cancelled: "Cancelled",
-  canceled: "Cancelled",
-  declined: "Cancelled",
+type EnrichedBooking = BookingRecord & {
+  _financials: ReportBookingFinancials
+}
+
+type ReportRow = {
+  bookingId: string | number
+  eventName: string
+  client: string
+  date: Date | string
+  venue: string
+  bookingStatus: string
+  paymentStatus: string
+  totalAmount: number
+  remainingBalance: number
+  refundStatus: string
+  refundAmount: number
+}
+
+function getReportLifecycleLabel(booking: BookingRecord) {
+  return getCanonicalBookingLifecycleLabel(booking as ReportBookingLike)
 }
 
 function getReportClientName(booking: BookingRecord) {
@@ -202,95 +197,70 @@ function getReportClientName(booking: BookingRecord) {
   return name.trim() || "N/A"
 }
 
-function hasPaymentActivity(booking: BookingRecord, records: unknown[]) {
-  const b = booking as any
-  const paymentStatus = normalizeStatus(booking.paymentStatus)
-  return (
-    records.length > 0 ||
-    Number(b.amountPaid || b.paidAmount || b.downpaymentPaid || b.paymentAmount || 0) > 0 ||
-    Boolean(
-      b.proofUrl ||
-        b.paymentProof ||
-        b.proofOfPayment ||
-        b.paymentSubmittedAt ||
-        b.hasActivePaymentSubmission,
-    ) ||
-    !["pending", "unpaid"].includes(paymentStatus)
-  )
+function getReportDateCell(booking: BookingRecord) {
+  const parsedDate = parseBookingDate(booking)
+  const dateCell = parsedDate ? new Date(parsedDate.getTime()) : getBookingDate(booking) || "No date"
+
+  if (dateCell instanceof Date) dateCell.setHours(12, 0, 0, 0)
+  return dateCell
 }
 
-function getReportRemainingBalance(booking: BookingRecord, summary?: { remainingBalance: number } | null) {
-  if (summary) return summary.remainingBalance
-  const b = booking as any
-  const stored = Number(b.remainingBalance ?? 0) || 0
-  if (stored > 0) return stored
-  const totalAmount = getBookingAmount(booking)
-  const amountPaid = getBookingStoredAmountPaid(booking as any)
-  return Math.max(totalAmount - amountPaid, 0)
+function formatReportDate(value: Date | string) {
+  if (!(value instanceof Date)) return value || "No date"
+
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  }).format(value)
 }
 
-function getReportRefundAmount(booking: BookingRecord) {
-  const amount = Number((booking as any).refundAmount ?? 0)
-  return Number.isFinite(amount) && amount > 0 ? amount : 0
+function formatDate(booking: BookingRecord) {
+  const parsed = parseBookingDate(booking)
+
+  if (!parsed) return getBookingDate(booking) || "No date"
+
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  }).format(parsed)
 }
 
-function getBookingLifecycleLabel(status?: string) {
-  const normalized = normalizeStatus(status)
-  return BOOKING_LIFECYCLE_MAP[normalized] ?? "Pending"
+function formatGeneratedDate(date: Date) {
+  return new Intl.DateTimeFormat("en-PH", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(date)
 }
 
-function getReportPaymentStatus(booking: BookingRecord, summary?: { overallStatus: string; remainingBalance: number } | null) {
-  if (summary) {
-    const canonicalLabelMap: Record<string, string> = {
-      completed: "Fully Paid",
-      partial: "Partially Paid",
-      for_review: "For Verification",
-      rejected: "Rejected",
-      incomplete: "Partially Paid",
+function formatGeneratedTime(date: Date) {
+  return new Intl.DateTimeFormat("en-PH", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(date)
+}
+
+function buildReportRows(bookings: EnrichedBooking[]): ReportRow[] {
+  return bookings.map((booking) => {
+    const financials = booking._financials
+
+    return {
+      bookingId: booking.id || "N/A",
+      eventName: booking.eventName || booking.eventType || "Untitled Event",
+      client: getReportClientName(booking),
+      date: getReportDateCell(booking),
+      venue: booking.venue || "N/A",
+      bookingStatus: getCanonicalBookingLifecycleLabel(booking as ReportBookingLike),
+      paymentStatus: financials.paymentStatus,
+      totalAmount: financials.totalAmount,
+      remainingBalance: financials.remainingBalance,
+      refundStatus: financials.refundStatus,
+      refundAmount: financials.refundAmount,
     }
-    return canonicalLabelMap[summary.overallStatus] || "Pending Payment"
-  }
-
-  const b = booking as any
-  const ps = normalizeStatus(booking.paymentStatus)
-  const stage = String(b.paymentStage || "").toLowerCase()
-  const totalAmount = getBookingAmount(booking)
-  const amountPaid = getBookingStoredAmountPaid(booking as any)
-  const remainingBalance = getReportRemainingBalance(booking)
-  const refundStatus = normalizeStatus(b.refundStatus)
-
-  if (refundStatus === "refunded") return "Refunded"
-  if (ps === "rejected") return "Rejected"
-  if (
-    ps === "for_review" ||
-    ps === "cash_pending" ||
-    ps === "slot_pending" ||
-    ps === "pending_verification" ||
-    ps === "pending verification" ||
-    ps === "for verification"
-  ) {
-    return "For Verification"
-  }
-  if (
-    (stage === "fully paid" ||
-      ps === "paid" ||
-      ps === "fully paid" ||
-      ps === "verified" ||
-      ps === "slot_verified" ||
-      ps === "completed") &&
-    remainingBalance === 0 &&
-    totalAmount > 0
-  ) {
-    return "Fully Paid"
-  }
-  if (remainingBalance > 0 && amountPaid > 0) {
-    const downPaymentAmount = Number(b.downPaymentAmount ?? b.selectedDownpaymentAmount ?? 0) || 0
-    if (downPaymentAmount > 0 && amountPaid >= downPaymentAmount) return "DP Paid"
-    return "Partially Paid"
-  }
-  if (ps === "partial" || ps === "incomplete") return "Partially Paid"
-  if (ps === "verified" || ps === "slot_verified") return "Fully Paid"
-  return "Pending Payment"
+  })
 }
 
 async function loadLogoBase64(url: string) {
@@ -403,6 +373,7 @@ export default function ReportsPage() {
   const [rowsPerPage, setRowsPerPage] = useState(10)
   const [printDate, setPrintDate] = useState<Date | null>(null)
   const isPrinting = printDate !== null
+  const generatedBy = user?.fullName || user?.name || user?.email || "System User"
 
   useEffect(() => {
     // Commit print dimensions and all filtered rows before the browser snapshots
@@ -433,7 +404,7 @@ export default function ReportsPage() {
     const statuses = new Set<string>()
 
     bookingList.forEach((booking) => {
-      statuses.add(getBookingLifecycleLabel(booking.status).toLowerCase())
+      statuses.add(getReportLifecycleLabel(booking).toLowerCase())
     })
 
     return ["all", ...Array.from(statuses).filter(Boolean).sort()]
@@ -458,7 +429,7 @@ export default function ReportsPage() {
     return bookingList
       .filter((booking) => {
         const parsedDate = parseBookingDate(booking)
-        const bookingStatus = getBookingLifecycleLabel(booking.status).toLowerCase()
+        const bookingStatus = getReportLifecycleLabel(booking).toLowerCase()
         const bookingYear = parsedDate ? parsedDate.getFullYear().toString() : ""
 
         const matchesMonth =
@@ -500,13 +471,12 @@ export default function ReportsPage() {
   const enrichedData = useMemo(() => {
     const records = Array.isArray(paymentRecords) ? paymentRecords : []
     return filteredData.map((booking) => {
-      const bookingRecords = getRecordsForBooking(records, booking)
-      const summary = hasPaymentActivity(booking, bookingRecords)
-        ? calculatePaymentSummary(booking as any, bookingRecords)
-        : null
-      return { ...booking, _summary: summary }
+      const financials = calculateReportBookingFinancials(booking as ReportBookingLike, records)
+      return { ...booking, _financials: financials }
     })
   }, [filteredData, paymentRecords])
+
+  const reportRows = useMemo(() => buildReportRows(enrichedData), [enrichedData])
 
   useEffect(() => {
     setCurrentPage(1)
@@ -519,19 +489,17 @@ export default function ReportsPage() {
     [enrichedData, safePage, rowsPerPage],
   )
 
-  const confirmedBookings = useMemo(() => {
-    return filteredData.filter((booking) => getBookingLifecycleLabel(booking.status) === "Confirmed")
-  }, [filteredData])
-
-  const totalRevenue = useMemo(() => {
-    return confirmedBookings.reduce((sum, booking) => sum + getBookingAmount(booking), 0)
-  }, [confirmedBookings])
-
-  const totalRefunds = useMemo(() => {
-    return filteredData
-      .filter((booking) => (booking as any).refundStatus === "refunded" && (booking as any).refundAmount)
-      .reduce((sum, booking) => sum + (Number((booking as any).refundAmount) || 0), 0)
-  }, [filteredData])
+  const reportSummary = useMemo(
+    () => buildReportSummary(
+      enrichedData.map((booking) => ({
+        booking: booking as ReportBookingLike,
+        financials: booking._financials,
+      })),
+    ),
+    [enrichedData],
+  )
+  const totalRevenue = reportSummary.totalRevenue
+  const totalRefunds = reportSummary.totalRefunds
 
   const netRevenue = useMemo(() => {
     return totalRevenue - totalRefunds
@@ -544,39 +512,37 @@ export default function ReportsPage() {
       bookings: 0,
     }))
 
-    filteredData.forEach((booking) => {
+    enrichedData.forEach((booking) => {
       const parsedDate = parseBookingDate(booking)
       if (!parsedDate) return
 
       const monthIndex = parsedDate.getMonth()
       map[monthIndex].bookings += 1
 
-       if (getBookingLifecycleLabel(booking.status) === "Confirmed") {
-        map[monthIndex].revenue += getBookingAmount(booking)
-      }
+      map[monthIndex].revenue += booking._financials.receivedAmount
     })
 
     return filterMonth === "all" ? map : map.filter((_, index) => index.toString() === filterMonth)
-  }, [filteredData, filterMonth])
+  }, [enrichedData, filterMonth])
 
   const revenueByVenue = useMemo(() => {
     const map: Record<string, number> = {}
 
-    confirmedBookings.forEach((booking) => {
+    enrichedData.forEach((booking) => {
       const venue = getVenueName(booking.venue)
-      map[venue] = (map[venue] || 0) + getBookingAmount(booking)
+      map[venue] = (map[venue] || 0) + booking._financials.receivedAmount
     })
 
     return Object.entries(map)
       .map(([name, total]) => ({ name, total }))
       .sort((a, b) => b.total - a.total)
-  }, [confirmedBookings])
+  }, [enrichedData])
 
   const statusCounts = useMemo(() => {
     const map: Record<string, number> = {}
 
     filteredData.forEach((booking) => {
-       const group = getStatusGroupName(getBookingLifecycleLabel(booking.status))
+       const group = getStatusGroupName(getReportLifecycleLabel(booking))
       map[group] = (map[group] || 0) + 1
     })
 
@@ -617,6 +583,21 @@ export default function ReportsPage() {
           ? MONTHS[Number(filterMonth)]
           : "All Years"
 
+  const activeReportFilters = [
+    filterStatus !== "all" ? `Booking Status: ${prettifyStatus(filterStatus)}` : "",
+    searchTerm.trim() ? `Search: ${searchTerm.trim()}` : "",
+  ].filter(Boolean)
+  const reportGeneratedAt = printDate ?? new Date()
+  const reportSummaryItems: { label: string; value: string }[] = [
+    { label: "Total Bookings", value: String(reportSummary.totalBookings) },
+    { label: "Confirmed", value: String(reportSummary.confirmed) },
+    { label: "Pending", value: String(reportSummary.pending) },
+    { label: "Completed", value: String(reportSummary.completed) },
+    { label: "Cancelled", value: String(reportSummary.cancelled) },
+    { label: "Total Revenue", value: formatReportMoney(reportSummary.totalRevenue) },
+    { label: "Total Refunds", value: formatReportMoney(reportSummary.totalRefunds) },
+  ]
+
   const exportExcel = async () => {
     if (filteredData.length === 0) {
       toast({
@@ -631,18 +612,9 @@ export default function ReportsPage() {
       const ExcelJS = (await import("exceljs")).default
       const workbook = new ExcelJS.Workbook()
 
-      const generatedBy = user?.fullName || user?.name || user?.email || "System User"
       const now = new Date()
-      const generatedDate = new Intl.DateTimeFormat("en-PH", {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      }).format(now)
-      const generatedTime = new Intl.DateTimeFormat("en-PH", {
-        hour: "numeric",
-        minute: "2-digit",
-        second: "2-digit",
-      }).format(now)
+      const generatedDate = formatGeneratedDate(now)
+      const generatedTime = formatGeneratedTime(now)
       const generatedOn = `${generatedDate}, ${generatedTime}`
 
       workbook.creator = generatedBy
@@ -658,25 +630,19 @@ export default function ReportsPage() {
       const headerRow = 15
       const lastColumn = columnLetter(EXCEL_HEADERS.length)
 
-      const dataRows = enrichedData.map((booking) => {
-        const parsedDate = parseBookingDate(booking)
-        const dateCell = parsedDate ? new Date(parsedDate.getTime()) : getBookingDate(booking) || "No date"
-        if (dateCell instanceof Date) dateCell.setHours(12, 0, 0, 0)
-
-        return [
-          booking.id || "N/A",
-          booking.eventName || booking.eventType || "Untitled Event",
-          getReportClientName(booking),
-          dateCell,
-          booking.venue || "N/A",
-          getBookingLifecycleLabel(booking.status),
-          getReportPaymentStatus(booking, (booking as any)._summary),
-          getBookingAmount(booking),
-          getReportRemainingBalance(booking, (booking as any)._summary),
-          (booking as any).refundStatus || "N/A",
-          getReportRefundAmount(booking),
-        ]
-      })
+      const dataRows = reportRows.map((row) => [
+        row.bookingId,
+        row.eventName,
+        row.client,
+        row.date,
+        row.venue,
+        row.bookingStatus,
+        row.paymentStatus,
+        row.totalAmount,
+        row.remainingBalance,
+        row.refundStatus,
+        row.refundAmount,
+      ])
 
       const companyCell = worksheet.getCell("A1")
       companyCell.value = "ONE ESTELA PLACE"
@@ -688,7 +654,7 @@ export default function ReportsPage() {
 
       const subtitleCell = worksheet.getCell("A2")
       subtitleCell.value = "Event Management System"
-      subtitleCell.font = { name: "Calibri", size: 10, italic: true, color: { argb: "FFCBD5E1" } }
+      subtitleCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FFFFFFFF" } }
       subtitleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } }
       subtitleCell.alignment = { vertical: "middle", horizontal: "center" }
       worksheet.mergeCells(2, 1, 2, EXCEL_HEADERS.length)
@@ -703,14 +669,14 @@ export default function ReportsPage() {
 
       const periodCell = worksheet.getCell("A4")
       periodCell.value = `Report Period: ${reportPeriod}`
-      periodCell.font = { name: "Calibri", size: 10, color: { argb: "FF475569" } }
+      periodCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF000000" } }
       periodCell.alignment = { vertical: "middle", horizontal: "center" }
       worksheet.mergeCells(4, 1, 4, EXCEL_HEADERS.length)
       worksheet.getRow(4).height = 18
 
       const metaCell = worksheet.getCell("A5")
       metaCell.value = `Generated Date: ${generatedDate}    •    Generated Time: ${generatedTime}    •    Generated By: ${generatedBy}`
-      metaCell.font = { name: "Calibri", size: 10, color: { argb: "FF475569" } }
+      metaCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF000000" } }
       metaCell.alignment = { vertical: "middle", horizontal: "center" }
       worksheet.mergeCells(5, 1, 5, EXCEL_HEADERS.length)
       worksheet.getRow(5).height = 18
@@ -741,20 +707,6 @@ export default function ReportsPage() {
         // Logo is decorative only — fall back to the text banner when unavailable.
       }
 
-      const summaryTotalBookings = filteredData.length
-      const summaryConfirmed = filteredData.filter(
-        (b) => getBookingLifecycleLabel(b.status) === "Confirmed",
-      ).length
-      const summaryPending = filteredData.filter(
-        (b) => getBookingLifecycleLabel(b.status) === "Pending",
-      ).length
-      const summaryCompleted = filteredData.filter(
-        (b) => getBookingLifecycleLabel(b.status) === "Completed",
-      ).length
-      const summaryCancelled = filteredData.filter(
-        (b) => getBookingLifecycleLabel(b.status) === "Cancelled",
-      ).length
-
       const summaryBar = worksheet.getCell("A7")
       summaryBar.value = "REPORT SUMMARY"
       summaryBar.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FFFFFFFF" } }
@@ -764,13 +716,13 @@ export default function ReportsPage() {
       worksheet.getRow(7).height = 20
 
       const summaryItems: { label: string; value: number; money?: boolean }[] = [
-        { label: "Total Bookings", value: summaryTotalBookings },
-        { label: "Confirmed", value: summaryConfirmed },
-        { label: "Pending", value: summaryPending },
-        { label: "Completed", value: summaryCompleted },
-        { label: "Cancelled", value: summaryCancelled },
-        { label: "Total Revenue", value: totalRevenue, money: true },
-        { label: "Total Refunds", value: totalRefunds, money: true },
+        { label: "Total Bookings", value: reportSummary.totalBookings },
+        { label: "Confirmed", value: reportSummary.confirmed },
+        { label: "Pending", value: reportSummary.pending },
+        { label: "Completed", value: reportSummary.completed },
+        { label: "Cancelled", value: reportSummary.cancelled },
+        { label: "Total Revenue", value: reportSummary.totalRevenue, money: true },
+        { label: "Total Refunds", value: reportSummary.totalRefunds, money: true },
       ]
 
       summaryItems.forEach((item, index) => {
@@ -783,7 +735,7 @@ export default function ReportsPage() {
 
         const labelCell = worksheet.getCell(rowNumber, 1)
         labelCell.value = item.label
-        labelCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF334155" } }
+        labelCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF000000" } }
         labelCell.fill = rowFill
         labelCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 }
         labelCell.border = EXCEL_THIN_BORDER
@@ -923,7 +875,7 @@ export default function ReportsPage() {
       <style media="print">{`
         @page { size: A4 landscape; margin: 10mm; }
 
-        /* Keep only the report and its ancestor path. Removed UI occupies no space. */
+        /* Keep only this page's print root and its ancestor path. */
         body:has([data-report-print-root]) *:not([data-report-print-root]):not([data-report-print-root] *):not(:has([data-report-print-root])) {
           display: none !important;
         }
@@ -956,81 +908,251 @@ export default function ReportsPage() {
           -webkit-print-color-adjust: exact;
           print-color-adjust: exact;
         }
-        [data-report-print-root] :is([data-report-print-hidden], button, input, select, [role="combobox"], .recharts-tooltip-wrapper) {
-          display: none !important;
-        }
-        [data-report-print-header] {
+        [data-report-dashboard] { display: none !important; }
+        [data-report-print-report] {
           display: block !important;
-          margin-bottom: 4mm;
-          padding-bottom: 3mm;
-          border-bottom: 1px solid #cbd5e1;
+          width: 100% !important;
+          color: #0f172a;
+          font-family: Arial, Helvetica, sans-serif;
+          font-size: 9pt;
         }
-        [data-report-print-card] {
+        [data-report-print-report] * { box-sizing: border-box; }
+        [data-report-print-banner] {
+          padding: 5mm 6mm 4mm;
+          color: #fff;
+          text-align: center;
+          background: #0f172a;
+          border-bottom: 2mm solid #ea580c;
           break-inside: avoid;
           page-break-inside: avoid;
-          margin-bottom: 4mm !important;
-          padding: 4mm !important;
-          border-radius: 3mm !important;
-          box-shadow: none !important;
         }
-        [data-report-print-heading] {
-          margin-bottom: 3mm !important;
+        [data-report-print-banner] h1 {
+          margin: 0;
+          font-size: 17pt;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+        }
+        [data-report-print-banner] p {
+          margin: 1mm 0 0;
+          color: #fff;
+          font-size: 9pt;
+          font-weight: 700;
+        }
+        [data-report-print-title] {
+          padding: 4mm 0 2mm;
+          text-align: center;
           break-after: avoid;
           page-break-after: avoid;
         }
-        [data-report-print-root] h3 { font-size: 12pt !important; }
-        [data-report-print-charts] {
-          display: grid !important;
-          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
-          gap: 4mm !important;
-          margin-bottom: 0 !important;
+        [data-report-print-title] h2 {
+          margin: 0;
+          color: #000;
+          font-size: 14pt;
+          font-weight: 800;
         }
-        [data-report-print-charts] > [data-report-print-card] { grid-column: auto !important; min-width: 0; }
-        [data-report-print-chart] { width: 100% !important; height: 56mm !important; overflow: visible !important; }
-        [data-report-print-charts] [data-report-print-chart] { height: 50mm !important; }
-        [data-report-print-status-layout] { flex-direction: row !important; gap: 4mm !important; align-items: center; }
-        [data-report-print-status-layout] > :first-child { width: 42mm !important; flex-shrink: 0; }
-        [data-report-print-status-layout] > :last-child { width: auto !important; min-width: 0; flex: 1; }
-        [data-report-print-status-layout] > :last-child > div { grid-template-columns: minmax(0, 1fr) !important; gap: 2mm !important; }
-        [data-report-print-status-layout] span { font-size: 8pt !important; }
-        [data-report-print-status-chart] { width: 42mm !important; height: 42mm !important; max-width: none !important; }
-        [data-report-print-root] .recharts-responsive-container,
-        [data-report-print-root] .recharts-wrapper,
-        [data-report-print-root] .recharts-wrapper > .recharts-surface {
-          width: 100% !important;
-          height: 100% !important;
+        [data-report-print-title] p {
+          margin: 1.5mm 0 0;
+          color: #000;
+          font-size: 9pt;
+          font-weight: 700;
+        }
+        [data-report-print-meta] {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 2mm 5mm;
+          padding: 2mm 0 3mm;
+          border-bottom: 0.3mm solid #cbd5e1;
+          color: #000;
+          font-size: 8pt;
+          font-weight: 700;
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+        [data-report-print-meta] span { min-width: 0; }
+        [data-report-print-meta] strong { color: #000; font-weight: 800; }
+        [data-report-print-summary] {
+          margin-top: 4mm;
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+        [data-report-print-summary] h3 {
+          margin: 0;
+          padding: 2.5mm 3mm;
+          color: #fff;
+          background: #1e293b;
+          font-size: 9pt;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+        }
+        [data-report-print-summary-grid] {
+          border: 0.3mm solid #cbd5e1;
+          border-top: 0;
+        }
+        [data-report-print-summary-row] {
+          display: flex;
+          justify-content: space-between;
+          gap: 8mm;
+          padding: 1.6mm 3mm;
+          border-top: 0.3mm solid #e2e8f0;
+          font-size: 8.5pt;
+        }
+        [data-report-print-summary-row]:first-child { border-top: 0; }
+        [data-report-print-summary-row]:nth-child(even) { background: #f8fafc; }
+        [data-report-print-summary-row] span:first-child {
+          color: #000;
+          font-weight: 700;
+        }
+        [data-report-print-summary-row] span:last-child {
+          color: #000;
+          font-weight: 700;
+          text-align: right;
+          font-variant-numeric: tabular-nums;
+        }
+        [data-report-print-table] {
+          margin-top: 5mm;
+          width: 100%;
           overflow: visible !important;
         }
-        [data-report-print-root] .recharts-legend-wrapper { width: 100% !important; left: 0 !important; }
-        [data-report-print-empty], [data-report-print-chart]:has([data-report-print-empty]) {
-          height: auto !important;
-          min-height: 0 !important;
-          padding: 6mm !important;
+        [data-report-print-table-heading] {
+          margin: 0 0 2mm;
+          color: #000;
+          font-size: 9pt;
+          font-weight: 800;
+          letter-spacing: 0.08em;
         }
-        /* Let long tables paginate; keep only individual rows together. */
-        [data-report-print-table] { display: block; overflow: visible !important; box-shadow: none !important; }
-        [data-report-print-table] table { min-width: 0 !important; width: 100% !important; font-size: 9pt; }
+        [data-report-print-table] table {
+          width: 100%;
+          border-collapse: collapse;
+          table-layout: fixed;
+          font-size: 7.4pt;
+        }
         [data-report-print-table] thead { display: table-header-group; }
-        [data-report-print-table] tr { break-inside: avoid; page-break-inside: avoid; }
-        [data-report-print-table] :is(th, td) { padding: 2mm !important; overflow-wrap: anywhere; }
-        [data-report-print-table] th { font-size: 8pt; letter-spacing: 0.04em; }
-        [data-report-print-table] td p { font-size: 9pt !important; }
-        [data-report-print-table] td span { white-space: normal !important; letter-spacing: 0.04em !important; }
+        [data-report-print-table] tr {
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+        [data-report-print-table] th,
+        [data-report-print-table] td {
+          padding: 1.7mm 1.2mm;
+          border: 0.3mm solid #cbd5e1;
+          vertical-align: middle;
+          overflow-wrap: anywhere;
+          word-break: normal;
+        }
+        [data-report-print-table] th {
+          color: #fff;
+          background: #1e293b;
+          font-size: 7pt;
+          font-weight: 700;
+          line-height: 1.2;
+          text-align: center;
+        }
+        [data-report-print-table] td {
+          color: #1f2937;
+          line-height: 1.25;
+        }
+        [data-report-print-table] tbody tr:nth-child(even) { background: #f8fafc; }
+        [data-report-print-table] .report-print-center { text-align: center; }
+        [data-report-print-table] .report-print-money {
+          text-align: right;
+          white-space: nowrap;
+          font-variant-numeric: tabular-nums;
+        }
+        [data-report-print-table] .report-print-empty {
+          padding: 8mm;
+          color: #64748b;
+          text-align: center;
+        }
       `}</style>
 
-      <header data-report-print-header className="hidden text-slate-950">
-        <h1 className="text-xl font-black">One Estela Place — Reports</h1>
-        <div className="mt-1 flex flex-wrap justify-between gap-2 text-xs">
+      <section data-report-print-report className="hidden" aria-label="Printable booking records report">
+        <header data-report-print-banner>
+          <h1>ONE ESTELA PLACE</h1>
+          <p>Event Management System</p>
+        </header>
+
+        <div data-report-print-title>
+          <h2>Booking Records Report</h2>
           <p>Report Period: {reportPeriod}</p>
-          <p>Generated: {printDate?.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</p>
+          {activeReportFilters.length > 0 && <p>Filters: {activeReportFilters.join(" | ")}</p>}
         </div>
-        {(filterStatus !== "all" || searchTerm.trim()) && (
-          <p className="mt-1 text-xs">
-            Status: {filterStatus === "all" ? "All" : prettifyStatus(filterStatus)}
-            {searchTerm.trim() && ` · Search: ${searchTerm.trim()}`}
-          </p>
-        )}
-      </header>
+
+        <div data-report-print-meta>
+          <span>
+            <strong>Generated Date:</strong> {formatGeneratedDate(reportGeneratedAt)}
+          </span>
+          <span>
+            <strong>Generated Time:</strong> {formatGeneratedTime(reportGeneratedAt)}
+          </span>
+          <span>
+            <strong>Generated By:</strong> {generatedBy}
+          </span>
+        </div>
+
+        <section data-report-print-summary>
+          <h3>REPORT SUMMARY</h3>
+          <div data-report-print-summary-grid>
+            {reportSummaryItems.map((item) => (
+              <div key={item.label} data-report-print-summary-row>
+                <span>{item.label}</span>
+                <span>{item.value}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section data-report-print-table aria-label="Booking records table">
+          <h3 data-report-print-table-heading>BOOKING RECORDS</h3>
+          <table>
+            <colgroup>
+              <col style={{ width: "8%" }} />
+              <col style={{ width: "12%" }} />
+              <col style={{ width: "11%" }} />
+              <col style={{ width: "8%" }} />
+              <col style={{ width: "11%" }} />
+              <col style={{ width: "9%" }} />
+              <col style={{ width: "11%" }} />
+              <col style={{ width: "8%" }} />
+              <col style={{ width: "9%" }} />
+              <col style={{ width: "7%" }} />
+              <col style={{ width: "6%" }} />
+            </colgroup>
+            <thead>
+              <tr>
+                {EXCEL_HEADERS.map((header) => (
+                  <th key={header}>{header}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {reportRows.map((row, index) => (
+                <tr key={`${row.bookingId}-${index}`}>
+                  <td>{row.bookingId}</td>
+                  <td>{row.eventName}</td>
+                  <td>{row.client}</td>
+                  <td className="report-print-center">{formatReportDate(row.date)}</td>
+                  <td>{row.venue}</td>
+                  <td className="report-print-center">{row.bookingStatus}</td>
+                  <td className="report-print-center">{row.paymentStatus}</td>
+                  <td className="report-print-money">{formatReportMoney(row.totalAmount)}</td>
+                  <td className="report-print-money">{formatReportMoney(row.remainingBalance)}</td>
+                  <td className="report-print-center">{row.refundStatus}</td>
+                  <td className="report-print-money">{formatReportMoney(row.refundAmount)}</td>
+                </tr>
+              ))}
+              {reportRows.length === 0 && (
+                <tr>
+                  <td colSpan={EXCEL_HEADERS.length} className="report-print-empty">
+                    No booking records found for the selected filters.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </section>
+      </section>
+
+      <div data-report-dashboard>
 
       <div data-report-print-card className="mb-6 flex min-w-0 flex-col gap-4 py-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-bold text-slate-500">
@@ -1047,7 +1169,7 @@ export default function ReportsPage() {
             Net Revenue: <b className="text-emerald-600">{formatMoney(netRevenue)}</b>
           </span>
           <span>
-            Confirmed: <b className="text-slate-950">{confirmedBookings.length}</b>
+            Confirmed: <b className="text-slate-950">{reportSummary.confirmed}</b>
           </span>
         </div>
 
@@ -1106,7 +1228,7 @@ export default function ReportsPage() {
             <div>
               <h3 className="text-lg font-black text-slate-950">Monthly Performance</h3>
               <p className="text-xs font-semibold text-slate-500">
-                Shows booking volume and verified revenue per month.
+                 Shows booking volume and accepted/received revenue per month.
               </p>
             </div>
           </div>
@@ -1227,7 +1349,7 @@ export default function ReportsPage() {
             <div>
               <h3 className="text-lg font-black text-slate-950">Revenue per Venue</h3>
               <p className="text-xs font-semibold text-slate-500">
-                Based on confirmed and completed bookings only.
+                 Based on accepted/received payment amounts.
               </p>
             </div>
           </div>
@@ -1416,7 +1538,7 @@ export default function ReportsPage() {
 
         <div className="overflow-x-auto print:overflow-visible">
           <table className="w-full min-w-[950px] text-left text-sm print:min-w-0">
-            <thead className="border-b border-slate-100 bg-white text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+            <thead className="border-b border-slate-100 bg-white text-[10px] font-black uppercase tracking-[0.2em] text-slate-950">
               <tr>
                 <th className="p-5 pl-8">Booking ID</th>
                 <th className="p-5">Event Details</th>
@@ -1508,6 +1630,7 @@ export default function ReportsPage() {
             </button>
           </div>
         )}
+      </div>
       </div>
     </div>
   )

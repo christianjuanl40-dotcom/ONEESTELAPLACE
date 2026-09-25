@@ -113,7 +113,7 @@ export function CMSVenueMaintenance({ venueId, venueName, open, onClose }: Props
         <div className="space-y-5 p-5">
           {venueRecords.length > 0 && (
             <div>
-              <p className="mb-2 text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">
+              <p className="mb-2 text-[9px] font-black uppercase tracking-[0.2em] text-black">
                 Blocked Dates
               </p>
               <div className="max-h-[200px] space-y-1.5 overflow-y-auto">
@@ -157,7 +157,7 @@ export function CMSVenueMaintenance({ venueId, venueName, open, onClose }: Props
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">
+              <label className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
                 Start Date
               </label>
               <Input
@@ -169,7 +169,7 @@ export function CMSVenueMaintenance({ venueId, venueName, open, onClose }: Props
               />
             </div>
             <div>
-              <label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">
+              <label className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
                 End Date
               </label>
               <Input
@@ -183,7 +183,7 @@ export function CMSVenueMaintenance({ venueId, venueName, open, onClose }: Props
           </div>
 
           <div>
-            <label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">
+            <label className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
               Reason <span className="text-slate-300">(optional)</span>
             </label>
             <textarea

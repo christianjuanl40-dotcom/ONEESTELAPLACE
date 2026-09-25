@@ -99,11 +99,11 @@ export function CMSFaqsTab({ onNavigate }: { onNavigate: (tab: string) => void }
             </div>
             <div className="grid gap-4 p-5">
               <div>
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Question</label>
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Question</label>
                 <Input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="How long is the standard venue rental?" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
               </div>
               <div>
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Answer</label>
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Answer</label>
                 <Textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="The standard venue rental is 6 hours..."
                   className="mt-1 w-full min-h-[160px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
               </div>

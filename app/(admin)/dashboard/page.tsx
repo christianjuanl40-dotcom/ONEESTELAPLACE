@@ -496,7 +496,7 @@ function StatCard({
         <ArrowRight className="h-3.5 w-3.5 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-orange-600" />
       </div>
 
-      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
+      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
         {label}
       </p>
 

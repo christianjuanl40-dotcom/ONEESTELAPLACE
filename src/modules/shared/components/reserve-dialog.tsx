@@ -352,7 +352,7 @@ export function ReserveDialog({ open, onOpenChange, selectedVenueId, onBackToVen
 
                     <div className="grid grid-cols-7 gap-x-1 gap-y-3 text-center mb-6">
                       {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map(day => (
-                        <div key={day} className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">{day}</div>
+                        <div key={day} className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">{day}</div>
                       ))}
                       {emptySlots.map((_, i) => <div key={`empty-${i}`} className="aspect-square" />)}
                       {days.map((day) => {
@@ -388,7 +388,7 @@ export function ReserveDialog({ open, onOpenChange, selectedVenueId, onBackToVen
                     </div>
                     
                     {/* FLAT LEGEND */}
-                    <div className="mt-auto flex flex-wrap items-center justify-center gap-4 text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] border-t border-slate-100 pt-4">
+                    <div className="mt-auto flex flex-wrap items-center justify-center gap-4 text-[9px] font-bold text-black uppercase tracking-[0.2em] border-t border-slate-100 pt-4">
                       <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 bg-rose-500 rounded-full"/> Full</span>
                       <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 bg-[#eab308] rounded-full"/> Partial</span>
                       <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 bg-slate-900 rounded-full"/> Maint</span>
@@ -404,7 +404,7 @@ export function ReserveDialog({ open, onOpenChange, selectedVenueId, onBackToVen
                     
                     <div className="space-y-5">
                       <div className="space-y-2">
-                         <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Select Start Time</label>
+                         <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">Select Start Time</label>
                         <Select value={startTime} onValueChange={handleStartTimeChange} disabled={!date}>
                           <SelectTrigger className="bg-white border-slate-200 rounded-2xl h-11 w-full focus:ring-[#ea580c] text-sm shadow-sm">
                             <SelectValue placeholder={date ? "Choose start time" : "Select date first"} />
@@ -429,7 +429,7 @@ export function ReserveDialog({ open, onOpenChange, selectedVenueId, onBackToVen
                       {/* Read-only End Time na nag-a-auto compute */}
                       {startTime && endTime && (
                         <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
-                           <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Computed End Time</label>
+                            <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">Computed End Time</label>
                            <div className="h-11 bg-slate-50 border border-slate-200 rounded-2xl flex items-center px-4 text-sm font-bold text-slate-700 shadow-inner">
                             {formatTime(parseFloat(endTime))}
                           </div>
@@ -511,13 +511,13 @@ export function ReserveDialog({ open, onOpenChange, selectedVenueId, onBackToVen
                   <form onSubmit={handleSubmit} className="space-y-4">
                      
                      <div className="space-y-1.5">
-                         <label className="text-[10px] font-black block uppercase tracking-[0.2em] text-slate-700">Event Name *</label>
+                          <label className="text-[10px] font-black block uppercase tracking-[0.2em] text-black">Event Name *</label>
                          <Input required value={eventName} onChange={e => setEventName(e.target.value)} placeholder="e.g. 18th Birthday Party" className="bg-slate-50 border-slate-200 h-11 w-full rounded-lg px-4 text-xs focus-visible:ring-[#f97316] shadow-sm" />
                      </div>
 
                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                        <div className="space-y-1.5">
-                           <label className="text-[10px] font-black block uppercase tracking-[0.2em] text-slate-700">Event Type *</label>
+                            <label className="text-[10px] font-black block uppercase tracking-[0.2em] text-black">Event Type *</label>
                            <Select value={eventType} onValueChange={setEventType} required>
                              <SelectTrigger className="bg-slate-50 border-slate-200 h-11 w-full rounded-lg px-4 text-xs focus-visible:ring-[#f97316] shadow-sm">
                               <SelectValue placeholder="Choose Event Type" />
@@ -532,13 +532,13 @@ export function ReserveDialog({ open, onOpenChange, selectedVenueId, onBackToVen
                           </Select>
                        </div>
                        <div className="space-y-1.5">
-                           <label className="text-[10px] font-black block uppercase tracking-[0.2em] text-slate-700">Estimated Guests *</label>
+                            <label className="text-[10px] font-black block uppercase tracking-[0.2em] text-black">Estimated Guests *</label>
                            <Input required type="number" value={guests} onChange={e => setGuests(e.target.value)} placeholder="Max 250" className="bg-slate-50 border-slate-200 h-11 w-full rounded-lg px-4 text-xs focus-visible:ring-[#f97316] shadow-sm" />
                        </div>
                      </div>
                      
                      <div className="space-y-1.5">
-                         <label className="text-[10px] font-black block uppercase tracking-[0.2em] text-slate-700">Special Requests / Notes</label>
+                          <label className="text-[10px] font-black block uppercase tracking-[0.2em] text-black">Special Requests / Notes</label>
                         <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Tell us more about your event layout, catering needs, etc." className="bg-slate-50 border-slate-200 min-h-[60px] resize-none rounded-lg p-3 text-xs focus-visible:ring-[#f97316] shadow-sm w-full break-words" />
                      </div>
 

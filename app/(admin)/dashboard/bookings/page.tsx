@@ -877,7 +877,7 @@ function AdminBookingCard({
           {isOfficeRental ? <FileText className="h-5 w-5" /> : <Calendar className="h-5 w-5" />}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
             {isOfficeRental ? "Rental" : "Event"}
           </p>
           <p className="break-words whitespace-normal text-sm font-black leading-snug text-slate-900 line-clamp-2">
@@ -890,13 +890,13 @@ function AdminBookingCard({
       </div>
 
       <div className="min-w-0 sm:flex-1">
-        <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Customer</p>
+        <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-black">Customer</p>
         <p className="whitespace-normal break-words text-xs font-black text-slate-800">{booking.userInfo?.name || "—"}</p>
         <p className="whitespace-normal break-words text-[10px] font-bold text-slate-500">{booking.userInfo?.email || "—"}</p>
       </div>
 
       <div className="min-w-0 sm:flex-1">
-        <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
+        <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-black">Venue</p>
         <p className="whitespace-normal break-words text-xs font-bold text-slate-800">{booking.venue || "N/A"}</p>
       </div>
 
@@ -1166,7 +1166,7 @@ function BookingDetailsModal({
                 <section>
                   <div className="mb-4 flex items-center gap-2">
                     <div className="h-1.5 w-1.5 rounded-full bg-rose-400" />
-                    <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Cancellation Details</p>
+                    <p className="text-sm font-black uppercase tracking-[0.2em] text-black">Cancellation Details</p>
                   </div>
                   <div className="space-y-3 text-sm font-bold text-slate-700">
                     <div className="flex justify-between">
@@ -1210,7 +1210,7 @@ function BookingDetailsModal({
               <section>
                 <div className="mb-4 flex items-center gap-2">
                   <div className="h-1.5 w-1.5 rounded-full bg-blue-400" />
-                  <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Refund Details</p>
+                  <p className="text-sm font-black uppercase tracking-[0.2em] text-black">Refund Details</p>
                 </div>
                 <div className="space-y-3 text-sm font-bold text-slate-700">
                   <div className="flex justify-between">
@@ -1274,7 +1274,7 @@ function BookingDetailsModal({
             <section className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4 sm:p-5">
               <div className="mb-4 flex items-center gap-2">
                 <div className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-                <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Booking Information</p>
+                <p className="text-sm font-black uppercase tracking-[0.2em] text-black">Booking Information</p>
               </div>
               <div className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
                 <div className="min-w-0">
@@ -1344,7 +1344,7 @@ function BookingDetailsModal({
             <section className="py-5 first:pt-0">
               <div className="mb-2 flex items-center gap-2">
                 <div className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-                <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Special Requests</p>
+                <p className="text-sm font-black uppercase tracking-[0.2em] text-black">Special Requests</p>
               </div>
               <p className="text-sm font-bold leading-relaxed text-slate-700">{booking.specialRequests}</p>
             </section>
@@ -1356,7 +1356,7 @@ function BookingDetailsModal({
             <section className="py-5 first:pt-0">
               <div className="mb-4 flex items-center gap-2">
                 <div className="h-1.5 w-1.5 rounded-full bg-rose-400" />
-                <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                <p className="text-sm font-black uppercase tracking-[0.2em] text-black">
                   {isCancellationRequested ? "Cancellation Request" : "Cancellation / Refund Status"}
                 </p>
               </div>
@@ -1459,7 +1459,7 @@ function BookingDetailsModal({
             <section className="py-5 first:pt-0">
               <div className="mb-4 flex items-center gap-2">
                 <div className="h-1.5 w-1.5 rounded-full bg-blue-400" />
-                <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Modification Status</p>
+                <p className="text-sm font-black uppercase tracking-[0.2em] text-black">Modification Status</p>
               </div>
               <div className="space-y-3 text-sm font-bold text-slate-700">
                 <div className="flex justify-between">
@@ -1485,7 +1485,7 @@ function BookingDetailsModal({
             <section className="py-5 first:pt-0">
               <div className="mb-4 flex items-center gap-2">
                 <FileText className="h-4 w-4 text-slate-500" />
-                <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Contract</p>
+                <p className="text-sm font-black uppercase tracking-[0.2em] text-black">Contract</p>
               </div>
               <div className="space-y-2">
                 <span
@@ -1517,7 +1517,7 @@ function BookingDetailsModal({
             <section className="py-5 first:pt-0">
               <div className="mb-4 flex items-center gap-2">
                 <FileText className="h-4 w-4 text-slate-500" />
-                <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Contract</p>
+                <p className="text-sm font-black uppercase tracking-[0.2em] text-black">Contract</p>
               </div>
               <div className="min-w-0 space-y-3">
                 <span
@@ -1553,7 +1553,7 @@ function BookingDetailsModal({
               <section className="py-5 first:pt-0">
                 <div className="mb-4 flex items-center gap-2">
                   <FileText className="h-4 w-4 text-slate-500" />
-                  <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Contract</p>
+                  <p className="text-sm font-black uppercase tracking-[0.2em] text-black">Contract</p>
                 </div>
                 <span
                   className={cn(
@@ -1587,7 +1587,7 @@ function BookingDetailsModal({
               <section className="py-5 first:pt-0">
                 <div className="mb-4 flex items-center gap-2">
                   <Calendar className={`h-4 w-4 ${bookingStatus === "active_rental" ? "text-sky-500" : "text-rose-500"}`} />
-                  <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Rental Information</p>
+                  <p className="text-sm font-black uppercase tracking-[0.2em] text-black">Rental Information</p>
                 </div>
                 <div className="space-y-3 text-sm font-bold">
                   <div className="flex justify-between">
@@ -2117,7 +2117,7 @@ function RecordOnsitePaymentModal({
 
                 <div className="mt-5 space-y-4">
                   <div>
-                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
                       Payment Type *
                     </Label>
                     <Select value={paymentType} onValueChange={setPaymentType}>
@@ -2133,7 +2133,7 @@ function RecordOnsitePaymentModal({
                   </div>
 
                   <div>
-                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
                       Actual Method *
                     </Label>
                     <div className="mt-1.5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-700">
@@ -2142,7 +2142,7 @@ function RecordOnsitePaymentModal({
                   </div>
 
                   <div>
-                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
                       Amount Received *
                     </Label>
                     <Input
@@ -2167,7 +2167,7 @@ function RecordOnsitePaymentModal({
                   </div>
 
                   <div>
-                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
                       Admin Note / Reference
                     </Label>
                     <Textarea
@@ -2461,7 +2461,7 @@ function DeclineCancellationModal({
               </div>
             )}
             <div className="mt-4">
-              <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Decline Reason *</Label>
+              <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">Decline Reason *</Label>
               <Textarea
                 value={reason}
                 onChange={(e) => { onReasonChange(e.target.value); if (reasonError && e.target.value.trim()) setReasonError(false) }}
@@ -2599,7 +2599,7 @@ function DeclineModificationModal({
               </div>
             )}
             <div className="mt-4">
-              <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Decline Reason *</Label>
+              <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">Decline Reason *</Label>
               <Textarea
                 value={reason}
                 onChange={(e) => { onReasonChange(e.target.value); if (reasonError && e.target.value.trim()) setReasonError(false) }}
@@ -2938,7 +2938,7 @@ function MaintenanceCalendarModal({
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 space-y-5">
             {/* Type selector */}
             <div>
-              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
                 Space Type
               </label>
               <select
@@ -2958,7 +2958,7 @@ function MaintenanceCalendarModal({
             {/* Space dropdown */}
             {maintType === "venue" ? (
               <div>
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
                   Select Venue
                 </label>
                 <select
@@ -2977,7 +2977,7 @@ function MaintenanceCalendarModal({
             ) : (
               <>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
                     Select Building
                   </label>
                   <select
@@ -2995,7 +2995,7 @@ function MaintenanceCalendarModal({
                 </div>
                 {officeGroup && (
                   <div>
-                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
                       Select Room
                     </label>
                     <select
@@ -3018,7 +3018,7 @@ function MaintenanceCalendarModal({
             {/* Calendar */}
             <div>
               <div className="flex items-center justify-between">
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
                   Select Dates
                 </label>
               </div>
@@ -3057,7 +3057,7 @@ function MaintenanceCalendarModal({
                   {/* Day-of-week headers */}
                   <div className="mb-1.5 grid grid-cols-7 text-center">
                     {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
-                      <div key={d} className="text-[7px] font-black uppercase tracking-[0.1em] text-slate-400">
+                      <div key={d} className="text-[7px] font-black uppercase tracking-[0.1em] text-black">
                         {d}
                       </div>
                     ))}
@@ -3170,7 +3170,7 @@ function MaintenanceCalendarModal({
 
             {/* Reason */}
             <div>
-              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
                 Reason / Notes <span className="text-slate-300">(optional)</span>
               </label>
               <textarea
@@ -3194,7 +3194,7 @@ function MaintenanceCalendarModal({
             {spaceFilteredRecords.length > 0 && (
               <div>
                 <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
                     Existing Maintenance
                   </label>
                   <button
@@ -3208,7 +3208,7 @@ function MaintenanceCalendarModal({
                 </div>
 
                 <div className="mt-2">
-                  <label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
+                  <label className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
                     Filter Location
                   </label>
                   <select
@@ -3263,7 +3263,7 @@ function MaintenanceCalendarModal({
                               <div className="min-w-0 flex-1">
                                 {isOffice ? (
                                   <>
-                                    <p className="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">{building}</p>
+                                    <p className="text-[10px] font-black uppercase tracking-[0.1em] text-black">{building}</p>
                                     <p className="text-[11px] font-bold text-slate-700 truncate">{roomName}</p>
                                   </>
                                 ) : (

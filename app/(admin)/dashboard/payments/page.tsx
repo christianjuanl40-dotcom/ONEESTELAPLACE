@@ -822,7 +822,7 @@ function PaymentActionConfirmModal({
 
             {(isReject || isIncomplete) && (
               <div>
-                <label className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                <label className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.2em] text-black">
                   {isReject ? "Rejection Reason" : "Customer Note"}
                 </label>
                 <Textarea
@@ -913,7 +913,7 @@ function PaymentCard({
           <Receipt className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
             Payment
           </p>
           <p className="truncate text-sm font-black leading-snug text-slate-900">
@@ -926,12 +926,12 @@ function PaymentCard({
       </div>
 
       <div className="min-w-0">
-        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Customer</p>
+        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Customer</p>
         <p className="truncate text-xs font-black text-slate-800">{payment.userInfo?.name || "—"}</p>
       </div>
 
       <div className="min-w-0">
-        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
+        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Venue</p>
         <p className="truncate text-xs font-bold leading-snug text-slate-800">{payment.venue || "N/A"}</p>
       </div>
 
@@ -1358,7 +1358,7 @@ function PaymentReviewModal({
           <aside className="flex shrink-0 flex-col border-b border-slate-100 md:w-[36%] md:min-h-0 md:border-b-0 md:border-r lg:w-[360px]">
             <div className="flex shrink-0 items-center gap-1.5 border-b border-slate-100 px-4 py-3">
               <History className="h-3.5 w-3.5 text-slate-400" />
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
                 Payment History
               </p>
               {submissions.length > 0 && (
@@ -1444,7 +1444,7 @@ function PaymentReviewModal({
                   <>
                     <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center">
                       <FileText className="mx-auto mb-3 h-10 w-10 text-slate-300" />
-                      <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                      <p className="text-sm font-black uppercase tracking-[0.2em] text-black">
                         No Receipt Record
                       </p>
                       <p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-slate-500">
@@ -1622,7 +1622,7 @@ function ModalSection({
 }) {
   return (
     <div>
-      <h4 className="border-b border-slate-100 pb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+      <h4 className="border-b border-slate-100 pb-2 text-[10px] font-black uppercase tracking-[0.2em] text-black">
         {title}
       </h4>
 
@@ -2377,7 +2377,7 @@ function IncompletePaymentModal({
                 </div>
 
                 <div>
-                  <label className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                  <label className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.2em] text-black">
                     Verified Amount Received *
                   </label>
                   <Input
@@ -2409,7 +2409,7 @@ function IncompletePaymentModal({
                 </div>
 
                 <div>
-                  <label className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                  <label className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.2em] text-black">
                     Admin Note / Reason *
                   </label>
                   <Textarea
@@ -2669,7 +2669,7 @@ function OnsiteVerifyModal({
                 </div>
 
                 <div>
-                  <label className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                  <label className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.2em] text-black">
                     Amount Received *
                   </label>
                   <Input
@@ -2700,7 +2700,7 @@ function OnsiteVerifyModal({
                 </div>
 
                 <div>
-                  <label className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                  <label className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.2em] text-black">
                     Admin Note (optional)
                   </label>
                   <Textarea

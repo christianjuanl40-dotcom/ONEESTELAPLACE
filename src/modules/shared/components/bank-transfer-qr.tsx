@@ -10,7 +10,7 @@ export function BankTransferQR() {
 
   return (
     <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-center">
-      <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+      <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-black">
         Bank Transfer QR Code
       </p>
       <div className="flex justify-center">

@@ -41,17 +41,17 @@ export function CMSHomepageTab({ onNavigate }: { onNavigate: (tab: string) => vo
           </div>
           <div className="grid gap-5 p-6">
             <div>
-              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Homepage Badge</label>
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Homepage Badge</label>
               <Input value={form.heroBadge || ""} onChange={(e) => setForm({ ...form, heroBadge: e.target.value })}
                 className="mt-1.5 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" placeholder="Event Venue · San Pedro, Laguna" />
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Homepage Title</label>
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Homepage Title</label>
               <Textarea value={form.heroTitle || ""} onChange={(e) => setForm({ ...form, heroTitle: e.target.value })}
                 className="mt-1.5 w-full min-h-[96px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Homepage Subtitle</label>
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Homepage Subtitle</label>
               <Textarea value={form.heroSubtitle || ""} onChange={(e) => setForm({ ...form, heroSubtitle: e.target.value })}
                 className="mt-1.5 w-full min-h-[128px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
             </div>
@@ -68,17 +68,17 @@ export function CMSHomepageTab({ onNavigate }: { onNavigate: (tab: string) => vo
           </div>
           <div className="grid gap-5 p-6">
             <div>
-              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Section Label</label>
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Section Label</label>
               <Input value={form.aboutLabel || ""} onChange={(e) => setForm({ ...form, aboutLabel: e.target.value })}
                 className="mt-1.5 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" placeholder="Our Story" />
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Section Title</label>
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Section Title</label>
               <Input value={form.aboutTitle || ""} onChange={(e) => setForm({ ...form, aboutTitle: e.target.value })}
                 className="mt-1.5 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" placeholder="One Estela Place Event Venue" />
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Description</label>
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Description</label>
               <p className="mb-1.5 text-[10px] text-slate-400">Use double line breaks to separate paragraphs.</p>
               <Textarea value={form.aboutDescription || ""} onChange={(e) => setForm({ ...form, aboutDescription: e.target.value })}
                 className="w-full min-h-[180px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
@@ -99,18 +99,18 @@ export function CMSHomepageTab({ onNavigate }: { onNavigate: (tab: string) => vo
               <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.14em] text-orange-600">Gallery / Past Events</p>
               <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Label</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Label</label>
                   <Input value={form.galleryLabel || ""} onChange={(e) => setForm({ ...form, galleryLabel: e.target.value })}
                     className="mt-1.5 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" placeholder="Past Client Bookings" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Title</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Title</label>
                   <Input value={form.galleryTitle || ""} onChange={(e) => setForm({ ...form, galleryTitle: e.target.value })}
                     className="mt-1.5 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" placeholder="Real Events Hosted at One Estela Place" />
                 </div>
               </div>
               <div>
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Subtitle</label>
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Subtitle</label>
                 <Textarea value={form.gallerySubtitle || ""} onChange={(e) => setForm({ ...form, gallerySubtitle: e.target.value })}
                   className="mt-1.5 w-full min-h-[128px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
               </div>
@@ -120,18 +120,18 @@ export function CMSHomepageTab({ onNavigate }: { onNavigate: (tab: string) => vo
               <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.14em] text-orange-600">FAQ Section</p>
               <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Label</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Label</label>
                   <Input value={form.faqLabel || ""} onChange={(e) => setForm({ ...form, faqLabel: e.target.value })}
                     className="mt-1.5 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" placeholder="Help Center" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Title</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Title</label>
                   <Input value={form.faqTitle || ""} onChange={(e) => setForm({ ...form, faqTitle: e.target.value })}
                     className="mt-1.5 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" placeholder="Frequently Asked Questions" />
                 </div>
               </div>
               <div>
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Subtitle</label>
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Subtitle</label>
                 <Textarea value={form.faqSubtitle || ""} onChange={(e) => setForm({ ...form, faqSubtitle: e.target.value })}
                   className="mt-1.5 w-full min-h-[128px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
               </div>
@@ -147,12 +147,12 @@ export function CMSHomepageTab({ onNavigate }: { onNavigate: (tab: string) => vo
           </div>
           <div className="grid gap-5 p-6">
             <div>
-              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Title</label>
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Title</label>
               <Input value={form.ctaTitle || ""} onChange={(e) => setForm({ ...form, ctaTitle: e.target.value })}
                 className="mt-1.5 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" placeholder="Ready to plan your next event?" />
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Description</label>
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Description</label>
               <Textarea value={form.ctaDescription || ""} onChange={(e) => setForm({ ...form, ctaDescription: e.target.value })}
                 className="mt-1.5 w-full min-h-[128px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
             </div>
@@ -170,18 +170,18 @@ export function CMSHomepageTab({ onNavigate }: { onNavigate: (tab: string) => vo
               <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.14em] text-orange-600">Branding</p>
               <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Brand Name</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Brand Name</label>
                   <Input value={footer.brandName || ""} onChange={(e) => setFooter({ ...footer, brandName: e.target.value })}
                     className="mt-1.5 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" placeholder="One Estela Place" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Copyright Text</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Copyright Text</label>
                   <Input value={footer.copyrightText || ""} onChange={(e) => setFooter({ ...footer, copyrightText: e.target.value })}
                     className="mt-1.5 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" placeholder="One Estela Place. All rights reserved." />
                 </div>
               </div>
               <div>
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Footer Description</label>
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Footer Description</label>
                 <Textarea value={footer.footerDescription || ""} onChange={(e) => setFooter({ ...footer, footerDescription: e.target.value })}
                   className="mt-1.5 w-full min-h-[140px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
               </div>
@@ -191,17 +191,17 @@ export function CMSHomepageTab({ onNavigate }: { onNavigate: (tab: string) => vo
               <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.14em] text-orange-600">Contact Details</p>
               <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Email</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Email</label>
                   <Input value={footer.email || ""} onChange={(e) => setFooter({ ...footer, email: e.target.value })}
                     className="mt-1.5 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Phone</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Phone</label>
                   <Input value={footer.phone || ""} onChange={(e) => setFooter({ ...footer, phone: e.target.value })}
                     className="mt-1.5 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Address</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Address</label>
                   <Input value={footer.address || ""} onChange={(e) => setFooter({ ...footer, address: e.target.value })}
                     className="mt-1.5 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
@@ -212,12 +212,12 @@ export function CMSHomepageTab({ onNavigate }: { onNavigate: (tab: string) => vo
               <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.14em] text-orange-600">Social Links</p>
               <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Facebook URL</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Facebook URL</label>
                   <Input value={footer.facebook || ""} onChange={(e) => setFooter({ ...footer, facebook: e.target.value })}
                     className="mt-1.5 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Instagram URL</label>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Instagram URL</label>
                   <Input value={footer.instagram || ""} onChange={(e) => setFooter({ ...footer, instagram: e.target.value })}
                     className="mt-1.5 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>

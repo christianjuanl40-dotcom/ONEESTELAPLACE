@@ -43,7 +43,7 @@ export function CMSPaymentTab({ onNavigate }: { onNavigate: (key: string) => voi
       <div className="grid gap-5 lg:grid-cols-2">
         <div className="space-y-4">
           <div>
-            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Bank Name</Label>
+            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Bank Name</Label>
             <Input
               value={bankName}
               onChange={(e) => setBankName(e.target.value)}
@@ -53,7 +53,7 @@ export function CMSPaymentTab({ onNavigate }: { onNavigate: (key: string) => voi
           </div>
 
           <div>
-            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Account Name</Label>
+            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Account Name</Label>
             <Input
               value={accountName}
               onChange={(e) => setAccountName(e.target.value)}
@@ -63,7 +63,7 @@ export function CMSPaymentTab({ onNavigate }: { onNavigate: (key: string) => voi
           </div>
 
           <div>
-            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Account Number</Label>
+            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Account Number</Label>
             <Input
               value={accountNumber}
               onChange={(e) => setAccountNumber(e.target.value)}
@@ -73,7 +73,7 @@ export function CMSPaymentTab({ onNavigate }: { onNavigate: (key: string) => voi
           </div>
 
           <div>
-            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">Payment Instructions (Optional)</Label>
+            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Payment Instructions (Optional)</Label>
             <Textarea
               value={instructions}
               onChange={(e) => setInstructions(e.target.value)}

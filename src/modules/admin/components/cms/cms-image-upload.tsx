@@ -54,7 +54,7 @@ export function CMSImageUpload({
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3.5">
       <div className="mb-2.5 flex items-center justify-between gap-2">
-        <label className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">{label}</label>
+        <label className="text-[10px] font-bold uppercase tracking-[0.12em] text-black">{label}</label>
         <ImageIcon className="h-3.5 w-3.5 text-slate-400" />
       </div>
 
@@ -140,7 +140,7 @@ export function CMSPanoramaUpload({ value, storagePath, onValueChange }: { value
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3.5">
       <div className="mb-2.5 flex items-center justify-between gap-2">
-        <label className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">360 Panorama Image</label>
+        <label className="text-[10px] font-bold uppercase tracking-[0.12em] text-black">360 Panorama Image</label>
         <ImageIcon className="h-3.5 w-3.5 text-purple-400" />
       </div>
 

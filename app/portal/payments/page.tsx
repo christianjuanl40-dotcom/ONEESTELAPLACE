@@ -598,22 +598,22 @@ function CurrentTransactionCard({
         </div>
         <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
           <div className="min-w-0">
-            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Booking ID</p>
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Booking ID</p>
             <p className="mt-0.5 break-all text-xs font-black text-slate-800">{booking.id}</p>
           </div>
           <div className="min-w-0">
-            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Method</p>
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Method</p>
             <p className="mt-0.5 break-words text-xs font-bold text-slate-800">
               {getPaymentMethodLabel(booking.paymentMethod)}
             </p>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
             <div>
-               <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Money Received</p>
+               <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Money Received</p>
               <p className="mt-0.5 text-xs font-black text-emerald-700">{formatMoney(amountPaid)}</p>
             </div>
             <div>
-              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Balance</p>
+              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Balance</p>
               <p className={cn("mt-0.5 text-xs font-black", remaining > 0 ? "text-amber-700" : "text-emerald-700")}>
                 {formatMoney(remaining)}
               </p>
@@ -628,7 +628,7 @@ function CurrentTransactionCard({
           <Receipt className="h-5 w-5" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
             Current Transaction
           </p>
           <p className="mt-0.5 flex items-center gap-1.5 text-sm font-black text-slate-900">
@@ -649,7 +649,7 @@ function CurrentTransactionCard({
           <Receipt className="h-5 w-5" />
         </div>
         <div className="min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
             Current Transaction
           </p>
           <p className="break-words whitespace-normal text-sm font-black leading-snug text-slate-900 min-w-0">
@@ -665,11 +665,11 @@ function CurrentTransactionCard({
 
       <div className="hidden min-w-0 flex-1 grid-cols-[1fr_1fr] gap-x-8 md:grid">
         <div className="min-w-0">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Booking ID</p>
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Booking ID</p>
           <p className="mt-0.5 break-all text-xs font-black text-slate-800 truncate">{booking.id}</p>
         </div>
         <div className="min-w-0">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Method</p>
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Method</p>
           <p className="mt-0.5 break-words text-xs font-bold text-slate-800">
             {getPaymentMethodLabel(booking.paymentMethod)}
           </p>
@@ -765,18 +765,18 @@ function HistoryRow({
           {/* Tablet grouped + labeled (sm to md) */}
           <div className="mt-0.5 hidden flex-col gap-1 sm:flex md:hidden">
             <div className="min-w-0">
-              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Venue</p>
+              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Venue</p>
               <p className="truncate text-[11px] font-semibold text-slate-700">{booking.venue || "N/A"}</p>
             </div>
             <div className="flex items-center gap-4">
               <div className="min-w-0">
-                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Method</p>
+                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Method</p>
                 <p className="whitespace-nowrap text-[11px] font-bold text-slate-700">
                   {getPaymentMethodLabel(booking.paymentMethod)}
                 </p>
               </div>
               <div className="min-w-0">
-                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Amount</p>
+                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Amount</p>
                 <p className="whitespace-nowrap text-[11px] font-black text-slate-900">
                   {formatMoney(displayTotal)}
                 </p>
@@ -793,13 +793,13 @@ function HistoryRow({
           </p>
         </div>
         <div className="hidden text-left md:block min-w-0">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Method</p>
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Method</p>
           <p className="whitespace-nowrap text-[11px] font-bold text-slate-700">
             {getPaymentMethodLabel(booking.paymentMethod)}
           </p>
         </div>
         <div className="hidden text-left md:block min-w-0">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Amount</p>
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Amount</p>
           <p className="whitespace-nowrap text-[11px] font-black text-slate-900">
             {formatMoney(displayTotal)}
           </p>
@@ -887,7 +887,7 @@ function HistoryRow({
 function DetailItem({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="min-w-0 max-w-full">
-      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
+      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
         {label}
       </p>
       <div className="mt-0.5 whitespace-normal text-xs font-bold text-slate-800">{value}</div>
@@ -1879,7 +1879,7 @@ function TransactionsContent() {
                   </p>
 
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="mb-3 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                    <p className="mb-3 text-[10px] font-black uppercase tracking-[0.2em] text-black">
                       Payment Summary
                     </p>
 
@@ -1920,7 +1920,7 @@ function TransactionsContent() {
                       )}
                       <div className="border-t border-dashed border-slate-300 pt-3">
                         <div className="flex items-center justify-between gap-4">
-                          <span className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
+                          <span className="text-xs font-black uppercase tracking-[0.2em] text-black">
                             Amount to Pay
                           </span>
                           <span className="text-2xl font-black text-orange-600">
@@ -2224,7 +2224,7 @@ function TransactionsContent() {
               {paymentMethod === "bank" ? (
                 <div className="animate-in fade-in space-y-5">
                   <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm">
-                    <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                    <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-black">
                       Bank Details
                     </p>
                     <div className="flex flex-col gap-1 border-b border-slate-200 pb-3 sm:flex-row sm:justify-between">
@@ -2626,7 +2626,7 @@ function TransactionsContent() {
                 <div className="min-h-0 flex-1 overflow-y-auto sm:flex sm:overflow-hidden">
                   {viewingReceiptHistory.length > 0 && (
                     <CollapsibleContent className="border-b border-slate-100 p-5 sm:min-h-0 sm:w-72 sm:shrink-0 sm:overflow-y-auto sm:border-b-0 sm:border-r">
-                      <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                      <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-black">
                         Payment Receipts
                       </p>
                       <div className="space-y-1.5">
@@ -2686,7 +2686,7 @@ function TransactionsContent() {
                     </CollapsibleContent>
                   )}
                   <div className="min-w-0 p-5 sm:min-h-0 sm:flex-1 sm:overflow-y-auto">
-                    <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-black">
                       Payment Receipt
                     </p>
                     <ReceiptDetails
@@ -2872,7 +2872,7 @@ function SectionHeader({
         </div>
       )}
       <div className="min-w-0">
-        <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+        <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
           {title}
         </h2>
         {subtitle && (
@@ -2933,7 +2933,7 @@ function OfficePaymentTracker({
         </div>
       ))}
       {compact && payments.length > 3 && (
-        <p className="text-center text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+        <p className="text-center text-[10px] font-bold uppercase tracking-[0.2em] text-black">
           +{payments.length - 3} more check payment records
         </p>
       )}

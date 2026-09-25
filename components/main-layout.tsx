@@ -177,7 +177,7 @@ export function MainLayout({ children }: MainLayoutProps) {
           )}
         >
           <nav className="flex h-[calc(100vh-4rem)] h-[calc(100dvh-4rem)] flex-col gap-1 overflow-y-auto p-4">
-            <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+            <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-black">
               Admin Menu
             </p>
 

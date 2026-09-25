@@ -336,7 +336,7 @@ export default function StaffManagementPage() {
   const renderPermissionsSection = useCallback(
     (prefix: string) => (
       <div className="space-y-3">
-        <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
+        <p className="text-xs font-black uppercase tracking-[0.2em] text-black">
           Module Permissions
         </p>
         <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-3">
@@ -545,7 +545,7 @@ export default function StaffManagementPage() {
                       textClassName="text-sm font-black uppercase"
                     />
                     <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
                         Staff
                       </p>
                       <p className="break-words whitespace-normal text-sm font-black text-slate-900">
@@ -558,7 +558,7 @@ export default function StaffManagementPage() {
                   </div>
 
                   <div className="min-w-0 flex-1">
-                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
+                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
                       Email
                     </p>
                     <p className="break-words whitespace-normal text-xs font-black text-slate-800">
