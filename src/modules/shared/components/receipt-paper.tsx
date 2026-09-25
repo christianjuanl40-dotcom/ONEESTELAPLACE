@@ -37,13 +37,13 @@ function ReceiptPaperLine({
   highlight?: boolean
 }) {
   return (
-    <div className="flex gap-2 text-sm sm:gap-4">
-      <span className="min-w-[6.5rem] max-w-[40%] shrink-0 break-words font-black text-slate-900 sm:min-w-[9rem]">
+    <div className="grid grid-cols-[minmax(6.5rem,40%)_minmax(0,1fr)] items-start gap-x-2 text-sm sm:grid-cols-[minmax(9rem,40%)_minmax(0,1fr)] sm:gap-x-4">
+      <span className="min-w-0 break-words font-black text-slate-900">
         {label}:
       </span>
       <span
         className={cn(
-          "min-w-0 break-words font-black",
+          "min-w-0 break-words text-right font-black",
           highlight ? "text-orange-600" : "text-slate-900",
         )}
       >
