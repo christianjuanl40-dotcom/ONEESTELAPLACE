@@ -24,7 +24,7 @@ const modules = {
     const identity=uid=>({uid,email:uid.toLowerCase()+'@example.test',displayName:'Fixture '+uid,providerData:[],getIdToken:async()=>('fixture-token-'+uid)});
     const initial=params.get('returning');
     export const auth={currentUser:initial?identity(initial):null,authStateReady:()=>Promise.resolve()};
-    const profiles={A:{role:'client'},B:{role:'client'},Admin:{role:'admin'},Staff:{role:'staff',permissions:{dashboard:true,payments:true}}};
+    const profiles={A:{role:'client'},B:{role:'client'},Admin:{role:'admin'},Missing:null,Staff:{role:'staff',permissions:{dashboard:true,payments:true}}};
     const routeListeners=new Set(); let path=params.get('path')||'/';
     export const router={replace(next){window.fixture.routes.push(next);path=next;routeListeners.forEach(fn=>fn())},push(next){this.replace(next)},prefetch(){}};
     export const usePathname=()=>useSyncExternalStore(fn=>{routeListeners.add(fn);return()=>routeListeners.delete(fn)},()=>path);
@@ -195,6 +195,22 @@ try {
     await page.evaluate(()=>window.fixture.emitRetired())
     assert.deepEqual((await data()).books,['BOOK-B'])
     assert.deepEqual((await data()).payments,['PAY-B'])
+
+    // A customer logout followed by an admin login must use the admin profile
+    // and must not rely on the previous account's state.
+    await page.evaluate(()=>window.fixture.authContext.logout());await page.getByRole('button',{name:'Login',exact:true}).waitFor()
+    await signIn('Admin');await page.evaluate(()=>window.fixture.releaseProfile('Admin'))
+    await page.waitForFunction(()=>window.fixture.authContext.user?.role==='admin')
+    assert.equal(await page.evaluate(()=>window.fixture.routes.at(-1)),'/dashboard')
+    assert.equal(await page.evaluate(()=>window.fixture.authContext.user.role),'admin')
+    assert.deepEqual(await page.evaluate(()=>window.fixture.unexpected),[])
+
+    // A missing profile is an initialization failure, never a client profile
+    // write during ordinary login.
+    await page.evaluate(()=>window.fixture.authContext.logout());await page.getByRole('button',{name:'Login',exact:true}).waitFor()
+    await signIn('Missing');await page.evaluate(()=>window.fixture.releaseProfile('Missing'))
+    await page.getByRole('button',{name:'Sign In',exact:true}).waitFor()
+    assert.deepEqual(await page.evaluate(()=>window.fixture.unexpected),[])
 
     await open('?returning=A&path=/portal')
     await page.getByText('Loading your profile and permissions…',{exact:true}).waitFor()

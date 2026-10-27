@@ -200,27 +200,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsSigningIn(true)
     try {
       const credential = await signInWithEmailAndPassword(auth, email, password!)
-      let profile: AppUser
-      try { profile = await initializer.load(credential.user) }
-      catch (error) {
-        if (!(error && typeof error === "object" && "code" in error && error.code === "app/profile-missing")) throw error
-        // Preserve the existing explicit-login recovery for a confirmed missing
-        // profile. A failed/offline profile read must never trigger a write.
-        if (auth.currentUser?.uid !== credential.user.uid) throw new Error("The sign-in session changed. Please try again.")
-        const recoveredEmail = (credential.user.email || email).toLowerCase().trim()
-        const now = new Date().toISOString()
-        const recoveredData = {
-          uid: credential.user.uid,
-          email: recoveredEmail,
-          fullName: credential.user.displayName || recoveredEmail.split("@")[0] || "User",
-          role: "client",
-          status: "active",
-          createdAt: now,
-        }
-
-        await setDoc(doc(db, "users", credential.user.uid), recoveredData)
-        profile = await initializer.load(credential.user, true)
-      }
+      const profile = await initializer.load(credential.user)
       return { success: true, role: profile.role }
     } catch (error: any) {
       return { success: false, message: getFirebaseErrorMessage(error) }
