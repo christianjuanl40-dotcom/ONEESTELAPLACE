@@ -25,10 +25,16 @@ import { auth, db } from "@/lib/firebase"
 import { perfMark } from "@/src/modules/shared/lib/perf-trace"
 import type { StaffPermissions } from "@/src/modules/shared/types/permissions"
 import { DEFAULT_STAFF_PERMISSIONS } from "@/src/modules/shared/types/permissions"
-import { uploadToCloudinary, deleteFromCloudinary, extractPublicId } from "@/src/modules/shared/lib/cloudinary"
+import {
+  uploadToCloudinary,
+  deleteFromCloudinary,
+  extractPublicId,
+  isOwnedProfilePublicId,
+} from "@/src/modules/shared/lib/cloudinary"
 import { formatDisplayName, getStructuredName } from "@/src/modules/shared/lib/name-utils"
 import { getAuthHeaders } from "@/src/modules/shared/lib/auth-token"
 import { normalizeProfileContactUpdate } from "@/src/modules/shared/lib/profile-utils"
+import { updateAuthenticatedPassword } from "@/src/modules/shared/lib/password-update"
 import { safeRead } from "@/src/modules/shared/lib/safe-read"
 import { createSessionInitializer, type SessionState } from "@/src/modules/shared/lib/session-initialization"
 
@@ -81,6 +87,7 @@ export interface AuthContextValue {
   updateProfilePicture: (dataUrl: string) => Promise<void>
   removeProfilePicture: () => Promise<void>
   updateProfileDetails: (input: ProfileContactUpdateInput) => Promise<{ email: string; phone: string }>
+  updatePassword: (currentPassword: string, newPassword: string) => Promise<void>
   refreshUser: () => Promise<void>
 }
 
@@ -132,6 +139,33 @@ function getProfileUpdateErrorMessage(error: unknown): string {
       return "Too many attempts. Please try again later."
     default:
       return error instanceof Error ? error.message : "Unable to update your profile. Please try again."
+  }
+}
+
+function getPasswordUpdateErrorMessage(error: unknown): string {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: unknown }).code || "")
+    : ""
+
+  switch (code) {
+    case "auth/wrong-password":
+    case "auth/invalid-credential":
+      return "The current password is incorrect."
+    case "auth/requires-recent-login":
+    case "auth/user-token-expired":
+      return "For security, sign in again before changing your password."
+    case "auth/weak-password":
+      return "The new password should be at least 6 characters."
+    case "auth/password-reuse":
+    case "auth/password-fields-required":
+    case "auth/password-provider-required":
+      return error instanceof Error ? error.message : "Unable to update your password."
+    case "auth/too-many-requests":
+      return "Too many attempts. Please try again later."
+    case "auth/network-request-failed":
+      return "Network error. Please check your connection."
+    default:
+      return error instanceof Error ? error.message : "Unable to update your password. Please try again."
   }
 }
 
@@ -279,7 +313,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const currentUrl = user?.profilePicture
         if (currentUrl) {
           const publicId = extractPublicId(currentUrl)
-          if (publicId) {
+          // A legacy/profile URL is not proof of ownership. Clear the profile
+          // reference safely, but only request deletion for the trusted UID
+          // namespace enforced by the server route.
+          if (publicId && isOwnedProfilePublicId(publicId, identity.uid)) {
             deleteFromCloudinary(publicId).catch(() => {})
           }
         }
@@ -301,7 +338,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const currentUrl = user?.profilePicture
       if (currentUrl) {
         const publicId = extractPublicId(currentUrl)
-        if (publicId) {
+        // Unverified legacy images are deliberately left in Cloudinary; their
+        // profile reference can still be removed without granting deletion.
+        if (publicId && isOwnedProfilePublicId(publicId, identity.uid)) {
           await deleteFromCloudinary(publicId)
         }
       }
@@ -396,6 +435,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return persistedProfile
   }, [])
 
+  const updatePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    const currentUser = auth.currentUser
+    if (!currentUser) throw new Error("Authentication is required.")
+    try {
+      await updateAuthenticatedPassword(currentUser, currentPassword, newPassword)
+    } catch (error) {
+      throw new Error(getPasswordUpdateErrorMessage(error))
+    }
+  }, [])
+
   const refreshUser = useCallback(async () => {
     try { await safeRead(() => auth.authStateReady(), { attempts: 1 }) }
     catch (error) { initializer.fail(error); return }
@@ -417,9 +466,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updateProfilePicture,
       removeProfilePicture,
       updateProfileDetails,
+      updatePassword,
       refreshUser,
     }),
-    [user, isLoading, session.phase, session.error, isSigningIn, login, signup, logout, updateProfilePicture, removeProfilePicture, updateProfileDetails, refreshUser]
+    [user, isLoading, session.phase, session.error, isSigningIn, login, signup, logout, updateProfilePicture, removeProfilePicture, updateProfileDetails, updatePassword, refreshUser]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

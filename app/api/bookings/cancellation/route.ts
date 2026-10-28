@@ -17,6 +17,7 @@ import {
   hasPendingCancellation,
   type CancellationRecord,
 } from "@/src/modules/shared/lib/cancellation"
+import { getRecordsForBooking, type PaymentRecordLike } from "@/src/modules/shared/lib/payment-calculations"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -73,6 +74,25 @@ function getBookingResponse(
   bookingId: string,
 ): CancellationRecord & { id: string } {
   return { ...booking, id: bookingId }
+}
+
+async function readPaymentRecords(
+  transaction: any,
+  firestore: any,
+  bookingId: string,
+  bookingCode: string,
+): Promise<PaymentRecordLike[]> {
+  const snapshots = new Map<string, PaymentRecordLike>()
+  const identifiers = [...new Set([bookingId, bookingCode].filter(Boolean))]
+  for (const identifier of identifiers) {
+    for (const field of ["bookingId", "bookingCode"]) {
+      const querySnapshot = await transaction.get(firestore.collection("payments").where(field, "==", identifier))
+      querySnapshot.forEach((paymentSnapshot: any) => {
+        snapshots.set(paymentSnapshot.id, { ...(paymentSnapshot.data() as PaymentRecordLike), id: paymentSnapshot.id })
+      })
+    }
+  }
+  return getRecordsForBooking([...snapshots.values()], { id: bookingId, bookingCode })
 }
 
 async function notifyCancellation(
@@ -153,6 +173,13 @@ export async function POST(request: NextRequest) {
         throw new ApiAuthError(403, "You do not have access to this booking.")
       }
 
+      const paymentRecords = await readPaymentRecords(
+        transaction,
+        firestore,
+        bookingId,
+        String(booking.bookingCode || "").trim(),
+      )
+
       if (hasPendingCancellation(booking)) {
         return {
           changed: false,
@@ -160,16 +187,16 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      const eligibility = evaluateCancellationEligibility(booking)
+      const eligibility = evaluateCancellationEligibility(booking, new Date(), paymentRecords)
       if (!eligibility.allowed) {
         throw new ApiAuthError(409, eligibility.reason || "This booking cannot be cancelled.")
       }
 
       const requestedAt = new Date().toISOString()
-       const fields = buildCancellationRequestFields(booking, reason, requestedAt, {
-         actorId: user.uid,
-         actorName: user.fullName || user.email || "Client",
-       })
+      const fields = buildCancellationRequestFields(booking, reason, requestedAt, {
+        actorId: user.uid,
+        actorName: user.fullName || user.email || "Client",
+      })
       transaction.update(bookingRef, fields as any)
       return {
         changed: true,
@@ -220,13 +247,17 @@ export async function PATCH(request: NextRequest) {
         throw new ApiAuthError(409, "This booking has no pending cancellation request.")
       }
 
-       const reviewer = {
-         id: user.uid,
-         name: user.fullName || user.email || "Administrator",
-       }
-       const fields = action === "approve"
-         ? buildCancellationApprovalFields(booking, reviewedAt, reviewer)
-         : buildCancellationDeclineFields(booking, reason, reviewedAt, reviewer)
+      const paymentRecords = action === "approve"
+        ? await readPaymentRecords(transaction, firestore, bookingId, String(booking.bookingCode || "").trim())
+        : []
+
+      const reviewer = {
+        id: user.uid,
+        name: user.fullName || user.email || "Administrator",
+      }
+      const fields = action === "approve"
+        ? buildCancellationApprovalFields(booking, reviewedAt, reviewer, paymentRecords)
+        : buildCancellationDeclineFields(booking, reason, reviewedAt, reviewer)
       transaction.update(bookingRef, fields as any)
       return {
         booking: getBookingResponse({ ...booking, ...fields }, bookingId),

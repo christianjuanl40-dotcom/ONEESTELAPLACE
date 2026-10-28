@@ -2,7 +2,7 @@ import "server-only"
 import { canAutomaticallyExpireBooking } from "@/src/modules/shared/lib/booking-lifecycle"
 import { isAvailabilityBlockingBooking } from "@/src/modules/shared/lib/booking-helpers"
 
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { getAdminFirestore } from "@/lib/firebase-admin"
 import {
@@ -12,6 +12,10 @@ import {
 } from "@/lib/server-auth"
 import {
   calculatePaymentSummary,
+  centsToPaymentAmount,
+  MAX_PAYMENT_AMOUNT_CENTS,
+  parseCurrencyToCents,
+  toPaymentCents,
   getNextPaymentNumber,
   getRecordsForBooking,
   type PaymentRecordLike,
@@ -42,11 +46,29 @@ function readString(body: DataRecord, key: string, maxLength: number, required =
 }
 
 function readAmount(value: unknown): number {
-  const amount = typeof value === "number" ? value : Number(value)
-  if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000) {
+  const cents = parseCurrencyToCents(value)
+  if (cents === null || cents <= 0 || cents > MAX_PAYMENT_AMOUNT_CENTS) {
     throw new ApiAuthError(400, "Please provide a valid received amount.")
   }
-  return Math.round(amount * 100) / 100
+  return centsToPaymentAmount(cents)
+}
+
+function readIdempotencyKey(body: DataRecord): string {
+  const value = body.idempotencyKey
+  if (value === undefined || value === null || value === "") return ""
+  if (typeof value !== "string") throw new ApiAuthError(400, "Invalid idempotency key.")
+  const key = value.trim()
+  if (!/^[A-Za-z0-9._:-]{8,200}$/.test(key)) throw new ApiAuthError(400, "Invalid idempotency key.")
+  return key
+}
+
+function getIdempotencyRef(firestore: ReturnType<typeof getAdminFirestore>, bookingId: string, key: string) {
+  const digest = createHash("sha256").update(`${bookingId}\u0000${key}`).digest("hex")
+  return firestore.collection("paymentIdempotency").doc(`onsite_${digest}`)
+}
+
+function getIdempotencyFingerprint(paymentType: OnsitePaymentType, amountReceived: number, adminNote: string): string {
+  return JSON.stringify({ paymentType, amountCents: toPaymentCents(amountReceived), adminNote })
 }
 
 function asIso(value: unknown): unknown {
@@ -118,10 +140,44 @@ export async function POST(request: NextRequest) {
     }
     const amountReceived = readAmount(body.amountReceived)
     const adminNote = readString(body, "adminNote", 2000)
+    // Existing non-browser callers may omit this field for compatibility. The
+    // dashboard always supplies it, which makes retries of a committed onsite
+    // payment resolve to the original atomic result instead of creating money
+    // twice.
+    const idempotencyKey = readIdempotencyKey(body)
     const firestore = getAdminFirestore()
     const bookingRef = firestore.collection("bookings").doc(bookingId)
+    const idempotencyRef = idempotencyKey
+      ? getIdempotencyRef(firestore, bookingId, idempotencyKey)
+      : null
+    const fingerprint = getIdempotencyFingerprint(paymentType, amountReceived, adminNote)
 
     const result = await firestore.runTransaction(async (transaction) => {
+      if (idempotencyRef) {
+        const idempotencySnapshot = await transaction.get(idempotencyRef)
+        if (idempotencySnapshot.exists) {
+          const saved = idempotencySnapshot.data() as DataRecord
+          if (saved.fingerprint !== fingerprint) {
+            throw new ApiAuthError(409, "This idempotency key was already used for a different onsite payment.")
+          }
+          const savedPaymentId = String(saved.paymentId || "")
+          if (String(saved.bookingId || "") !== bookingId || !savedPaymentId) {
+            throw new ApiAuthError(409, "The onsite payment retry record is invalid. Contact support.")
+          }
+          const savedBookingSnapshot = await transaction.get(bookingRef)
+          const savedPaymentSnapshot = await transaction.get(firestore.collection("payments").doc(savedPaymentId))
+          if (!savedBookingSnapshot.exists || !savedPaymentSnapshot.exists) {
+            throw new ApiAuthError(409, "The original onsite payment could not be recovered. Contact support.")
+          }
+          return {
+            booking: { ...(savedBookingSnapshot.data() as DataRecord), id: bookingId },
+            payment: { ...(savedPaymentSnapshot.data() as DataRecord), id: savedPaymentId },
+            userId: "",
+            alreadyProcessed: true,
+          }
+        }
+      }
+
       const bookingSnapshot = await transaction.get(bookingRef)
       if (!bookingSnapshot.exists) throw new ApiAuthError(404, "Booking not found.")
       const booking: DataRecord & { id: string } = { ...(bookingSnapshot.data() as DataRecord), id: bookingId }
@@ -181,13 +237,16 @@ export async function POST(request: NextRequest) {
       if (summary.fullyPaid || summary.remainingBalance <= 0) {
         throw new ApiAuthError(409, "This booking has no remaining amount due.")
       }
-      if (amountReceived > summary.remainingBalance + 0.01) {
+      const amountReceivedCents = toPaymentCents(amountReceived)
+      const remainingBalanceCents = toPaymentCents(summary.remainingBalance)
+      if (amountReceivedCents > remainingBalanceCents) {
         throw new ApiAuthError(400, "The received amount exceeds the current balance.")
       }
-      if (paymentType === "full_payment" && Math.abs(amountReceived - summary.remainingBalance) > 0.01) {
-        throw new ApiAuthError(400, `Full payment must equal ${summary.remainingBalance.toLocaleString()}.`)
+      if (paymentType === "full_payment" && amountReceivedCents !== remainingBalanceCents) {
+        throw new ApiAuthError(400, `Full payment must equal ${centsToPaymentAmount(remainingBalanceCents).toLocaleString()}.`)
       }
-      if (paymentType === "downpayment" && summary.remainingDownpayment > 0 && amountReceived > summary.remainingDownpayment + 0.01) {
+      if (paymentType === "downpayment" && summary.remainingDownpayment > 0
+        && amountReceivedCents > toPaymentCents(summary.remainingDownpayment)) {
         throw new ApiAuthError(400, "The downpayment amount exceeds the remaining downpayment.")
       }
 
@@ -289,15 +348,25 @@ export async function POST(request: NextRequest) {
         stripUndefinedDeep(receipt) as DataRecord,
         { merge: true },
       )
+      if (idempotencyRef) {
+        transaction.create(idempotencyRef, {
+          bookingId,
+          paymentId,
+          receiptNumber,
+          fingerprint,
+          createdAt: now,
+        })
+      }
 
       return {
         booking: bookingWithReceipt,
         payment: { ...transition.payment, id: paymentId, receiptNumber },
         userId: String(booking.userId || ""),
+        alreadyProcessed: false,
       }
     })
 
-    if (result.userId) {
+    if (result.userId && !result.alreadyProcessed) {
       try {
         await firestore.collection("notifications").add({
           type: "payment_approved",
@@ -314,7 +383,7 @@ export async function POST(request: NextRequest) {
         console.error("[POST /api/payments/onsite] Notification write failed:", error)
       }
     }
-    return NextResponse.json(result, { status: 201 })
+    return NextResponse.json(result, { status: result.alreadyProcessed ? 200 : 201 })
   } catch (error: unknown) {
     return errorResponse(error)
   }

@@ -84,7 +84,7 @@ const modules = {
     };
   `,
   firebase: `export {auth,db} from 'virtual:init-state'`,
-  firebaseAuth: `export {onAuthStateChanged,signInWithEmailAndPassword,signOut,forbidden as createUserWithEmailAndPassword,forbidden as reauthenticateWithCredential,forbidden as reload} from 'virtual:init-state';export const EmailAuthProvider={credential:()=>({})}`,
+  firebaseAuth: `export {onAuthStateChanged,signInWithEmailAndPassword,signOut,forbidden as createUserWithEmailAndPassword,forbidden as reauthenticateWithCredential,forbidden as reload,forbidden as updatePassword} from 'virtual:init-state';export const EmailAuthProvider={credential:()=>({})}`,
   firestore: `import {getProfile} from 'virtual:init-state';export {onSnapshot,getDocs,forbidden as setDoc,forbidden as updateDoc,forbidden as writeBatch,forbidden as runTransaction} from 'virtual:init-state';
     export const doc=(_,collection,id)=>({path:collection,id}),collection=(_,path)=>({path}),where=(...args)=>args,orderBy=()=>({}),limit=()=>({}),query=(ref,...filters)=>({...ref,filters:filters.filter(Array.isArray)}),
       getDoc=ref=>getProfile(ref,'cache-default'),getDocFromServer=ref=>getProfile(ref,'server');`,

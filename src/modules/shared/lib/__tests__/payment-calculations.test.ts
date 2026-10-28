@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 import {
   calculatePaymentSummary,
+  centsToPaymentAmount,
   getPaymentDisplayModel,
   getPaymentRecordCreditedAmount,
   getRecordsForBooking,
@@ -8,6 +9,8 @@ import {
   isIncompletePaymentRecord,
   isRejectedPaymentRecord,
   isPendingPaymentRecord,
+  parseCurrencyToCents,
+  toPaymentCents,
   type BookingLike,
   type PaymentRecordLike,
 } from "../payment-calculations"
@@ -77,6 +80,34 @@ describe("TEST 1 — Normal downpayment: ₱7,500 submitted, ₱7,500 verified",
   it("fully paid is false", () => {
     const summary = calculatePaymentSummary(booking, records)
     expect(summary.fullyPaid).toBe(false)
+  })
+})
+
+describe("cent-level currency handling", () => {
+  it("accepts exact cent values and rejects fractions of a cent", () => {
+    expect(parseCurrencyToCents("₱1,234.50")).toBe(123450)
+    expect(parseCurrencyToCents(0.1)).toBe(10)
+    expect(parseCurrencyToCents("1.005")).toBeNull()
+    expect(parseCurrencyToCents("1e3")).toBeNull()
+    expect(toPaymentCents("1.005")).toBe(100)
+    expect(centsToPaymentAmount(30)).toBe(0.3)
+  })
+
+  it("sums decimal payments without a floating-point overpayment", () => {
+    const booking = makeBooking({
+      totalPrice: 0.3,
+      totalAmount: 0.3,
+      selectedDownpaymentAmount: 0.3,
+      paymentType: "downpayment",
+    })
+    const summary = calculatePaymentSummary(booking, [
+      makeRecord({ id: "DECIMAL-1", amount: 0.1, status: "verified" }),
+      makeRecord({ id: "DECIMAL-2", amount: 0.2, status: "verified" }),
+    ])
+
+    expect(summary.moneyReceivedTotal).toBe(0.3)
+    expect(summary.remainingBalance).toBe(0)
+    expect(summary.fullyPaid).toBe(true)
   })
 })
 

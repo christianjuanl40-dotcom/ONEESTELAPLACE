@@ -8,6 +8,13 @@ import {
   requireAuthenticatedUser,
   requireBackofficeUser,
 } from "@/lib/server-auth"
+import {
+  calculatePaymentSummary,
+  centsToPaymentAmount,
+  getRecordsForBooking,
+  toPaymentCents,
+  type PaymentRecordLike,
+} from "@/src/modules/shared/lib/payment-calculations"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -37,6 +44,31 @@ function appendLog(booking: DataRecord, action: string, message: string, created
     ? booking.adminLogs.filter(isRecord).slice(-49)
     : []
   return [...existing, { action, message, createdAt }]
+}
+
+async function readPaymentRecords(
+  transaction: any,
+  firestore: any,
+  bookingId: string,
+  bookingCode: string,
+): Promise<PaymentRecordLike[]> {
+  const snapshots = new Map<string, PaymentRecordLike>()
+  for (const identifier of [...new Set([bookingId, bookingCode].filter(Boolean))]) {
+    for (const field of ["bookingId", "bookingCode"]) {
+      const querySnapshot = await transaction.get(firestore.collection("payments").where(field, "==", identifier))
+      querySnapshot.forEach((paymentSnapshot: any) => {
+        snapshots.set(paymentSnapshot.id, { ...(paymentSnapshot.data() as PaymentRecordLike), id: paymentSnapshot.id })
+      })
+    }
+  }
+  return getRecordsForBooking([...snapshots.values()], { id: bookingId, bookingCode })
+}
+
+function getRefundLedgerCents(booking: DataRecord, bookingId: string, records: PaymentRecordLike[]): number {
+  return toPaymentCents(calculatePaymentSummary(
+    { ...booking, id: bookingId },
+    records,
+  ).moneyReceivedTotal)
 }
 
 function errorResponse(error: unknown) {
@@ -101,8 +133,27 @@ export async function POST(request: NextRequest) {
         if (refundStatus !== "eligible") {
           throw new ApiAuthError(409, "This booking is not eligible for a refund.")
         }
+        const records = await readPaymentRecords(
+          transaction,
+          firestore,
+          bookingId,
+          String(booking.bookingCode || "").trim(),
+        )
+        const ledgerCents = getRefundLedgerCents(booking, bookingId, records)
+        if (ledgerCents <= 0) {
+          throw new ApiAuthError(409, "A refund cannot be requested because no received payment is recorded.")
+        }
+        const existingRefundCents = toPaymentCents(booking.refundAmount)
+        if (existingRefundCents > ledgerCents) {
+          throw new ApiAuthError(409, "The recorded refund exceeds the payment ledger. Reconcile the booking before processing it.")
+        }
+        const refundAmount = existingRefundCents > 0
+          ? centsToPaymentAmount(existingRefundCents)
+          : centsToPaymentAmount(ledgerCents)
         const fields: DataRecord = {
           refundStatus: "requested",
+          refundAmount,
+          refundLedgerAmount: centsToPaymentAmount(ledgerCents),
           refundRequestedAt: now,
           refundRequestedBy: user.uid,
           lastActivityAt: now,
@@ -124,8 +175,21 @@ export async function POST(request: NextRequest) {
       if (refundStatus !== "requested") {
         throw new ApiAuthError(409, "This booking has no pending refund request.")
       }
+      const records = await readPaymentRecords(
+        transaction,
+        firestore,
+        bookingId,
+        String(booking.bookingCode || "").trim(),
+      )
+      const ledgerCents = getRefundLedgerCents(booking, bookingId, records)
+      const refundAmountCents = toPaymentCents(booking.refundAmount)
+      if (ledgerCents <= 0 || refundAmountCents <= 0 || refundAmountCents > ledgerCents) {
+        throw new ApiAuthError(409, "The refund amount is not supported by the current payment ledger. Reconcile the booking before processing it.")
+      }
       const fields: DataRecord = {
         refundStatus: "refunded",
+        refundedAmount: centsToPaymentAmount(refundAmountCents),
+        refundLedgerAmount: centsToPaymentAmount(ledgerCents),
         refundedAt: now,
         refundedBy: user.uid,
         refundProcessedBy: user.fullName || "Administrator",
@@ -142,31 +206,33 @@ export async function POST(request: NextRequest) {
       return { changed: true, booking: { ...booking, ...fields, id: bookingId } }
     })
 
-    try {
-      const userId = String(result.booking.userId || result.booking.uid || "")
-      if (userId) {
-        await firestore.collection("notifications").add({
-          type: action === "request" ? "refund_requested" : "refund_completed",
-          title: action === "request" ? "Refund Requested" : "Refund Completed",
-          message: action === "request"
-            ? "Your refund request has been recorded. Please visit the One Estela Place Management Office with your official receipt and valid ID."
-            : `Your refund for Booking ${bookingId} has been completed.`,
-          bookingId,
-          userId: action === "request" ? "admin" : userId,
-          ...(action === "request" ? { relatedUserId: userId } : {}),
-          isRead: false,
-          moduleRead: false,
-          createdAt: new Date(),
-          link: action === "request"
-            ? `/dashboard/bookings?highlight=${bookingId}`
-            : `/portal/bookings?highlight=${bookingId}`,
-        })
+    if (result.changed) {
+      try {
+        const userId = String(result.booking.userId || result.booking.uid || "")
+        if (userId) {
+          await firestore.collection("notifications").add({
+            type: action === "request" ? "refund_requested" : "refund_completed",
+            title: action === "request" ? "Refund Requested" : "Refund Completed",
+            message: action === "request"
+              ? "Your refund request has been recorded. Please visit the One Estela Place Management Office with your official receipt and valid ID."
+              : `Your refund for Booking ${bookingId} has been completed.`,
+            bookingId,
+            userId: action === "request" ? "admin" : userId,
+            ...(action === "request" ? { relatedUserId: userId } : {}),
+            isRead: false,
+            moduleRead: false,
+            createdAt: new Date(),
+            link: action === "request"
+              ? `/dashboard/bookings?highlight=${bookingId}`
+              : `/portal/bookings?highlight=${bookingId}`,
+          })
+        }
+      } catch (error) {
+        console.error(
+          "[POST /api/bookings/refund] Notification write failed:",
+          error instanceof Error ? error.message : "Unknown error",
+        )
       }
-    } catch (error) {
-      console.error(
-        "[POST /api/bookings/refund] Notification write failed:",
-        error instanceof Error ? error.message : "Unknown error",
-      )
     }
 
     return NextResponse.json(

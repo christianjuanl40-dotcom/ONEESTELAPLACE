@@ -54,6 +54,11 @@ rulesSuite("Firestore security rules", () => {
           status: "active",
           permissions: { bookings: true },
         }),
+        firestore.collection("users").doc("users-staff").set({
+          role: "staff",
+          status: "active",
+          permissions: { users: true },
+        }),
         firestore.collection("users").doc("payment-staff").set({
           role: "staff",
           status: "active",
@@ -87,6 +92,18 @@ rulesSuite("Firestore security rules", () => {
           refundEligible: false,
         }),
         firestore.collection("payments").doc("PAY001").set({ customerId: "client" }),
+        firestore.collection("receipts").doc("RECEIPT-CLIENT").set({
+          bookingId: "BK001",
+          paymentId: "PAY001",
+          paymentStatus: "Verified",
+          paymentAmount: 5000,
+        }),
+        firestore.collection("receipts").doc("RECEIPT-OTHER").set({
+          bookingId: "BK002",
+          paymentId: "PAY002",
+          paymentStatus: "Verified",
+          paymentAmount: 5000,
+        }),
         firestore.collection("maintenanceRecords").doc("MAINT001").set({
           type: "venue", scope: "venue", venueId: "V1", spaceId: "V1", date: "2099-03-01", status: "active",
         }),
@@ -172,9 +189,11 @@ rulesSuite("Firestore security rules", () => {
       const booking = firestore.collection("bookings").doc("OFFICE-BOOKING")
       await assertSucceeds(booking.update({
         eventName: "Updated customer label", specialRequests: "Staff note", updatedAt: "2099-01-01T12:00:00Z",
-        adminLogs: [{ action: "NOTE", message: "Metadata edit", createdAt: "2099-01-01T12:00:00Z" }],
       }))
       expect((await booking.get()).data()).toMatchObject({ ...officeBooking, specialRequests: "Staff note" })
+      await assertFails(booking.update({
+        adminLogs: [{ action: "NOTE", message: "Forged audit edit", createdAt: "2099-01-01T12:00:00Z" }],
+      }))
       await assertSucceeds(firestore.collection("bookings").get())
       await assertSucceeds(firestore.collection("officeRentals").get())
     })
@@ -239,6 +258,121 @@ rulesSuite("Firestore security rules", () => {
     await assertFails(
       firestore.collection("users").doc("client").update({
         role: "admin",
+      }),
+    )
+    await assertFails(
+      firestore.collection("users").doc("client").update({
+        permissions: { users: true },
+      }),
+    )
+    await assertFails(
+      firestore.collection("users").doc("client").update({
+        status: "inactive",
+      }),
+    )
+    await assertFails(
+      firestore.collection("users").doc("client").update({
+        uid: "another-user",
+      }),
+    )
+  })
+
+  it("restricts Users-management staff to client metadata and blocks authorization escalation", async () => {
+    await seedProfilesAndRecords()
+    const firestore = testEnv.authenticatedContext("users-staff").firestore()
+
+    await assertSucceeds(
+      firestore.collection("users").doc("client").update({
+        email: "staff-updated@example.com",
+        phone: "+63 900 111 2222",
+      }),
+    )
+    await assertFails(
+      firestore.collection("users").doc("users-staff").update({
+        role: "admin",
+      }),
+    )
+    await assertFails(
+      firestore.collection("users").doc("users-staff").update({
+        permissions: { users: true, payments: true },
+      }),
+    )
+    await assertFails(
+      firestore.collection("users").doc("admin").update({
+        role: "client",
+        permissions: {},
+        status: "inactive",
+      }),
+    )
+    await assertFails(
+      firestore.collection("users").doc("booking-staff").update({
+        permissions: { bookings: true, users: true },
+      }),
+    )
+    await assertFails(
+      firestore.collection("users").doc("client").update({
+        role: "staff",
+      }),
+    )
+  })
+
+  it("keeps administrator authorization changes server-only", async () => {
+    await seedProfilesAndRecords()
+    const firestore = testEnv.authenticatedContext("admin").firestore()
+
+    await assertSucceeds(
+      firestore.collection("users").doc("admin").update({ phone: "+63 900 333 4444" }),
+    )
+    await assertFails(
+      firestore.collection("users").doc("booking-staff").update({
+        permissions: { bookings: true, reports: true },
+      }),
+    )
+    await assertFails(
+      firestore.collection("users").doc("booking-staff").update({ status: "inactive" }),
+    )
+  })
+
+  it("keeps receipt reads owner-scoped and makes receipt/audit writes server-only", async () => {
+    await seedProfilesAndRecords()
+    const client = testEnv.authenticatedContext("client").firestore()
+    const admin = testEnv.authenticatedContext("admin").firestore()
+    const paymentStaff = testEnv.authenticatedContext("payment-staff").firestore()
+
+    await assertSucceeds(client.collection("receipts").doc("RECEIPT-CLIENT").get())
+    await assertFails(client.collection("receipts").doc("RECEIPT-OTHER").get())
+    await assertFails(
+      client.collection("receipts").doc("FORGED").set({
+        bookingId: "BK001",
+        paymentStatus: "Verified",
+        paymentAmount: 100000,
+        reviewedBy: "Forged Client",
+      }),
+    )
+    await assertFails(
+      client.collection("receipts").doc("RECEIPT-CLIENT").update({
+        paymentAmount: 100000,
+        reviewedBy: "Forged Client",
+      }),
+    )
+    await assertFails(
+      client.collection("bookings").doc("BK001").update({
+        receipt: { bookingId: "BK001", paymentStatus: "Verified", paymentAmount: 100000 },
+        paymentReceipts: [{ bookingId: "BK001", paymentStatus: "Verified", paymentAmount: 100000 }],
+        receiptIssued: true,
+        adminLogs: [{ action: "FORGED" }],
+      }),
+    )
+    await assertFails(
+      admin.collection("receipts").doc("ADMIN-FORGED").set({
+        bookingId: "BK001",
+        paymentStatus: "Verified",
+      }),
+    )
+    await assertFails(
+      paymentStaff.collection("receipts").doc("STAFF-FORGED").set({
+        bookingId: "BK001",
+        paymentStatus: "Verified",
       }),
     )
   })

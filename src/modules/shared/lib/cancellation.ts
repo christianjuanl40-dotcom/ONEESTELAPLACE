@@ -1,3 +1,5 @@
+import { calculatePaymentSummary, type PaymentRecordLike } from "./payment-calculations"
+
 export type CancellationRecord = Record<string, unknown>
 
 export type CancellationSource = "client" | "admin" | "system"
@@ -41,11 +43,6 @@ function normalize(value: unknown): string {
 
 function isRecord(value: unknown): value is CancellationRecord {
   return typeof value === "object" && value !== null
-}
-
-function getNumber(value: unknown): number {
-  const parsed = typeof value === "number" ? value : Number(value)
-  return Number.isFinite(parsed) ? parsed : 0
 }
 
 function getStatusLabel(status: string): string {
@@ -122,6 +119,7 @@ export type CancellationEligibility = {
 export function evaluateCancellationEligibility(
   booking: CancellationRecord,
   now = new Date(),
+  records: ReadonlyArray<PaymentRecordLike> = [],
 ): CancellationEligibility {
   const status = normalize(booking.status)
   const cancellationStatus = normalize(booking.cancellationStatus)
@@ -149,6 +147,11 @@ export function evaluateCancellationEligibility(
   const paymentStatus = normalize(booking.paymentStatus)
   if (PAYMENT_UNAVAILABLE_STATUSES.has(paymentStatus)) {
     return { allowed: false, reason: "Cancellation is available after the booking payment is secured.", daysBeforeEvent }
+  }
+
+  const paymentSummary = calculatePaymentSummary(booking, records)
+  if (paymentSummary.moneyReceivedTotal <= 0) {
+    return { allowed: false, reason: "Cancellation is available after a payment is recorded.", daysBeforeEvent }
   }
 
   if (booking.isSlotSecured !== true && booking.verifiedByAdmin !== true) {
@@ -214,15 +217,6 @@ export function buildCancellationRequestFields(
   }
 }
 
-function hasVerifiedPayment(booking: CancellationRecord): boolean {
-  return getNumber(booking.amountPaid) > 0 || [
-    "verified",
-    "paid",
-    "partial",
-    "slot_verified",
-  ].includes(normalize(booking.paymentStatus))
-}
-
 function addDaysToIso(value: string, days: number): string {
   const date = new Date(value)
   date.setDate(date.getDate() + days)
@@ -237,10 +231,12 @@ export function buildCancellationApprovalFields(
   booking: CancellationRecord,
   reviewedAt: string,
   reviewer: { id?: string; name?: string } = {},
+  records: ReadonlyArray<PaymentRecordLike> = [],
 ): CancellationRecord {
   const daysBeforeEvent = calculateCancellationDaysBeforeEvent(booking.date, new Date(reviewedAt))
-  const eligible = daysBeforeEvent >= REFUND_ELIGIBLE_DAYS && hasVerifiedPayment(booking)
-  const totalPrice = getNumber(booking.totalPrice)
+  const paymentSummary = calculatePaymentSummary(booking, records)
+  const eligible = daysBeforeEvent >= REFUND_ELIGIBLE_DAYS && paymentSummary.moneyReceivedTotal > 0
+  const refundableAmount = eligible ? paymentSummary.moneyReceivedTotal : 0
 
   return {
     status: "cancelled",
@@ -269,7 +265,7 @@ export function buildCancellationApprovalFields(
     refundMethod: eligible ? "Cash" : null,
     refundMode: eligible ? "Cash" : null,
     refundStatus: eligible ? "eligible" : "not_eligible",
-    refundAmount: eligible ? totalPrice : 0,
+    refundAmount: refundableAmount,
     refundReadyDate: eligible ? addDaysToIso(reviewedAt, 7) : null,
     refundEligibilityNote: eligible ? "May be eligible for refund" : "Non-refundable based on policy",
     refundClaimNote: eligible

@@ -1,6 +1,5 @@
 import { v2 as cloudinary } from "cloudinary";
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminFirestore } from "@/lib/firebase-admin";
 import { isApiAuthError, requireAuthenticatedUser } from "@/lib/server-auth";
 
 export const runtime = "nodejs";
@@ -13,25 +12,23 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+type CloudinaryResourceType = "image" | "raw";
+
 function isSafePublicId(publicId: string): boolean {
-  return publicId.length <= 200 && /^[a-z0-9._/-]+$/i.test(publicId) && !publicId.includes("..");
+  return publicId.length <= 200
+    && /^[a-z0-9][a-z0-9._/-]*$/i.test(publicId)
+    && !publicId.includes("..")
+    && !publicId.includes("//")
+    && !publicId.endsWith("/");
 }
 
-function publicIdFromCloudinaryUrl(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    if (parsed.hostname !== "cloudinary.com" && !parsed.hostname.endsWith(".cloudinary.com")) return null;
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    const uploadIndex = parts.indexOf("upload");
-    if (uploadIndex < 0) return null;
-    const pathParts = parts.slice(uploadIndex + 1).filter((part) => !/^v\d+$/.test(part));
-    const last = pathParts[pathParts.length - 1];
-    if (!last) return null;
-    pathParts[pathParts.length - 1] = last.replace(/\.[a-z0-9]+$/i, "");
-    return pathParts.join("/");
-  } catch {
-    return null;
-  }
+function isOwnedProfileAsset(publicId: string, uid: string): boolean {
+  const prefix = `profiles/${uid}/`;
+  return publicId.startsWith(prefix) && publicId.length > prefix.length;
+}
+
+function isCmsAsset(publicId: string): boolean {
+  return publicId.startsWith("cms/") && publicId.length > "cms/".length;
 }
 
 export async function POST(request: NextRequest) {
@@ -57,28 +54,30 @@ export async function POST(request: NextRequest) {
       ? body as Record<string, unknown>
       : null;
     const publicId = typeof bodyRecord?.publicId === "string" ? bodyRecord.publicId.trim() : "";
+    const requestedResourceType = typeof bodyRecord?.resourceType === "string"
+      ? bodyRecord.resourceType.trim().toLowerCase()
+      : "image";
 
     if (!publicId || !isSafePublicId(publicId)) {
       return NextResponse.json({ error: "Invalid public ID." }, { status: 400 });
     }
+    if (requestedResourceType !== "image" && requestedResourceType !== "raw") {
+      return NextResponse.json({ error: "Unsupported Cloudinary resource type." }, { status: 400 });
+    }
+    const resourceType = requestedResourceType as CloudinaryResourceType;
 
-    let allowed = user.role === "admin";
-    if (!allowed && publicId.startsWith("cms/") && user.permissions.cms === true) {
-      allowed = true;
-    }
-    if (!allowed && publicId.startsWith(`profiles/${user.uid}/`)) {
-      allowed = true;
-    }
-    if (!allowed) {
-      const profile = await getAdminFirestore().collection("users").doc(user.uid).get();
-      const storedPublicId = publicIdFromCloudinaryUrl(String(profile.data()?.profilePicture || ""));
-      allowed = storedPublicId === publicId;
-    }
+    // Ownership is established by a server-enforced namespace, never by the
+    // editable profilePicture URL. Legacy URLs without this namespace fail
+    // closed and can be removed from the profile without authorizing deletion.
+    const ownsProfileAsset = isOwnedProfileAsset(publicId, user.uid) && resourceType === "image";
+    const managesCmsAssets = isCmsAsset(publicId)
+      && (user.role === "admin" || user.permissions.cms === true);
+    const allowed = ownsProfileAsset || managesCmsAssets;
     if (!allowed) {
       return NextResponse.json({ error: "You are not allowed to delete this file." }, { status: 403 });
     }
 
-    await cloudinary.uploader.destroy(publicId);
+    await cloudinary.uploader.destroy(publicId, { resource_type: resourceType, type: "upload" });
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

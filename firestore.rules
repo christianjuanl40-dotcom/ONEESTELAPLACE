@@ -72,6 +72,32 @@ service cloud.firestore {
       return signedIn() && userId == request.auth.uid;
     }
 
+    // Browser profile writes may update contact/presentation metadata only.
+    // Role, permissions, status, and UID changes belong to the server-side
+    // staff administration workflow (Admin SDK writes bypass these rules).
+    function preservesUserAuthorization() {
+      return request.resource.data.get("uid", "") == resource.data.get("uid", "")
+        && request.resource.data.get("role", "") == resource.data.get("role", "")
+        && request.resource.data.get("status", "active") == resource.data.get("status", "active")
+        && request.resource.data.get("permissions", {}) == resource.data.get("permissions", {});
+    }
+
+    function isProfileMetadataUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        "email",
+        "phone",
+        "profilePicture",
+        "lastActiveAt"
+      ])
+        && preservesUserAuthorization();
+    }
+
+    function isClientProfileMetadataUpdate() {
+      return resource.data.get("role", "") == "client"
+        && request.resource.data.get("role", "") == "client"
+        && isProfileMetadataUpdate();
+    }
+
     function bookingPath(bookingId) {
       return /databases/$(database)/documents/bookings/$(bookingId);
     }
@@ -158,12 +184,6 @@ service cloud.firestore {
           "paymentStatus",
           "lastActivityAt",
           "updatedAt",
-          "adminLogs",
-          "paymentReceipts",
-          "receiptIssued",
-          "receiptNumber",
-          "receiptIssuedAt",
-          "receipt",
           "previousStatus",
           "previousBookingStatus",
           "previousPaymentStatus",
@@ -184,16 +204,16 @@ service cloud.firestore {
           || request.resource.data.get("status", "") in [
             "pending",
             "verifying",
-             "cancellation_requested",
-             "cancelled"
+            "cancellation_requested",
+            "cancelled"
           ]
         )
         && (
           request.resource.data.get("bookingStatus", "") == resource.data.get("bookingStatus", "")
           || request.resource.data.get("bookingStatus", "") in [
             "Pending Verification",
-             "Cancellation Under Review",
-             "Cancelled"
+            "Cancellation Under Review",
+            "Cancelled"
           ]
         )
         && (
@@ -249,26 +269,19 @@ service cloud.firestore {
         ));
 
       allow create: if ownsUser(userId)
-        && request.resource.data.get("uid", userId) == userId
+        && request.resource.data.get("uid", "") == userId
         && request.resource.data.get("role", "") == "client"
-        && request.resource.data.get("status", "active") == "active"
+        && request.resource.data.get("status", "") == "active"
         && !request.resource.data.keys().hasAny(["permissions"]);
 
-      allow update: if isAdmin()
-        || (isStaff() && hasPermission("users"))
-        || (
-          ownsUser(userId)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            "email",
-            "phone",
-            "profilePicture",
-            "lastActiveAt"
-          ])
-          && request.resource.data.get("uid", userId) == resource.data.get("uid", userId)
-          && request.resource.data.get("role", "") == resource.data.get("role", "")
-          && request.resource.data.get("status", "active") == resource.data.get("status", "active")
-          && request.resource.data.get("permissions", {}) == resource.data.get("permissions", {})
-        );
+      // Administrators manage roles, permissions, and account status through
+      // /api/staff. Browser rules intentionally permit only ordinary profile
+      // metadata, including an administrator's own profile/presence fields.
+      // Staff users-management access is limited to client targets and the
+      // same metadata allowlist; staff/admin authorization fields are frozen.
+      allow update: if (isAdmin() && isProfileMetadataUpdate())
+        || (isStaff() && hasPermission("users") && isClientProfileMetadataUpdate())
+        || (ownsUser(userId) && isProfileMetadataUpdate());
 
       allow delete: if false;
     }
@@ -284,7 +297,11 @@ service cloud.firestore {
           "venueId", "officeId", "spaceId", "venue", "date", "startDate", "endDate",
           "startTime", "endTime", "time", "bookingCategory", "bookingType", "isOfficeRental",
           "officeRentalTerm", "rentalTerm", "contractTerm", "status", "bookingStatus",
-          "isSlotSecured", "amountPaid", "totalPrice", "paymentStatus"
+          "isSlotSecured", "amountPaid", "totalPrice", "paymentStatus",
+          "adminLogs", "paymentReceipts", "receipt", "receiptIssued",
+          "receiptNumber", "receiptIssuedAt", "paymentReviewedAt",
+          "paymentReviewedBy", "paymentVerifiedAt", "paymentVerifiedBy",
+          "paymentVerifiedAmount", "verifiedByAdmin", "verifiedAt"
         ]);
       allow delete: if false;
     }
@@ -311,8 +328,9 @@ service cloud.firestore {
           isClient()
           && resource.data.get("customerId", "") == request.auth.uid
         );
-      allow create: if canWritePayments();
-      allow update: if canWritePayments();
+      // Payment submissions, verification decisions, and their ledger fields
+      // are written by authenticated server transactions only.
+      allow create, update: if false;
       allow delete: if false;
     }
 
@@ -320,19 +338,9 @@ service cloud.firestore {
       allow read: if canReadPayments()
         || canReadBookings()
         || (isClient() && bookingOwner(resource.data.get("bookingId", "")));
-      allow create: if isAdmin()
-        || (isStaff() && (hasPermission("bookings") || hasPermission("payments")))
-        || (
-          isClient()
-          && bookingOwner(request.resource.data.get("bookingId", ""))
-        );
-      allow update: if isAdmin()
-        || (isStaff() && (hasPermission("bookings") || hasPermission("payments")))
-        || (
-          isClient()
-          && bookingOwner(resource.data.get("bookingId", ""))
-          && request.resource.data.get("bookingId", "") == resource.data.get("bookingId", "")
-        );
+      // Receipts contain verified amounts, payment joins, review snapshots,
+      // and administrator audit metadata. They are server-issued only.
+      allow create, update: if false;
       allow delete: if false;
     }
 

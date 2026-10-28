@@ -495,6 +495,7 @@ interface BookingContextType {
   manualRecordOnsitePayment: (id: string, paymentData: {
     paymentType: "downpayment" | "remaining_balance" | "full_payment";
     amountReceived: number;
+    idempotencyKey?: string;
     adminNote?: string;
     adminName?: string;
   }) => Promise<Booking | null>;
@@ -1670,6 +1671,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     paymentData: {
       paymentType: "downpayment" | "remaining_balance" | "full_payment";
       amountReceived: number;
+      idempotencyKey?: string;
       adminNote?: string;
       adminName?: string;
     },
@@ -1681,6 +1683,11 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         bookingId: id,
         paymentType: paymentData.paymentType,
         amountReceived: paymentData.amountReceived,
+        idempotencyKey: paymentData.idempotencyKey || (
+          typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+        ),
         adminNote: paymentData.adminNote || "",
         adminName: paymentData.adminName || "",
       }),

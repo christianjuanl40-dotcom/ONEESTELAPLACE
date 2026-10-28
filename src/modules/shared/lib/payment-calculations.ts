@@ -236,21 +236,84 @@ export interface ReceiptPresentation {
   finalizedAt: string
 }
 
+/**
+ * Money is persisted as ordinary Firestore numbers for schema compatibility,
+ * but all validation and ledger arithmetic is performed in integer cents.
+ *
+ * `parseCurrencyToCents` is intentionally strict and is for request input:
+ * it accepts at most two decimal places and rejects signs, exponents, and
+ * partially numeric strings. `toPaymentCents` is the compatibility helper for
+ * historical documents; invalid legacy values become zero and extra decimal
+ * places are rounded to the nearest cent.
+ */
+export const MAX_PAYMENT_AMOUNT_CENTS = 1_000_000_000
+
+function numberToCurrencyCents(value: number): number | null {
+  if (!Number.isFinite(value) || value < 0) return null
+  const scaled = value * 100
+  const cents = Math.round(scaled)
+  if (!Number.isSafeInteger(cents) || Math.abs(scaled - cents) > 1e-7) return null
+  return cents
+}
+
+export function parseCurrencyToCents(value: unknown): number | null {
+  if (typeof value === "number") return numberToCurrencyCents(value)
+  if (typeof value !== "string") return null
+
+  const normalized = value.trim()
+    .replace(/^₱\s*/, "")
+    .replace(/,/g, "")
+  if (!/^\+?\d+(?:\.\d{1,2})?$/.test(normalized)) return null
+
+  const unsigned = normalized.startsWith("+") ? normalized.slice(1) : normalized
+  const [whole, fraction = ""] = unsigned.split(".")
+  const wholeCents = Number(whole) * 100
+  const cents = wholeCents + Number((fraction + "00").slice(0, 2))
+  return Number.isSafeInteger(cents) ? cents : null
+}
+
+export function toPaymentCents(value: unknown): number {
+  const strict = parseCurrencyToCents(value)
+  if (strict !== null) return strict
+
+  // Legacy values occasionally contain a currency symbol/group separators or
+  // more than two decimal places. Keep those records readable, but never turn
+  // malformed/negative text into a positive amount.
+  if (typeof value === "string") {
+    const normalized = value.trim().replace(/^₱\s*/, "").replace(/,/g, "")
+    if (!/^\+?\d+(?:\.\d+)?$/.test(normalized)) return 0
+    const parsed = Number(normalized)
+    if (!Number.isFinite(parsed) || parsed < 0) return 0
+    const cents = Math.round(parsed * 100)
+    return Number.isSafeInteger(cents) ? cents : 0
+  }
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    const cents = Math.round(value * 100)
+    return Number.isSafeInteger(cents) ? cents : 0
+  }
+  return 0
+}
+
+export function centsToPaymentAmount(cents: number): number {
+  return Number.isFinite(cents) ? Math.max(0, Math.round(cents)) / 100 : 0
+}
+
 export function normalizePaymentStatusValue(value: unknown): string {
   return String(value || "").toLowerCase().trim()
 }
 
 export function toPaymentAmount(value: unknown): number {
-  if (typeof value === "number") return Number.isFinite(value) ? value : 0
-  const cleaned = String(value || "0").replace(/[^\d.]/g, "")
-  const num = Number(cleaned)
-  return Number.isFinite(num) ? num : 0
+  return centsToPaymentAmount(toPaymentCents(value))
+}
+
+export function getBookingTotalCents(booking: BookingLike): number {
+  return toPaymentCents(
+    booking.totalAmount || booking.totalPrice || booking.amount || booking.price,
+  )
 }
 
 export function getBookingTotal(booking: BookingLike): number {
-  return toPaymentAmount(
-    booking.totalAmount || booking.totalPrice || booking.amount || booking.price,
-  )
+  return centsToPaymentAmount(getBookingTotalCents(booking))
 }
 
 export function getBookingStoredAmountPaid(booking: BookingLike): number {
@@ -283,13 +346,17 @@ export function getBookingStoredAmountPaid(booking: BookingLike): number {
 }
 
 export function getBookingRequiredDownpayment(booking: BookingLike): number {
+  return centsToPaymentAmount(getBookingRequiredDownpaymentCents(booking))
+}
+
+export function getBookingRequiredDownpaymentCents(booking: BookingLike): number {
   const isDownpayment = normalizePaymentStatusValue(booking.paymentType) === "downpayment"
   if (!isDownpayment) return 0
-  const total = getBookingTotal(booking)
-  const selected = toPaymentAmount(booking.selectedDownpaymentAmount)
+  const totalCents = getBookingTotalCents(booking)
+  const selected = toPaymentCents(booking.selectedDownpaymentAmount)
   if (selected > 0) return selected
   const pct = toPaymentAmount(booking.downPaymentPercentage) || 50
-  return total * (pct / 100)
+  return Math.max(0, Math.round(totalCents * pct / 100))
 }
 
 export function isPendingPaymentRecord(record: PaymentRecordLike | null | undefined): boolean {
@@ -363,7 +430,11 @@ export function isUnresolvedPaymentRecord(
 }
 
 export function getPaymentRecordAmount(record: PaymentRecordLike | null | undefined): number {
-  return toPaymentAmount(record?.amount ?? record?.amountPaid ?? 0)
+  return centsToPaymentAmount(getPaymentRecordAmountCents(record))
+}
+
+export function getPaymentRecordAmountCents(record: PaymentRecordLike | null | undefined): number {
+  return toPaymentCents(record?.amount ?? record?.amountPaid ?? 0)
 }
 
 export type PaymentRecordType = "downpayment" | "full" | "remaining_balance" | "slot_reservation" | "unknown"
@@ -407,14 +478,20 @@ export function isDownpaymentPaymentRecord(
 export function getPaymentRecordCreditedAmount(
   record: PaymentRecordLike | null | undefined,
 ): number {
+  return centsToPaymentAmount(getPaymentRecordCreditedAmountCents(record))
+}
+
+export function getPaymentRecordCreditedAmountCents(
+  record: PaymentRecordLike | null | undefined,
+): number {
   if (!record) return 0
   if (isRejectedPaymentRecord(record)) return 0
-  if (isAcceptedPaymentRecord(record)) return getPaymentRecordAmount(record)
+  if (isAcceptedPaymentRecord(record)) return getPaymentRecordAmountCents(record)
   if (isIncompletePaymentRecord(record)) {
-    const received = toPaymentAmount(record.amountReceived)
+    const received = toPaymentCents(record.amountReceived)
     const submitted = Math.max(
-      toPaymentAmount(record.amount),
-      toPaymentAmount(record.amountPaid),
+      toPaymentCents(record.amount),
+      toPaymentCents(record.amountPaid),
     )
     // A zero/absent received figure must NEVER zero out the credit — the
     // money handed over on this attempt stays credited toward completing
@@ -644,8 +721,8 @@ function getReceiptRequiredDownpayment(
   booking: BookingLike,
   records: ReadonlyArray<PaymentRecordLike>,
 ): number {
-  const configured = toPaymentAmount(booking.selectedDownpaymentAmount)
-  if (configured > 0) return configured
+  const configuredCents = toPaymentCents(booking.selectedDownpaymentAmount)
+  if (configuredCents > 0) return centsToPaymentAmount(configuredCents)
 
   const hasDownpaymentRecord = records.some(
     (record) => getReceiptPaymentType(record, booking) === "downpayment",
@@ -655,9 +732,9 @@ function getReceiptRequiredDownpayment(
     return 0
   }
 
-  const total = getBookingTotal(booking)
+  const totalCents = getBookingTotalCents(booking)
   const percentage = toPaymentAmount(booking.downPaymentPercentage) || 50
-  return total * (percentage / 100)
+  return centsToPaymentAmount(Math.max(0, Math.round(totalCents * percentage / 100)))
 }
 
 export function calculateBookingVerifiedPaymentSummary(
@@ -665,32 +742,32 @@ export function calculateBookingVerifiedPaymentSummary(
   records: ReadonlyArray<PaymentRecordLike> | null | undefined,
 ): ReceiptPaymentSummary {
   const sourceRecords = records || []
-  const requiredDpAmount = getReceiptRequiredDownpayment(booking, sourceRecords)
+  const requiredDpCents = toPaymentCents(getReceiptRequiredDownpayment(booking, sourceRecords))
   const verifiedRecords = sourceRecords.filter(isReceiptVerifiedPaymentRecord)
-  const totalVerifiedPaid = verifiedRecords.reduce(
-    (sum, record) => sum + getReceiptPaymentAmount(record),
+  const totalVerifiedPaidCents = verifiedRecords.reduce(
+    (sum, record) => sum + toPaymentCents(getReceiptPaymentAmount(record)),
     0,
   )
-  const totalVerifiedDpPaid = Math.min(
+  const totalVerifiedDpPaidCents = Math.min(
     verifiedRecords.reduce(
       (sum, record) => sum + (
         getReceiptPaymentType(record, booking) === "downpayment"
-          ? getReceiptPaymentAmount(record)
+          ? toPaymentCents(getReceiptPaymentAmount(record))
           : 0
       ),
       0,
     ),
-    requiredDpAmount,
+    requiredDpCents,
   )
-  const totalBookingAmount = getBookingTotal(booking)
+  const totalBookingAmountCents = getBookingTotalCents(booking)
 
   return {
-    totalBookingAmount,
-    requiredDpAmount,
-    totalVerifiedDpPaid,
-    remainingDp: Math.max(requiredDpAmount - totalVerifiedDpPaid, 0),
-    totalVerifiedPaid,
-    remainingBalance: Math.max(totalBookingAmount - totalVerifiedPaid, 0),
+    totalBookingAmount: centsToPaymentAmount(totalBookingAmountCents),
+    requiredDpAmount: centsToPaymentAmount(requiredDpCents),
+    totalVerifiedDpPaid: centsToPaymentAmount(totalVerifiedDpPaidCents),
+    remainingDp: centsToPaymentAmount(Math.max(requiredDpCents - totalVerifiedDpPaidCents, 0)),
+    totalVerifiedPaid: centsToPaymentAmount(totalVerifiedPaidCents),
+    remainingBalance: centsToPaymentAmount(Math.max(totalBookingAmountCents - totalVerifiedPaidCents, 0)),
   }
 }
 
@@ -1054,8 +1131,10 @@ export function calculatePaymentSummary(
   submissions: ReadonlyArray<PaymentRecordLike> | null | undefined,
 ): PaymentSummary {
   const records = submissions || []
-  const bookingTotal = getBookingTotal(base)
-  const requiredDownpayment = getBookingRequiredDownpayment(base)
+  const bookingTotalCents = getBookingTotalCents(base)
+  const requiredDownpaymentCents = getBookingRequiredDownpaymentCents(base)
+  const bookingTotal = centsToPaymentAmount(bookingTotalCents)
+  const requiredDownpayment = centsToPaymentAmount(requiredDownpaymentCents)
   const ps = normalizePaymentStatusValue(base.paymentStatus)
 
   // Legacy bookings (no payment records) — derive the best possible state
@@ -1063,21 +1142,21 @@ export function calculatePaymentSummary(
   // the only overall statuses are for_review / incomplete / partial /
   // completed / rejected.
   if (records.length === 0) {
-    const amountPaid = getBookingStoredAmountPaid(base)
-    const downpaymentPaid = toPaymentAmount(base.downpaymentPaid)
+    const amountPaidCents = toPaymentCents(getBookingStoredAmountPaid(base))
+    const downpaymentPaidCents = toPaymentCents(base.downpaymentPaid)
     // A stored amountPaid that already covers the required downpayment proves
     // the downpayment was completed even when the downpaymentPaid field was
     // never tracked (older bookings). Never demote such a booking.
     const downpaymentComplete =
       requiredDownpayment > 0
-        ? Math.max(downpaymentPaid, amountPaid) >= requiredDownpayment
-        : amountPaid >= bookingTotal
+        ? Math.max(downpaymentPaidCents, amountPaidCents) >= requiredDownpaymentCents
+        : amountPaidCents >= bookingTotalCents
     // Legacy bookings have no per-payment records, so the credited total can
     // only come from the booking's own stored ledger fields.
-    const downpaymentCreditedTotal = Math.max(downpaymentPaid, amountPaid)
-    const moneyReceivedTotal =
-      bookingTotal > 0 ? Math.min(downpaymentCreditedTotal, bookingTotal) : downpaymentCreditedTotal
-    const remainingBalance = Math.max(bookingTotal - moneyReceivedTotal, 0)
+    const downpaymentCreditedTotalCents = Math.max(downpaymentPaidCents, amountPaidCents)
+    const moneyReceivedTotalCents =
+      bookingTotalCents > 0 ? Math.min(downpaymentCreditedTotalCents, bookingTotalCents) : downpaymentCreditedTotalCents
+    const remainingBalanceCents = Math.max(bookingTotalCents - moneyReceivedTotalCents, 0)
 
     let legacyStatus: PaymentOverallStatus
     if (ps === "rejected") legacyStatus = "rejected"
@@ -1089,40 +1168,40 @@ export function calculatePaymentSummary(
       ps === "pending verification"
     ) {
       legacyStatus = "for_review"
-    } else if (bookingTotal > 0 && moneyReceivedTotal >= bookingTotal) legacyStatus = "completed"
-    else if (downpaymentComplete && remainingBalance > 0) legacyStatus = "partial"
-    else if (moneyReceivedTotal > 0) legacyStatus = "incomplete"
+    } else if (bookingTotalCents > 0 && moneyReceivedTotalCents >= bookingTotalCents) legacyStatus = "completed"
+    else if (downpaymentComplete && remainingBalanceCents > 0) legacyStatus = "partial"
+    else if (moneyReceivedTotalCents > 0) legacyStatus = "incomplete"
     else if (ps === "paid" || ps === "completed" || ps === "fully paid") legacyStatus = "completed"
     else legacyStatus = "for_review"
 
-    const creditTarget = requiredDownpayment > 0 ? requiredDownpayment : bookingTotal
-    const verifiedDownpaymentPaid = requiredDownpayment > 0
-      ? Math.min(Math.max(downpaymentPaid, amountPaid), requiredDownpayment)
+    const creditTargetCents = requiredDownpaymentCents > 0 ? requiredDownpaymentCents : bookingTotalCents
+    const verifiedDownpaymentPaidCents = requiredDownpaymentCents > 0
+      ? Math.min(Math.max(downpaymentPaidCents, amountPaidCents), requiredDownpaymentCents)
       : 0
-    const remainingDownpayment = Math.max(creditTarget - downpaymentCreditedTotal, 0)
+    const remainingDownpaymentCents = Math.max(creditTargetCents - downpaymentCreditedTotalCents, 0)
 
     return {
       totalBookingAmount: bookingTotal,
       requiredDpAmount: requiredDownpayment,
-      acceptedTotalPaid: moneyReceivedTotal,
-      acceptedDpPaid: verifiedDownpaymentPaid,
-      remainingDpBalance: remainingDownpayment,
-      remainingBookingBalance: remainingBalance,
+      acceptedTotalPaid: centsToPaymentAmount(moneyReceivedTotalCents),
+      acceptedDpPaid: centsToPaymentAmount(verifiedDownpaymentPaidCents),
+      remainingDpBalance: centsToPaymentAmount(remainingDownpaymentCents),
+      remainingBookingBalance: centsToPaymentAmount(remainingBalanceCents),
       currentTransactionAmount: 0,
       pendingCurrentAmount: 0,
       bookingTotal,
       requiredDownpayment,
-      acceptedVerifiedTotal: amountPaid,
-      verifiedDownpaymentPaid,
-      remainingVerifiedDownpayment: Math.max(requiredDownpayment - verifiedDownpaymentPaid, 0),
-      moneyReceivedTotal,
-      remainingBalance,
+      acceptedVerifiedTotal: centsToPaymentAmount(amountPaidCents),
+      verifiedDownpaymentPaid: centsToPaymentAmount(verifiedDownpaymentPaidCents),
+      remainingVerifiedDownpayment: centsToPaymentAmount(Math.max(requiredDownpaymentCents - verifiedDownpaymentPaidCents, 0)),
+      moneyReceivedTotal: centsToPaymentAmount(moneyReceivedTotalCents),
+      remainingBalance: centsToPaymentAmount(remainingBalanceCents),
       downpaymentComplete,
-      fullyPaid: bookingTotal > 0 && moneyReceivedTotal >= bookingTotal,
+      fullyPaid: bookingTotalCents > 0 && moneyReceivedTotalCents >= bookingTotalCents,
       hasPendingSubmission: false,
       overallStatus: legacyStatus,
-      downpaymentCreditedTotal,
-      remainingDownpayment,
+      downpaymentCreditedTotal: centsToPaymentAmount(downpaymentCreditedTotalCents),
+      remainingDownpayment: centsToPaymentAmount(remainingDownpaymentCents),
     }
   }
 
@@ -1130,17 +1209,17 @@ export function calculatePaymentSummary(
   // complete payment history. Booking doc fields (paymentStatus / amountPaid /
   // downpaymentPaid / paymentStage) can be stale while a payment is being
   // reviewed, so they are never trusted when records are available.
-  const recordAcceptedTotal = records.reduce(
-    (sum, record) => sum + (isAcceptedPaymentRecord(record) ? getPaymentRecordAmount(record) : 0),
+  const recordAcceptedTotalCents = records.reduce(
+    (sum, record) => sum + (isAcceptedPaymentRecord(record) ? getPaymentRecordAmountCents(record) : 0),
     0,
   )
-  const acceptedVerifiedTotal = recordAcceptedTotal
-  const verifiedDownpaymentPaid = requiredDownpayment > 0
+  const acceptedVerifiedTotalCents = recordAcceptedTotalCents
+  const verifiedDownpaymentPaidCents = requiredDownpaymentCents > 0
     ? records.reduce(
         (sum, record) =>
           sum +
           (isAcceptedPaymentRecord(record) && isDownpaymentPaymentRecord(record, base)
-            ? getPaymentRecordAmount(record)
+            ? getPaymentRecordAmountCents(record)
             : 0),
         0,
       )
@@ -1151,19 +1230,19 @@ export function calculatePaymentSummary(
   // keeps its own status/receipt permanently, but its received money is real
   // and must reduce what the client still owes (₱7,500 required − ₱5,500
   // received = ask ₱2,000, never ₱7,500 again).
-  const downpaymentCreditedTotal = records.reduce(
-    (sum, record) => sum + getPaymentRecordCreditedAmount(record),
+  const downpaymentCreditedTotalCents = records.reduce(
+    (sum, record) => sum + getPaymentRecordCreditedAmountCents(record),
     0,
   )
   // MONEY LEDGER — all valid money actually held for this booking
   // (verified payments + received amounts of incomplete payments). Displayed
   // received money cannot exceed the booking total, even if malformed or
   // duplicated records contain an overpayment.
-  const rawMoneyReceivedTotal = Math.max(downpaymentCreditedTotal, acceptedVerifiedTotal)
-  const moneyReceivedTotal =
-    bookingTotal > 0 ? Math.min(rawMoneyReceivedTotal, bookingTotal) : rawMoneyReceivedTotal
+  const rawMoneyReceivedTotalCents = Math.max(downpaymentCreditedTotalCents, acceptedVerifiedTotalCents)
+  const moneyReceivedTotalCents =
+    bookingTotalCents > 0 ? Math.min(rawMoneyReceivedTotalCents, bookingTotalCents) : rawMoneyReceivedTotalCents
   // Remaining BOOKING balance is net of ALL money actually received.
-  const remainingBalance = Math.max(bookingTotal - moneyReceivedTotal, 0)
+  const remainingBalanceCents = Math.max(bookingTotalCents - moneyReceivedTotalCents, 0)
   // Downpayment is complete once the CUMULATIVE received/credited total
   // reaches the required downpayment — a single record never needs to equal
   // the whole downpayment, and older rejected/pending records are irrelevant.
@@ -1171,9 +1250,9 @@ export function calculatePaymentSummary(
   // is the whole booking, so completion coincides with fullyPaid.
   const downpaymentComplete =
     requiredDownpayment > 0
-      ? moneyReceivedTotal >= requiredDownpayment
-      : moneyReceivedTotal >= bookingTotal
-  const fullyPaid = bookingTotal > 0 && moneyReceivedTotal >= bookingTotal
+      ? moneyReceivedTotalCents >= requiredDownpaymentCents
+      : moneyReceivedTotalCents >= bookingTotalCents
+  const fullyPaid = bookingTotalCents > 0 && moneyReceivedTotalCents >= bookingTotalCents
   const hasPendingSubmission = records.some((record) => isUnresolvedPaymentRecord(record))
 
   // The latest payment that was explicitly marked (incomplete/rejected) and
@@ -1212,48 +1291,48 @@ export function calculatePaymentSummary(
   let overallStatus: PaymentOverallStatus
   if (fullyPaid) {
     overallStatus = "completed"
-  } else if (downpaymentComplete && remainingBalance > 0) {
+  } else if (downpaymentComplete && remainingBalanceCents > 0) {
     overallStatus = "partial"
   } else if (hasPendingSubmission) {
     overallStatus = "for_review"
   } else if (latestMarkedUnresolved) {
     overallStatus = isIncompletePaymentRecord(latestMarkedUnresolved) ? "incomplete" : "rejected"
-  } else if (moneyReceivedTotal > 0) {
+  } else if (moneyReceivedTotalCents > 0) {
     overallStatus = "incomplete"
   } else {
     overallStatus = "incomplete"
   }
 
-  const acceptedDpPaid = requiredDownpayment > 0
-    ? Math.min(downpaymentCreditedTotal, requiredDownpayment)
+  const acceptedDpPaidCents = requiredDownpaymentCents > 0
+    ? Math.min(downpaymentCreditedTotalCents, requiredDownpaymentCents)
     : 0
-  const remainingDpBalance = Math.max(requiredDownpayment - acceptedDpPaid, 0)
+  const remainingDpBalanceCents = Math.max(requiredDownpaymentCents - acceptedDpPaidCents, 0)
 
   return {
     totalBookingAmount: bookingTotal,
     requiredDpAmount: requiredDownpayment,
-    acceptedTotalPaid: moneyReceivedTotal,
-    acceptedDpPaid,
-    remainingDpBalance,
-    remainingBookingBalance: remainingBalance,
+    acceptedTotalPaid: centsToPaymentAmount(moneyReceivedTotalCents),
+    acceptedDpPaid: centsToPaymentAmount(acceptedDpPaidCents),
+    remainingDpBalance: centsToPaymentAmount(remainingDpBalanceCents),
+    remainingBookingBalance: centsToPaymentAmount(remainingBalanceCents),
     currentTransactionAmount: currentTransaction ? getPaymentRecordAmount(currentTransaction) : 0,
     pendingCurrentAmount: pendingCurrent ? getPaymentRecordAmount(pendingCurrent) : 0,
     bookingTotal,
     requiredDownpayment,
-    acceptedVerifiedTotal,
-    verifiedDownpaymentPaid,
-    remainingVerifiedDownpayment: Math.max(requiredDownpayment - verifiedDownpaymentPaid, 0),
-    remainingBalance,
+    acceptedVerifiedTotal: centsToPaymentAmount(acceptedVerifiedTotalCents),
+    verifiedDownpaymentPaid: centsToPaymentAmount(verifiedDownpaymentPaidCents),
+    remainingVerifiedDownpayment: centsToPaymentAmount(Math.max(requiredDownpaymentCents - verifiedDownpaymentPaidCents, 0)),
+    remainingBalance: centsToPaymentAmount(remainingBalanceCents),
     downpaymentComplete,
     fullyPaid,
     hasPendingSubmission,
     overallStatus,
-    downpaymentCreditedTotal,
-    moneyReceivedTotal,
+    downpaymentCreditedTotal: centsToPaymentAmount(downpaymentCreditedTotalCents),
+    moneyReceivedTotal: centsToPaymentAmount(moneyReceivedTotalCents),
     // For non-downpayment (full payment) bookings the "required first
     // payment" is the whole booking, mirroring downpaymentComplete above.
-    remainingDownpayment: requiredDownpayment > 0
-      ? remainingDpBalance
-      : Math.max(bookingTotal - downpaymentCreditedTotal, 0),
+    remainingDownpayment: centsToPaymentAmount(requiredDownpaymentCents > 0
+      ? remainingDpBalanceCents
+      : Math.max(bookingTotalCents - downpaymentCreditedTotalCents, 0)),
   }
 }

@@ -84,6 +84,19 @@ function displayBookingStatus(status: string, booking: DataRecord): string {
   return "Pending"
 }
 
+function normalizeLifecycleValue(value: unknown): string {
+  return String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_")
+}
+
+function lifecycleRank(value: unknown): number {
+  const status = normalizeLifecycleValue(value)
+  if (status === "active_rental") return 4
+  if (status === "contract_signing_required") return 3
+  if (status === "reservation_secured" || status === "slot_secured") return 2
+  if (status === "confirmed") return 1
+  return 0
+}
+
 async function readPaymentRecords(
   transaction: any,
   firestore: FirebaseFirestore.Firestore,
@@ -220,7 +233,7 @@ export async function POST(request: NextRequest) {
     const firestore = getAdminFirestore()
     const bookingRef = firestore.collection("bookings").doc(bookingId)
     const signedBy = readString(body, "signedBy", 160) || user.fullName || "Administrator"
-    const requestedStatus = readString(body, "status", 40)
+    const requestedStatus = readString(body, "status", 40).toLowerCase()
     if (action === "status" && !["confirmed", "reservation_secured"].includes(requestedStatus)) {
       throw new ApiAuthError(400, "Invalid booking status.")
     }
@@ -316,6 +329,12 @@ export async function POST(request: NextRequest) {
       }
 
       if (action === "complete") {
+        if (normalizeLifecycleValue(booking.status) === "completed") {
+          return { changed: false, booking, userId: String(booking.userId || "") }
+        }
+        if (isTerminalAvailabilityBooking(booking) || !isAvailabilityBlockingBooking(booking)) {
+          throw new ApiAuthError(409, "A released reservation cannot be marked completed.")
+        }
         const bookingCode = String(booking.bookingCode || "").trim()
         const records = await readPaymentRecords(transaction, firestore, bookingId, bookingCode)
         const matchingRecords = [
@@ -338,8 +357,18 @@ export async function POST(request: NextRequest) {
       }
 
       if (action === "status") {
+        const currentStatus = normalizeLifecycleValue(booking.status)
+        if (currentStatus === requestedStatus) {
+          return { changed: false, booking, userId: String(booking.userId || "") }
+        }
         if (isTerminalAvailabilityBooking(booking) || !isAvailabilityBlockingBooking(booking)) {
           throw new ApiAuthError(409, "A released reservation cannot be reactivated. Create a new booking with an availability check.")
+        }
+        if (["cancellation_requested", "cancellation_under_review", "modification_under_review"].includes(currentStatus)) {
+          throw new ApiAuthError(409, "Resolve the active booking request before changing its lifecycle status.")
+        }
+        if (lifecycleRank(currentStatus) > lifecycleRank(requestedStatus)) {
+          throw new ApiAuthError(409, "Booking lifecycle status cannot move backwards.")
         }
         const bookingCode = String(booking.bookingCode || "").trim()
         const records = await readPaymentRecords(transaction, firestore, bookingId, bookingCode)
@@ -363,6 +392,9 @@ export async function POST(request: NextRequest) {
       }
 
       if (action === "contract_signed") {
+        if (booking.contractSigned === true && normalizeLifecycleValue(booking.contractStatus) === "signed") {
+          return { changed: false, booking, userId: String(booking.userId || "") }
+        }
         if (isTerminalAvailabilityBooking(booking) || !isAvailabilityBlockingBooking(booking)) {
           throw new ApiAuthError(409, "A contract cannot activate a released reservation.")
         }
@@ -391,6 +423,19 @@ export async function POST(request: NextRequest) {
         return { changed: true, booking: { ...booking, ...fields }, userId: String(booking.userId || "") }
       }
 
+      if (booking.balanceReminderSent === true) {
+        return { changed: false, booking, userId: String(booking.userId || "") }
+      }
+      const bookingCode = String(booking.bookingCode || "").trim()
+      const records = await readPaymentRecords(transaction, firestore, bookingId, bookingCode)
+      const matchingRecords = [
+        ...getRecordsForBooking(records, bookingId),
+        ...getRecordsForBooking(records, bookingCode),
+      ].filter((record, index, all) => all.findIndex((candidate) => candidate.id === record.id) === index)
+      const summary = calculatePaymentSummary(booking, matchingRecords)
+      if (summary.remainingBalance <= 0) {
+        throw new ApiAuthError(409, "This booking has no remaining balance to remind the client about.")
+      }
       const fields = {
         balanceReminderSent: true,
         balanceReminderSentAt: now,

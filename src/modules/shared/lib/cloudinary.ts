@@ -31,6 +31,12 @@ export function extractPublicId(url: string): string | null {
   }
 }
 
+/** Profile ownership is established by the server-enforced UID namespace. */
+export function isOwnedProfilePublicId(publicId: string, uid: string): boolean {
+  const prefix = `profiles/${uid}/`
+  return publicId.startsWith(prefix) && publicId.length > prefix.length
+}
+
 export async function uploadToCloudinary(
   file: File,
   options?: { folder?: string; resourceType?: "image" | "raw" },

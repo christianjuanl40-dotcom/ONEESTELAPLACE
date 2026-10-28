@@ -1,6 +1,6 @@
 # Architecture Design
 
-Source reviewed: **2026-10-19** baseline; resource identity, scheduling, maintenance, and CMS persistence rechecked **2026-10-25**; exclusive office occupancy and customer/admin Booking Details rechecked **2026-10-26**; payment verification/persistence/recovery rechecked **2026-10-27**. Start with [README.md](README.md) for setup and routes, and [DESIGN_PALETTE.md](DESIGN_PALETTE.md) for UI conventions.
+Source reviewed: **2026-10-19** baseline; resource identity, scheduling, maintenance, and CMS persistence rechecked **2026-10-25**; exclusive office occupancy and customer/admin Booking Details rechecked **2026-10-26**; payment verification/persistence/recovery rechecked **2026-10-27**; Phase 1 authorization, cent-level payment validation, refund ledger checks, lifecycle idempotency, and password reauthentication rechecked **2026-10-28**. Start with [README.md](README.md) for setup and routes, and [DESIGN_PALETTE.md](DESIGN_PALETTE.md) for UI conventions.
 
 ## System shape
 
@@ -100,6 +100,8 @@ Login navigation uses the Next router after the profile is ready; logout invalid
 
 Browser rules deny booking creation/deletion and freeze canonical resource IDs, schedule/date/term fields, lifecycle/secured state, price, amount paid, and payment status for all roles, including admins. Permitted metadata-only edits remain. All browser writes to `maintenanceRecords` and the unused legacy `officeRentals` workflow are denied; allocation changes must use checked server APIs, not the retained browser lease editor.
 
+Password changes stay client-side through `AuthProvider.updatePassword`: email/password accounts must provide a nonempty, different current/new password, reauthenticate with Firebase, and only then call `updatePassword`. Federated or passwordless accounts are rejected rather than being given a weaker flow. Email profile changes use the same recent-password requirement before the server profile update.
+
 ## Persistence and relationships
 
 | Collection / document | Purpose and important links |
@@ -133,10 +135,10 @@ All paths below map to `app/api/<path>/route.ts` and require a Firebase Bearer I
 | `/api/bookings/lifecycle` | POST | `complete`, `status`, `contract_signed`, `balance_reminder`: bookings permission; `issue_receipt` and `expire`: owning client |
 | `/api/bookings/cancellation` | POST, PATCH | Owning client requests cancellation; bookings staff/admin approve or decline |
 | `/api/bookings/modification` | POST | Owner request; bookings staff/admin review or perform `admin_update` |
-| `/api/bookings/refund` | POST | Owner requests a refund; bookings staff/admin complete the refund workflow |
+| `/api/bookings/refund` | POST | Owner requests a refund; bookings staff/admin complete it; both steps validate the received-money ledger and are idempotent |
 | `/api/payments/submit` | POST | Client-owned payment submission, amount/type validation, proof/reference checks, and transaction receipt creation |
 | `/api/payments/review` | GET, POST | Payments permission: POST reviews an explicit payment document; GET reads that submission's authoritative saved state for uncertain-response reconciliation (`private, no-store`) |
-| `/api/payments/onsite` | POST | Bookings **or** payments permission: record and verify an onsite payment |
+| `/api/payments/onsite` | POST | Bookings **or** payments permission: record and verify an onsite payment; the dashboard supplies an atomic retry key |
 | `/api/profile` | PATCH | Update the authenticated user's email/phone; email changes enforce recent authentication |
 | `/api/staff` | GET, POST, PATCH, DELETE | Admin-only Firebase Auth/profile administration |
 | `/api/cloudinary/upload` | POST | Authenticated, folder-scoped upload with size/type/signature checks |
@@ -236,6 +238,20 @@ Payment-review presentation (reviewed **2026-10-22**):
 - Remaining balances and downpayment completion use that received-money ledger. Preserve the distinction between received money and officially verified money.
 - Individual transaction statuses stay independent of the aggregate booking status. An old incomplete payment remains incomplete after a later payment covers the downpayment.
 - Keep one receipt identity per payment in the per-payment flow. Preserve legacy no-payment-record fallback behavior.
+
+Request and ledger safety (rechecked **2026-10-28**):
+
+- `parseCurrencyToCents()` is the strict request parser: it accepts finite nonnegative numbers or trimmed peso/grouped decimal strings with no more than two decimal places, then rejects malformed, negative-sign, exponent, and nonnumeric inputs. The routes additionally reject zero and amounts above `MAX_PAYMENT_AMOUNT_CENTS`. `toPaymentCents()` is deliberately more tolerant only when reading legacy stored values; all new validation, balance comparisons, and ledger arithmetic use integer cents before converting back to Firestore-compatible numbers.
+- Submit, review, and onsite routes re-read the booking/payment ledger inside their transactions. They reject expired/released holds, duplicate pending submissions, overpayments, invalid downpayments, and review amounts above the submitted/current due amount. Online office submissions remain slot-reservation-only. Onsite callers may omit `idempotencyKey` for legacy compatibility, but the dashboard creates and reuses a stable key across retries; when present, `paymentIdempotency/{sha256(bookingId,key)}` stores the request fingerprint and payment/receipt IDs in the same transaction, returning the original result without creating money or notifications twice.
+- Cancellation approval and refund request/completion re-read payments by booking ID/code inside their transactions. The refund amount is initialized/capped to the canonical `moneyReceivedTotal` (including received incomplete money), rejects ledger inconsistencies, and records the ledger amount used. Ownership is required for client requests, bookings permission for completion, and already-requested/already-refunded states return without a second state change or notification.
+
+### Lifecycle and action guards
+
+`/api/bookings/lifecycle` keeps booking lifecycle separate from payment status and applies the following server-side guards transactionally:
+
+- `complete` is idempotent and requires an active, availability-blocking booking with no remaining credited balance; released bookings cannot be completed.
+- `status` is idempotent, allows only the supported secured states, rejects backward lifecycle movement and unresolved cancellation/modification workflows, and requires the payment threshold for the resource (downpayment for events, full payment for offices). `contract_signed` is also idempotent, requires a secured active booking, and moves an office to `active_rental`.
+- `balance_reminder` records a one-time sent marker and requires a positive current balance. `issue_receipt` reuses an existing receipt, while client `expire` uses the same 24-hour/ledger hold predicate as availability and only releases an eligible pending hold. Notifications are emitted only after a transaction reports a real state change.
 
 ### CMS publication
 

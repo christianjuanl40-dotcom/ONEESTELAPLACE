@@ -16,6 +16,10 @@ import {
 } from "@/src/modules/shared/lib/payment-verification"
 import {
   getPaymentRecordAmount,
+  MAX_PAYMENT_AMOUNT_CENTS,
+  parseCurrencyToCents,
+  centsToPaymentAmount,
+  toPaymentCents,
   calculateReceiptPaymentSummary,
   buildBookingReceiptProjection,
   isUnresolvedPaymentRecord,
@@ -291,11 +295,11 @@ export async function POST(request: NextRequest) {
       if (typeof body.verifiedAmount !== "number" && typeof body.verifiedAmount !== "string") {
         throw new ApiAuthError(400, "Please provide a valid verified amount.")
       }
-      requestedAmount = Number(body.verifiedAmount)
-      if (!Number.isFinite(requestedAmount) || requestedAmount <= 0 || requestedAmount > 10_000_000) {
+      const requestedAmountCents = parseCurrencyToCents(body.verifiedAmount)
+      if (requestedAmountCents === null || requestedAmountCents <= 0 || requestedAmountCents > MAX_PAYMENT_AMOUNT_CENTS) {
         throw new ApiAuthError(400, "Please provide a valid verified amount.")
       }
-      requestedAmount = Math.round(requestedAmount * 100) / 100
+      requestedAmount = centsToPaymentAmount(requestedAmountCents)
     }
 
     const firestore = getAdminFirestore()
@@ -320,11 +324,16 @@ export async function POST(request: NextRequest) {
 
       const submittedAmount = getPaymentRecordAmount(target)
       const verifiedAmount = requestedAmount ?? submittedAmount
+      const submittedAmountCents = toPaymentCents(submittedAmount)
+      const currentDueCents = toPaymentCents(calculateReceiptPaymentSummary(bookingData, allRecords).remainingBalance)
       let transition
       if (action === "verify") {
-        if (submittedAmount <= 0 || verifiedAmount <= 0 || verifiedAmount > 10_000_000) throw new ApiAuthError(400, "The selected payment has no valid amount to verify.")
-        if (!isVerifiedPaymentRecord(target) && submittedAmount > 0 && verifiedAmount > submittedAmount + 0.01) {
+        if (submittedAmount <= 0 || verifiedAmount <= 0 || toPaymentCents(verifiedAmount) > MAX_PAYMENT_AMOUNT_CENTS) throw new ApiAuthError(400, "The selected payment has no valid amount to verify.")
+        if (!isVerifiedPaymentRecord(target) && submittedAmountCents > 0 && toPaymentCents(verifiedAmount) > submittedAmountCents) {
           throw new ApiAuthError(400, "The verified amount cannot exceed the submitted amount.")
+        }
+        if (!isVerifiedPaymentRecord(target) && toPaymentCents(verifiedAmount) > currentDueCents) {
+          throw new ApiAuthError(400, "The verified amount cannot exceed the current amount due.")
         }
         transition = buildVerifiedPaymentTransition(
           bookingData,
@@ -339,8 +348,11 @@ export async function POST(request: NextRequest) {
       } else if (action === "incomplete") {
         const receivedAmount = requestedAmount || submittedAmount
         if (receivedAmount <= 0) throw new ApiAuthError(400, "The payment has no valid received amount.")
-        if (submittedAmount > 0 && receivedAmount >= submittedAmount - 0.01) {
+        if (submittedAmountCents > 0 && toPaymentCents(receivedAmount) >= submittedAmountCents) {
           throw new ApiAuthError(400, "An incomplete payment must be less than the submitted amount.")
+        }
+        if (toPaymentCents(receivedAmount) > currentDueCents) {
+          throw new ApiAuthError(400, "The received amount cannot exceed the current amount due.")
         }
         transition = buildPaymentDecisionTransition(
           bookingData,

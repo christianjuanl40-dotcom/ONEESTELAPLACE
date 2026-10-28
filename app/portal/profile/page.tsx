@@ -26,7 +26,7 @@ import { ProfilePictureUploader } from "@/src/modules/shared/components/profile-
 import { formatDisplayName, getStructuredName } from "@/src/modules/shared/lib/name-utils"
 
 export default function ProfilePage() {
-  const { user, updateProfileDetails, updateProfilePicture, removeProfilePicture, refreshUser } = useAuth()
+  const { user, updateProfileDetails, updatePassword, updateProfilePicture, removeProfilePicture, refreshUser } = useAuth()
   const { toast } = useToast()
 
   const [email, setEmail] = useState(user?.email || "")
@@ -37,6 +37,7 @@ export default function ProfilePage() {
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+  const [isChangingPassword, setIsChangingPassword] = useState(false)
 
   const [profilePicture, setPicture] = useState<string | null>(user?.profilePicture ?? null)
 
@@ -100,11 +101,20 @@ export default function ProfilePage() {
     }
   }
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
+    if (isChangingPassword) return
     if (!currentPassword || !newPassword || !confirmPassword) {
       toast({
         title: "Error",
         description: "Please fill in all password fields.",
+        variant: "destructive",
+      })
+      return
+    }
+    if (newPassword.length < 6) {
+      toast({
+        title: "Password too short",
+        description: "Your new password should be at least 6 characters.",
         variant: "destructive",
       })
       return
@@ -117,13 +127,25 @@ export default function ProfilePage() {
       })
       return
     }
-    toast({
-      title: "Password Changed",
-      description: "Your password has been successfully updated.",
-    })
-    setCurrentPassword("")
-    setNewPassword("")
-    setConfirmPassword("")
+    setIsChangingPassword(true)
+    try {
+      await updatePassword(currentPassword, newPassword)
+      toast({
+        title: "Password Changed",
+        description: "Your password has been successfully updated.",
+      })
+      setCurrentPassword("")
+      setNewPassword("")
+      setConfirmPassword("")
+    } catch (error) {
+      toast({
+        title: "Password update failed",
+        description: error instanceof Error ? error.message : "Unable to update your password. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsChangingPassword(false)
+    }
   }
 
   const handleProfilePictureChange = async (dataUrl: string | null) => {
@@ -342,10 +364,11 @@ export default function ProfilePage() {
 
                 <Button
                   onClick={handleChangePassword}
-                  className="h-11 w-full rounded-xl bg-slate-900 px-8 font-bold text-white hover:bg-slate-800 sm:w-auto"
+                  disabled={isChangingPassword}
+                  className="h-11 w-full rounded-xl bg-slate-900 px-8 font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                 >
                   <Lock className="mr-2 h-4 w-4" />
-                  Update Password
+                  {isChangingPassword ? "Updating..." : "Update Password"}
                 </Button>
               </div>
             </TabsContent>

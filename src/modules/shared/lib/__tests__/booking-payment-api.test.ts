@@ -222,6 +222,36 @@ describe("finalized payment snapshot persistence", () => {
     expect(first.payment.reviewSnapshot.summary.remainingBookingBalance).toBe(7500)
   })
 
+  it("makes a keyed onsite retry return the original payment instead of charging twice", async () => {
+    store.seed("bookings/BOOKING", existing())
+    const body = { bookingId: "BOOKING", paymentType: "downpayment", amountReceived: 2500,
+      adminNote: "Received at office", idempotencyKey: "onsite-fixture-retry-1" }
+    const responses = await Promise.all([onsite(post(body, "admin")), onsite(post(body, "admin"))])
+
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 201])
+    const results = await Promise.all(responses.map((response) => response.json()))
+    expect(new Set(results.map((result) => result.payment.id)).size).toBe(1)
+    expect(results.filter((result) => result.alreadyProcessed)).toHaveLength(1)
+    expect([...store.data.keys()].filter((path) => path.startsWith("payments/")).length).toBe(1)
+    expect([...store.data.keys()].filter((path) => path.startsWith("receipts/")).length).toBe(1)
+    expect([...store.data.keys()].filter((path) => path.startsWith("paymentIdempotency/")).length).toBe(1)
+  })
+
+  it("rejects a cent-level onsite overpayment without writing a ledger record", async () => {
+    store.seed("bookings/BOOKING", existing())
+    store.seed("payments/ALMOST-PAID", {
+      bookingId: "BOOKING", status: "Verified", verificationStatus: "Verified", amount: 9999.99,
+      term: "Full Payment",
+    })
+    const before = structuredClone(store.data)
+    const response = await onsite(post({ bookingId: "BOOKING", paymentType: "remaining_balance", amountReceived: 0.02,
+      idempotencyKey: "onsite-cent-overpay" }, "admin"))
+
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/exceeds/i)
+    expect(store.data).toEqual(before)
+  })
+
   it("issues the verified payment's own receipt instead of falling back to a newer pending receipt", async () => {
     store.seed("bookings/BOOKING", existing())
     const firstResponse = await onsite(post({ bookingId: "BOOKING", paymentType: "downpayment", amountReceived: 5000 }, "admin"))
@@ -246,5 +276,25 @@ describe("finalized payment snapshot persistence", () => {
     expect(result.receipt.paymentId).toBe("LEGACY")
     expect(result.receipt.reviewSnapshot).toBeUndefined()
     expect(result.receipt.remainingBalance).toBeUndefined()
+  })
+
+  it("makes lifecycle completion and reminders idempotent", async () => {
+    store.seed("bookings/BOOKING", { ...existing(), status: "confirmed", bookingStatus: "Confirmed", amountPaid: 10000 })
+    store.seed("payments/PAID", { bookingId: "BOOKING", status: "Verified", verificationStatus: "Verified", amount: 10000 })
+
+    const firstCompletion = await lifecycle(post({ action: "complete", bookingId: "BOOKING" }, "admin"))
+    const secondCompletion = await lifecycle(post({ action: "complete", bookingId: "BOOKING" }, "admin"))
+    expect(firstCompletion.status).toBe(200)
+    expect(secondCompletion.status).toBe(200)
+    expect((await secondCompletion.json()).changed).toBe(false)
+    expect((store.data.get("bookings/BOOKING")?.adminLogs as Array<{ action: string }>).filter((log) => log.action === "MARK_BOOKING_COMPLETED")).toHaveLength(1)
+
+    store.seed("bookings/REMINDER", { ...existing(), status: "confirmed", bookingStatus: "Confirmed", amountPaid: 5000 })
+    store.seed("payments/REMINDER-PAY", { bookingId: "REMINDER", status: "Verified", verificationStatus: "Verified", amount: 5000 })
+    const firstReminder = await lifecycle(post({ action: "balance_reminder", bookingId: "REMINDER" }, "admin"))
+    const secondReminder = await lifecycle(post({ action: "balance_reminder", bookingId: "REMINDER" }, "admin"))
+    expect(firstReminder.status).toBe(200)
+    expect((await secondReminder.json()).changed).toBe(false)
+    expect([...store.data.keys()].filter((path) => path.startsWith("notifications/")).length).toBe(1)
   })
 })

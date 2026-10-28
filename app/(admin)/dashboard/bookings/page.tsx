@@ -65,7 +65,10 @@ import { type NotificationType } from "@/src/modules/shared/lib/notifications"
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
 import {
   calculatePaymentSummary,
+  centsToPaymentAmount,
   getRecordsForBooking,
+  parseCurrencyToCents,
+  toPaymentCents,
   type PaymentRecordLike,
 } from "@/src/modules/shared/lib/payment-calculations"
 import { Textarea } from "@/src/modules/shared/components/ui/textarea"
@@ -1826,6 +1829,7 @@ function RecordOnsitePaymentModal({
   const [paymentType, setPaymentType] = useState("downpayment")
   const [amountReceived, setAmountReceived] = useState("")
   const [adminNote, setAdminNote] = useState("")
+  const [idempotencyKey, setIdempotencyKey] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
@@ -1834,6 +1838,9 @@ function RecordOnsitePaymentModal({
       setPaymentType("downpayment")
       setAmountReceived("")
       setAdminNote("")
+      setIdempotencyKey(typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`)
       setIsSubmitting(false)
     }
   }, [open])
@@ -1847,40 +1854,43 @@ function RecordOnsitePaymentModal({
   const totalAmount = summary.bookingTotal
   const currentAmountPaid = summary.moneyReceivedTotal
   const remainingBalance = summary.remainingBalance
-  const enteredAmount = (() => {
-    const num = Number(String(amountReceived || "0").replace(/[^0-9.-]+/g, ""))
-    return Number.isFinite(num) ? num : 0
-  })()
-  const isOverPayment = enteredAmount > remainingBalance
+  const enteredCents = parseCurrencyToCents(amountReceived) ?? 0
+  const enteredAmount = centsToPaymentAmount(enteredCents)
+  const remainingBalanceCents = toPaymentCents(remainingBalance)
+  const remainingDownpaymentCents = toPaymentCents(summary.remainingDownpayment)
+  const isOverPayment = enteredCents > remainingBalanceCents
   const isFullPaymentMismatch =
     paymentType === "full_payment" &&
-    remainingBalance > 0 &&
-    enteredAmount !== remainingBalance
+    remainingBalanceCents > 0 &&
+    enteredCents !== remainingBalanceCents
+  const isDownpaymentOverPayment = paymentType === "downpayment"
+    && remainingDownpaymentCents > 0
+    && enteredCents > remainingDownpaymentCents
 
   const getNewPaymentSummary = () => {
     if (paymentType === "full_payment") {
       return {
-        newAmountPaid: totalAmount,
+        newAmountPaid: centsToPaymentAmount(toPaymentCents(totalAmount)),
         newRemainingBalance: 0,
         newPaymentStatus: "Fully Paid",
       }
     }
 
     if (paymentType === "remaining_balance") {
-      const newAmount = currentAmountPaid + enteredAmount
-      const newRemaining = Math.max(totalAmount - newAmount, 0)
+      const newAmount = toPaymentCents(currentAmountPaid) + enteredCents
+      const newRemaining = Math.max(toPaymentCents(totalAmount) - newAmount, 0)
       return {
-        newAmountPaid: newAmount,
-        newRemainingBalance: newRemaining,
+        newAmountPaid: centsToPaymentAmount(newAmount),
+        newRemainingBalance: centsToPaymentAmount(newRemaining),
         newPaymentStatus: newRemaining === 0 ? "Fully Paid" : "Partial Payment",
       }
     }
 
-    const newAmount = currentAmountPaid + enteredAmount
-    const remaining = totalAmount - newAmount
+    const newAmount = toPaymentCents(currentAmountPaid) + enteredCents
+    const remaining = Math.max(toPaymentCents(totalAmount) - newAmount, 0)
     return {
-      newAmountPaid: newAmount,
-      newRemainingBalance: remaining,
+      newAmountPaid: centsToPaymentAmount(newAmount),
+      newRemainingBalance: centsToPaymentAmount(remaining),
       newPaymentStatus: remaining === 0 ? "Fully Paid" : "Partial Payment",
     }
   }
@@ -1889,11 +1899,12 @@ function RecordOnsitePaymentModal({
     if (enteredAmount <= 0 || isSubmitting) return
     setIsSubmitting(true)
     try {
-      const updatedBooking = await manualRecordOnsitePayment(booking.id, {
-        paymentType: paymentType as "downpayment" | "remaining_balance" | "full_payment",
-        amountReceived: enteredAmount,
-        adminNote: adminNote.trim(),
-        adminName: "Administrator",
+        const updatedBooking = await manualRecordOnsitePayment(booking.id, {
+          paymentType: paymentType as "downpayment" | "remaining_balance" | "full_payment",
+          amountReceived: enteredAmount,
+          idempotencyKey,
+          adminNote: adminNote.trim(),
+          adminName: "Administrator",
       })
       onRecorded(updatedBooking ?? booking)
     } catch (error) {
@@ -1996,6 +2007,11 @@ function RecordOnsitePaymentModal({
                         Amount received cannot exceed the remaining balance of ₱{remainingBalance.toLocaleString()}.
                       </p>
                     )}
+                    {isDownpaymentOverPayment && enteredAmount > 0 && (
+                      <p className="mt-1.5 text-[11px] font-semibold text-rose-600">
+                        Downpayment cannot exceed the remaining downpayment of ₱{centsToPaymentAmount(remainingDownpaymentCents).toLocaleString()}.
+                      </p>
+                    )}
                     {isFullPaymentMismatch && enteredAmount > 0 && (
                       <p className="mt-1.5 text-[11px] font-semibold text-rose-600">
                         Full payment requires exactly ₱{remainingBalance.toLocaleString()}.
@@ -2084,7 +2100,7 @@ function RecordOnsitePaymentModal({
                   Cancel
                 </Button>
                 <Button
-                  disabled={enteredAmount <= 0 || isOverPayment || isFullPaymentMismatch}
+                  disabled={enteredAmount <= 0 || isOverPayment || isFullPaymentMismatch || isDownpaymentOverPayment}
                   onClick={() => setStep("confirm")}
                   className="h-11 w-full sm:w-auto rounded-xl bg-emerald-600 text-sm font-black text-white hover:bg-emerald-700 disabled:opacity-50"
                 >

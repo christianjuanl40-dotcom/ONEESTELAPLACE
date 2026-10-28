@@ -15,6 +15,10 @@ import { validatePaymentReference } from "@/src/modules/shared/lib/payment-refer
 import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-identity"
 import {
   calculatePaymentSummary,
+  centsToPaymentAmount,
+  MAX_PAYMENT_AMOUNT_CENTS,
+  parseCurrencyToCents,
+  toPaymentCents,
   getNextPaymentNumber,
   type PaymentRecordLike,
   type PaymentSummary,
@@ -42,11 +46,11 @@ function readString(body: DataRecord, key: string, maxLength: number): string {
 }
 
 function readAmount(value: unknown): number {
-  const amount = typeof value === "number" ? value : Number(value)
-  if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000) {
+  const cents = parseCurrencyToCents(value)
+  if (cents === null || cents <= 0 || cents > MAX_PAYMENT_AMOUNT_CENTS) {
     throw new ApiAuthError(400, "Please provide a valid payment amount.")
   }
-  return Math.round(amount * 100) / 100
+  return centsToPaymentAmount(cents)
 }
 
 function isValidProof(value: string, bookingId: string): boolean {
@@ -234,14 +238,16 @@ export async function POST(request: NextRequest) {
       }
 
       const maxAmount = getMaxPaymentAmount(booking, type, summary)
-      if (requestedAmount > maxAmount + 0.01) {
+      const requestedAmountCents = toPaymentCents(requestedAmount)
+      const maxAmountCents = toPaymentCents(maxAmount)
+      if (requestedAmountCents > maxAmountCents) {
         throw new ApiAuthError(400, "The payment amount exceeds the current amount due.")
       }
-      if (maxAmount <= 0) {
+      if (maxAmountCents <= 0) {
         throw new ApiAuthError(409, "This booking has no remaining amount due.")
       }
-      if ((type === "full" || type === "slot_reservation") && Math.abs(requestedAmount - maxAmount) > 0.01) {
-        throw new ApiAuthError(400, `This payment must equal ${maxAmount.toLocaleString()}.`)
+      if ((type === "full" || type === "slot_reservation") && requestedAmountCents !== maxAmountCents) {
+        throw new ApiAuthError(400, `This payment must equal ${centsToPaymentAmount(maxAmountCents).toLocaleString()}.`)
       }
 
       const now = new Date().toISOString()
@@ -249,7 +255,7 @@ export async function POST(request: NextRequest) {
       const paymentNumber = getNextPaymentNumber(existingPayments)
       const receiptNumber = createReceiptNumber()
       const paymentStatus = method === "cash" ? "Awaiting Onsite Payment" : "For Verification"
-       const fullName = formatDisplayName(
+      const fullName = formatDisplayName(
          user,
          user.fullName || String(booking.userInfo && isRecord(booking.userInfo) ? booking.userInfo.name : "Client"),
        )

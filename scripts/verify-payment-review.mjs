@@ -56,6 +56,7 @@ const stateModule = `
   let state = {
     bookings:[{...base, id:'BK-REVIEW', paymentReceipts:receipts, receipt:receipts[2]}, {...base, id:'BK-OTHER', eventName:'Other booking'}],
     paymentRecords:[...records, {id:'PAY-OTHER', bookingId:'BK-OTHER', amount:5000, status:'For Verification', paymentMethod:'cash', submittedAt:date(2), term:'Down Payment'}],
+    maintenanceRecords:[], officeRentals:[],
     isLoading:false, cancelBooking:async()=>null,
     addBooking:async payload=>{window.scheduleFixture.submissions.push(payload);return 'BK-NEW'},
     getUserBookings:id=>state.bookings.filter(booking=>booking.userId===id),
@@ -524,21 +525,21 @@ try {
   await page.getByRole('button',{name:`Select ${selectedDate}`,exact:true}).click()
   await page.getByRole('combobox').click()
   await page.getByRole('option',{name:'3:00 PM',exact:true}).click()
+  const venueRequestCount=await page.evaluate(()=>window.scheduleFixture.stats().requests.length)
   await page.evaluate(()=>{
-    window.scheduleFixture.defer()
     const catalog=window.catalogFixture.snapshot()
     window.catalogFixture.patch({venues:catalog.venues.map(v=>v.id==='v1'?{...v,name:'Intermediate venue name'}:v)})
   })
-  await page.waitForFunction(()=>window.scheduleFixture.stats().pending===1)
-  assert.equal(await availabilitySummary().count(),0,'renaming a resource must hide the old request immediately')
+  await page.getByRole('heading',{name:'Intermediate venue name',exact:true}).filter({visible:true}).waitFor()
+  await availabilitySummary().waitFor()
+  assert.equal(await page.evaluate(()=>window.scheduleFixture.stats().requests.length),venueRequestCount,'renaming a resource must retain the ID-keyed availability result')
   await page.evaluate(()=>{
     const catalog=window.catalogFixture.snapshot()
     window.catalogFixture.patch({venues:catalog.venues.map(v=>v.id==='v1'?{...v,name:'Office Anniversary Hall',price:12000,capacity:'75'}:v).reverse()})
   })
   await page.getByRole('heading',{name:'Office Anniversary Hall',exact:true}).filter({visible:true}).waitFor()
   await availabilitySummary().waitFor()
-  await page.evaluate(()=>window.scheduleFixture.release())
-  await page.waitForFunction(()=>window.scheduleFixture.stats().aborted===1)
+  assert.equal(await page.evaluate(()=>window.scheduleFixture.stats().requests.length),venueRequestCount,'reordering and renaming must not replace the ID-keyed request')
   assert.equal(await proceed.isEnabled(),true,'a venue named Office must still offer event schedules')
   await proceed.click()
   await page.getByPlaceholder('e.g. 18th Birthday Party').fill('Renamed venue event')
@@ -588,7 +589,7 @@ try {
   assert.equal(officeRequest.venueId,'wing-a')
   assert.equal(officeRequest.officeId,'wing-a')
   assert.equal(officeRequest.spaceId,'quartz')
-  assert.equal(officeRequest.roomName,'Sunrise Studio')
+  assert.equal(Object.hasOwn(officeRequest,'roomName'),false,'availability requests must use stable IDs rather than mutable room labels')
   await page.evaluate(()=>{
     const catalog=window.catalogFixture.snapshot()
     window.catalogFixture.patch({offices:catalog.offices.map(o=>o.id==='wing-a'?{...o,rooms:[{id:'harbor',name:'Sunrise Studio'}]}:o)})

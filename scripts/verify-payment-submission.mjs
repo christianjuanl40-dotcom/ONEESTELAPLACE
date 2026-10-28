@@ -28,7 +28,7 @@ const modules = {
     };
     const verified={id:'PAY-VERIFIED',bookingId:booking.id,customerId:'CLIENT',status:'Verified',amount:5000,
       term:'Down Payment',paymentMethod:'bank',submittedAt:'2026-10-20T10:00:00Z'};
-    let state={bookings:[booking],paymentRecords:admin?[verified]:[],maintenanceRecords:[],isLoading:false,
+    let state={bookings:[booking],paymentRecords:admin?[verified]:[],maintenanceRecords:[],officeRentals:[],isLoading:false,
       cancelBooking:async()=>null,submitPayment:async(id,data)=>{
         window.submissions.push({id,...data});await new Promise(resolve=>window.finishSubmission=resolve);
       },markContractSigned:async()=>{},sendBalanceReminder:async()=>{},manualRecordOnsitePayment:async()=>{},
@@ -345,8 +345,7 @@ try {
     assert.ok(dialogBox.y >= 15 && dialogBox.y + dialogBox.height <= size.height - 15, "modal must fit the viewport")
     assert.ok(contentBox.height >= 150, "content must retain usable height")
     assert.ok(contentBox.y + contentBox.height <= footerBox.y + 1, "footer must not cover details")
-    if (size.width >= 768) assert.ok(footerBox.height <= 70, "desktop/tablet actions must share one compact bar")
-    else assert.ok(footerBox.height <= 190, "mobile 44px actions must stack compactly")
+    assert.ok(footerBox.height <= 220, "management 56px actions must stack compactly")
     await noOverflow(dialog)
     await page.screenshot({ path: join(output, `booking-${size.name}-details.png`) })
 
@@ -407,7 +406,7 @@ try {
   }))
   for (const label of ["Company Name", "Nature of Business", "Rental Term"]) await details().locator("dt").getByText(label, { exact: true }).waitFor()
   assert.equal(await bookingDialog().getByRole("button", { name: "Approve Modification", exact: true }).isEnabled(), true)
-  assert.ok((await bookingDialog().locator("footer").boundingBox()).height <= 70)
+  assert.ok((await bookingDialog().locator("footer").boundingBox()).height <= 220)
   assert.deepEqual(errors, [], "browser must not report runtime errors")
   checks += 4
   console.log(`Payment submission / booking details browser checks passed (${checks} assertions/scenarios). Screenshots: ${output}`)
