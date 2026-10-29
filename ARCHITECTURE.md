@@ -261,6 +261,10 @@ Only CMS-owned top-level sections are written, preserving concurrent unrelated c
 
 Venue/office entries include optional `detailedDescription` alongside the short `description`. Both catalog normalizers preserve it; `shared/lib/space-description.ts` supplies the shared nonblank-full-text/short-text fallback. Tour thumbnails and booking-card photos expand details through Radix Collapsible; booking progression stays on the Select button. Schedule's expandable details resolve the latest CMS description by the selected space ID. The venue/office editors await their existing add/update operations' save result before closing.
 
+### Reports and analytics
+
+`app/(admin)/dashboard/reports/page.tsx` reports only canonical `bookings` and their exact `payments` joins; it does not import legacy `officeRentals` data or monthly-rent/deposit/cheque records. Booking category and resource filters use explicit booking metadata plus `resource-identity.ts` resolution against the CMS catalog, retaining unresolved records in broad views without assigning them to a guessed resource. One filtered booking dataset drives summaries, charts, detailed rows, Excel export, and the existing print report. Office-only views leave the event-type chart non-applicable rather than treating office business-nature values as event types.
+
 ### Chat and notifications
 
 - The active support chat is `src/modules/shared/contexts/chat-context.tsx`, mounted by `GlobalProvider`. Components write messages/read flags through the browser SDK and subscribe within the permitted client/admin scope.

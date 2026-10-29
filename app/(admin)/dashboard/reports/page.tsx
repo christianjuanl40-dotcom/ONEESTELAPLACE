@@ -24,6 +24,7 @@ import {
 } from "@/src/modules/shared/components/ui/select"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { useBookingData } from "@/src/modules/client/contexts/booking-context"
+import { useCMS } from "@/src/modules/admin/contexts/cms-context"
 import { getBookingTotal } from "@/src/modules/shared/lib/payment-calculations"
 import {
   buildReportSummary,
@@ -33,13 +34,20 @@ import {
 } from "@/src/modules/shared/lib/report-calculations"
 import { getBookingLifecycleLabel as getCanonicalBookingLifecycleLabel } from "@/src/modules/shared/lib/booking-helpers"
 import {
+  isOfficeResourceBooking,
+  resolveResourceSpace,
+  type ResourceResolution,
+} from "@/src/modules/shared/lib/resource-identity"
+import {
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
   ComposedChart,
+  Label,
   Legend,
   Line,
+  LabelList,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -50,8 +58,13 @@ import {
 
 type BookingRecord = {
   id?: string | number
+  bookingCode?: string
   eventName?: string
   eventType?: string
+  bookingCategory?: string
+  bookingType?: string
+  rentalType?: string
+  isOfficeRental?: boolean
   customerName?: string
   clientName?: string
   name?: string
@@ -59,6 +72,15 @@ type BookingRecord = {
   eventDate?: string
   createdAt?: string
   venue?: string
+  venueId?: string
+  officeId?: string
+  spaceId?: string
+  roomId?: string
+  roomName?: string
+  officeName?: string
+  officeRoom?: string
+  officeSpaceName?: string
+  natureOfBusiness?: string
   status?: string
   paymentStatus?: string
   totalPrice?: number | string
@@ -147,6 +169,93 @@ function getEventType(booking: BookingRecord) {
   return booking.eventType || booking.eventName || "Unspecified"
 }
 
+type ReportBookingCategory = "venue" | "office" | null
+type ReportCategoryFilter = "all" | "venue" | "office"
+
+type ReportResourceOption = {
+  category: "venue" | "office"
+  id: string
+  name: string
+  rooms?: Array<{
+    id: string
+    name: string
+    isArchived?: boolean
+    isHidden?: boolean
+    isBookable?: boolean
+  }>
+}
+
+type ClassifiedBooking = {
+  booking: BookingRecord
+  category: ReportBookingCategory
+  resolution: ResourceResolution
+}
+
+function normalizeCategoryMetadata(value: unknown) {
+  return String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_")
+}
+
+/**
+ * Only controlled booking metadata is considered here. Display names and
+ * customer-entered event fields are intentionally not category signals.
+ */
+function getExplicitReportBookingCategory(booking: BookingRecord): ReportBookingCategory {
+  if (isOfficeResourceBooking(booking)) return "office"
+
+  for (const value of [booking.bookingCategory, booking.bookingType, booking.rentalType]) {
+    const normalized = normalizeCategoryMetadata(value)
+    if (["venue", "event", "event_venue", "event_venue_rental", "event_venue_booking", "event_booking"].includes(normalized)) {
+      return "venue"
+    }
+  }
+
+  return booking.isOfficeRental === false ? "venue" : null
+}
+
+function getReportBookingCategory(
+  booking: BookingRecord,
+  resolution: ResourceResolution,
+): ReportBookingCategory {
+  const explicitCategory = getExplicitReportBookingCategory(booking)
+  if (explicitCategory) return explicitCategory
+
+  if (resolution.status === "resolved") return resolution.space.category
+
+  // An ambiguous resource can still have a reliable broad category when all
+  // candidates belong to the same catalog section. It is not assigned to any
+  // particular venue, office, or room in that case.
+  const candidateCategories = new Set(resolution.candidates.map((candidate) => candidate.category))
+  return candidateCategories.size === 1 ? [...candidateCategories][0] : null
+}
+
+function getResourceFilterValue(category: "venue" | "office", id: string) {
+  return `${category}:${id}`
+}
+
+function getResourceFilterValueForSpace(space: {
+  category: "venue" | "office"
+  venueId: string
+  officeId?: string
+}) {
+  return getResourceFilterValue(
+    space.category,
+    space.category === "office" ? space.officeId || space.venueId : space.venueId,
+  )
+}
+
+function parseResourceFilterValue(value: string) {
+  if (value === "all") return null
+  const separator = value.indexOf(":")
+  if (separator <= 0 || separator === value.length - 1) return null
+  const category = value.slice(0, separator)
+  if (category !== "venue" && category !== "office") return null
+  return { category, id: value.slice(separator + 1) } as const
+}
+
+function isActiveCatalogEntry(entry: { id?: unknown; isArchived?: boolean }) {
+  return Boolean(String(entry.id || "").trim()) && entry.isArchived !== true
+}
+
 const EXCEL_HEADERS = [
   "Booking ID",
   "Event Name",
@@ -162,6 +271,7 @@ const EXCEL_HEADERS = [
 ]
 
 type EnrichedBooking = BookingRecord & {
+  _category: ReportBookingCategory
   _financials: ReportBookingFinancials
 }
 
@@ -351,11 +461,286 @@ function useContainerWidth<T extends HTMLElement>() {
   return { ref, width }
 }
 
+type MonthlyPerformancePoint = {
+  month: string
+  revenue: number
+  bookings: number
+}
+
+type RevenueByVenuePoint = {
+  name: string
+  total: number
+}
+
+type ReportCountPoint = {
+  name: string
+  value: number
+}
+
+type ReportChartProps = {
+  isPrinting: boolean
+  printOnly?: boolean
+}
+
+function ReportMonthlyPerformanceChart({
+  data,
+  isPrinting,
+  printOnly = false,
+}: ReportChartProps & { data: MonthlyPerformancePoint[] }) {
+  return (
+    <ResponsiveContainer
+      initialDimension={printOnly ? { width: 1000, height: 210 } : undefined}
+      width={isPrinting ? 1000 : "100%"}
+      height={isPrinting ? 210 : "100%"}
+    >
+      <ComposedChart data={data} margin={{ top: isPrinting ? 18 : 10, right: isPrinting ? 18 : 10, left: isPrinting ? 18 : -18, bottom: 5 }}>
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+        <XAxis
+          dataKey="month"
+          axisLine={false}
+          tickLine={false}
+          tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }}
+          dy={10}
+        />
+        <YAxis
+          yAxisId="left"
+          axisLine={false}
+          tickLine={false}
+          tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }}
+          tickFormatter={(value) => abbreviateMoney(Number(value))}
+        >
+          {isPrinting && <Label value="Revenue (PHP)" angle={-90} position="insideLeft" fill="#64748b" fontSize={9} fontWeight={700} />}
+        </YAxis>
+        <YAxis
+          yAxisId="right"
+          orientation="right"
+          axisLine={false}
+          tickLine={false}
+          tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }}
+        >
+          {isPrinting && <Label value="Bookings" angle={90} position="insideRight" fill="#64748b" fontSize={9} fontWeight={700} />}
+        </YAxis>
+        <Tooltip
+          formatter={(value, name) => {
+            if (name === "revenue") return [formatMoney(Number(value)), "Revenue"]
+            return [`${value} booking/s`, "Bookings"]
+          }}
+          contentStyle={{
+            borderRadius: "1rem",
+            border: "1px solid #e2e8f0",
+            boxShadow: "0 10px 25px -15px rgb(15 23 42 / 0.35)",
+            fontWeight: 700,
+          }}
+        />
+        <Legend wrapperStyle={{ fontSize: 11, fontWeight: 800 }} />
+        <Bar
+          yAxisId="left"
+          dataKey="revenue"
+          fill="#ea580c"
+          radius={[8, 8, 0, 0]}
+          name="Revenue"
+          isAnimationActive={!isPrinting}
+        >
+          {isPrinting && (
+            <LabelList
+              dataKey="revenue"
+              position="top"
+              fill="#c2410c"
+              fontSize={9}
+              fontWeight={700}
+              formatter={(value: unknown) => {
+                const amount = Number(value)
+                return amount > 0 ? abbreviateMoney(amount) : ""
+              }}
+            />
+          )}
+        </Bar>
+        <Line
+          yAxisId="right"
+          type="monotone"
+          dataKey="bookings"
+          stroke="#0f172a"
+          strokeWidth={3}
+          dot={{ r: 4 }}
+          name="Bookings"
+          isAnimationActive={!isPrinting}
+        />
+      </ComposedChart>
+    </ResponsiveContainer>
+  )
+}
+
+function ReportRevenueByVenueChart({
+  data,
+  isPrinting,
+  printOnly = false,
+}: ReportChartProps & { data: RevenueByVenuePoint[] }) {
+  return (
+    <ResponsiveContainer
+      initialDimension={printOnly ? { width: 480, height: 190 } : undefined}
+      width={isPrinting ? 480 : "100%"}
+      height={isPrinting ? 190 : "100%"}
+    >
+      <BarChart data={data} margin={{ top: isPrinting ? 18 : 5, right: 10, left: isPrinting ? 18 : -18, bottom: 5 }}>
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+        <XAxis
+          dataKey="name"
+          axisLine={false}
+          tickLine={false}
+          tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }}
+          dy={10}
+        />
+        <YAxis
+          axisLine={false}
+          tickLine={false}
+          tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }}
+          tickFormatter={(value) => abbreviateMoney(Number(value))}
+        >
+          {isPrinting && <Label value="Revenue (PHP)" angle={-90} position="insideLeft" fill="#64748b" fontSize={9} fontWeight={700} />}
+        </YAxis>
+        <Tooltip
+          cursor={{ fill: "#f8fafc" }}
+          formatter={(value) => [formatMoney(Number(value)), "Revenue"]}
+          contentStyle={{
+            borderRadius: "1rem",
+            border: "1px solid #e2e8f0",
+            boxShadow: "0 10px 25px -15px rgb(15 23 42 / 0.35)",
+            fontWeight: 700,
+          }}
+        />
+        {isPrinting && <Legend wrapperStyle={{ fontSize: 11, fontWeight: 800 }} />}
+        <Bar
+          dataKey="total"
+          fill="#ea580c"
+          radius={[8, 8, 0, 0]}
+          barSize={42}
+          name="Revenue"
+          isAnimationActive={!isPrinting}
+        >
+          {isPrinting && (
+            <LabelList
+              dataKey="total"
+              position="top"
+              fill="#c2410c"
+              fontSize={9}
+              fontWeight={700}
+              formatter={(value: unknown) => abbreviateMoney(Number(value))}
+            />
+          )}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
+function ReportStatusPieChart({
+  data,
+  isPrinting,
+  printOnly = false,
+}: ReportChartProps & { data: ReportCountPoint[] }) {
+  return (
+    <ResponsiveContainer
+      initialDimension={printOnly ? { width: 160, height: 160 } : undefined}
+      width={isPrinting ? 160 : "100%"}
+      height={isPrinting ? 160 : "100%"}
+    >
+      <PieChart>
+        <Pie
+          data={data}
+          cx="50%"
+          cy="50%"
+          innerRadius="56%"
+          outerRadius="80%"
+          paddingAngle={3}
+          dataKey="value"
+          stroke="none"
+          isAnimationActive={!isPrinting}
+        >
+          {data.map((entry) => (
+            <Cell key={entry.name} fill={getStatusGroupColor(entry.name)} />
+          ))}
+        </Pie>
+        <Tooltip
+          formatter={(value) => [`${value} booking/s`, "Total"]}
+          contentStyle={{
+            borderRadius: "1rem",
+            border: "1px solid #e2e8f0",
+            boxShadow: "0 10px 25px -15px rgb(15 23 42 / 0.35)",
+            fontWeight: 700,
+          }}
+        />
+      </PieChart>
+    </ResponsiveContainer>
+  )
+}
+
+function ReportEventTypeChart({
+  data,
+  isPrinting,
+  printOnly = false,
+}: ReportChartProps & { data: ReportCountPoint[] }) {
+  return (
+    <ResponsiveContainer
+      initialDimension={printOnly ? { width: 1000, height: 210 } : undefined}
+      width={isPrinting ? 1000 : "100%"}
+      height={isPrinting ? 210 : "100%"}
+    >
+      <BarChart data={data} margin={{ top: isPrinting ? 18 : 5, right: 10, left: isPrinting ? 18 : -18, bottom: 5 }}>
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+        <XAxis
+          dataKey="name"
+          axisLine={false}
+          tickLine={false}
+          tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }}
+          dy={10}
+        />
+        <YAxis
+          axisLine={false}
+          tickLine={false}
+          tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }}
+        >
+          {isPrinting && <Label value="Bookings" angle={-90} position="insideLeft" fill="#64748b" fontSize={9} fontWeight={700} />}
+        </YAxis>
+        <Tooltip
+          cursor={{ fill: "#f8fafc" }}
+          formatter={(value) => [`${value} booking/s`, "Total"]}
+          contentStyle={{
+            borderRadius: "1rem",
+            border: "1px solid #e2e8f0",
+            boxShadow: "0 10px 25px -15px rgb(15 23 42 / 0.35)",
+            fontWeight: 700,
+          }}
+        />
+        {isPrinting && <Legend wrapperStyle={{ fontSize: 11, fontWeight: 800 }} />}
+        <Bar
+          dataKey="value"
+          fill="#0f172a"
+          radius={[8, 8, 0, 0]}
+          barSize={42}
+          name="Bookings"
+          isAnimationActive={!isPrinting}
+        >
+          {isPrinting && (
+            <LabelList
+              dataKey="value"
+              position="top"
+              fill="#0f172a"
+              fontSize={9}
+              fontWeight={700}
+            />
+          )}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
 export default function ReportsPage() {
   const { user } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
   const { bookings = [], paymentRecords = [], isLoading: bookingsLoading } = useBookingData({ bookings: true, payments: true })
+  const { cmsData } = useCMS()
   const { ref: statusCardRef, width: statusCardWidth } = useContainerWidth<HTMLDivElement>()
   const isWideLayout = statusCardWidth >= 700
 
@@ -368,6 +753,9 @@ export default function ReportsPage() {
   const [filterYear, setFilterYear] = useState("all")
   const [filterMonth, setFilterMonth] = useState("all")
   const [filterStatus, setFilterStatus] = useState("all")
+  const [filterCategory, setFilterCategory] = useState<ReportCategoryFilter>("all")
+  const [filterResource, setFilterResource] = useState("all")
+  const [filterRoom, setFilterRoom] = useState("all")
   const [searchTerm, setSearchTerm] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [rowsPerPage, setRowsPerPage] = useState(10)
@@ -400,6 +788,81 @@ export default function ReportsPage() {
     return Array.isArray(bookings) ? (bookings as BookingRecord[]) : []
   }, [bookings])
 
+  const eventVenueOptions = useMemo<ReportResourceOption[]>(() => {
+    return cmsData.venues
+      .filter(isActiveCatalogEntry)
+      .map((venue) => ({
+        category: "venue",
+        id: String(venue.id),
+        name: String(venue.name || venue.id),
+      }))
+  }, [cmsData.venues])
+
+  const officeOptions = useMemo<ReportResourceOption[]>(() => {
+    return cmsData.offices
+      .filter(isActiveCatalogEntry)
+      .map((office) => ({
+        category: "office",
+        id: String(office.id),
+        name: String(office.name || office.id),
+        rooms: Array.isArray(office.rooms)
+          ? office.rooms
+            .filter((room: any) => (
+              Boolean(String(room?.id || "").trim())
+              && room?.isArchived !== true
+              && room?.isHidden !== true
+              && room?.isBookable !== false
+            ))
+            .map((room: any) => ({
+              id: String(room.id),
+              name: String(room.name || room.id),
+              isArchived: room.isArchived,
+              isHidden: room.isHidden,
+              isBookable: room.isBookable,
+            }))
+          : [],
+      }))
+  }, [cmsData.offices])
+
+  const resourceOptions = useMemo(() => {
+    if (filterCategory === "venue") return eventVenueOptions
+    if (filterCategory === "office") return officeOptions
+    return [...eventVenueOptions, ...officeOptions]
+  }, [eventVenueOptions, filterCategory, officeOptions])
+
+  const selectedResourceOption = useMemo(() => {
+    if (filterResource === "all") return null
+    return resourceOptions.find(
+      (resource) => getResourceFilterValue(resource.category, resource.id) === filterResource,
+    ) || null
+  }, [filterResource, resourceOptions])
+
+  // A resource can disappear from a live CMS snapshot after it was selected.
+  // Treat that stale value as "all" until the user chooses a current option;
+  // category/resource handlers still reset the actual state immediately.
+  const effectiveFilterResource = selectedResourceOption ? filterResource : "all"
+
+  const roomOptions = useMemo(() => {
+    if (selectedResourceOption?.category !== "office") return []
+    return selectedResourceOption.rooms || []
+  }, [selectedResourceOption])
+
+  const effectiveFilterRoom = roomOptions.some((room) => room.id === filterRoom) ? filterRoom : "all"
+
+  const classifiedBookings = useMemo<ClassifiedBooking[]>(() => {
+    return bookingList.map((booking) => {
+      const resolution = resolveResourceSpace(
+        cmsData,
+        booking as unknown as Record<string, unknown>,
+      )
+      return {
+        booking,
+        category: getReportBookingCategory(booking, resolution),
+        resolution,
+      }
+    })
+  }, [bookingList, cmsData])
+
   const statusOptions = useMemo(() => {
     const statuses = new Set<string>()
 
@@ -423,11 +886,13 @@ export default function ReportsPage() {
     return sorted
   }, [bookingList, filterYear])
 
-  const filteredData = useMemo(() => {
+  const filteredEntries = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase()
+    const selectedResource = parseResourceFilterValue(effectiveFilterResource)
 
-    return bookingList
-      .filter((booking) => {
+    return classifiedBookings
+      .filter((entry) => {
+        const booking = entry.booking
         const parsedDate = parseBookingDate(booking)
         const bookingStatus = getReportLifecycleLabel(booking).toLowerCase()
         const bookingYear = parsedDate ? parsedDate.getFullYear().toString() : ""
@@ -439,8 +904,35 @@ export default function ReportsPage() {
 
         const matchesStatus = filterStatus === "all" || bookingStatus === filterStatus
 
+        const matchesCategory = filterCategory === "all" || entry.category === filterCategory
+        const matchesResource = effectiveFilterResource === "all"
+          ? true
+          : Boolean(
+            selectedResource
+            && entry.resolution.status === "resolved"
+            && getResourceFilterValueForSpace(entry.resolution.space) === effectiveFilterResource
+            && entry.resolution.space.category === selectedResource.category
+            && (
+              selectedResource.category === "venue"
+                ? entry.resolution.space.venueId === selectedResource.id
+                : (entry.resolution.space.officeId || entry.resolution.space.venueId) === selectedResource.id
+            ),
+          )
+
+        const matchesRoom = effectiveFilterRoom === "all"
+          ? true
+          : Boolean(
+            selectedResource?.category === "office"
+            && entry.resolution.status === "resolved"
+            && entry.resolution.space.category === "office"
+            && (entry.resolution.space.officeId || entry.resolution.space.venueId) === selectedResource.id
+            && entry.resolution.space.spaceId === effectiveFilterRoom
+            && entry.resolution.space.spaceId !== entry.resolution.space.venueId,
+          )
+
         const searchableText = [
           booking.id,
+          booking.bookingCode,
           booking.eventName,
           booking.eventType,
           booking.customerName,
@@ -450,37 +942,52 @@ export default function ReportsPage() {
           booking.status,
           booking.paymentStatus,
           getBookingDate(booking),
-          (booking as any).bookingCategory,
-          (booking as any).officeName,
-          (booking as any).officeRoom,
+          booking.bookingCategory,
+          booking.bookingType,
+          booking.venueId,
+          booking.officeId,
+          booking.spaceId,
+          booking.roomId,
+          booking.roomName,
+          booking.officeName,
+          booking.officeRoom,
+          booking.officeSpaceName,
         ]
           .join(" ")
           .toLowerCase()
 
         const matchesSearch = !keyword || searchableText.includes(keyword)
 
-        return matchesYear && matchesMonth && matchesStatus && matchesSearch
+        return matchesCategory
+          && matchesResource
+          && matchesRoom
+          && matchesYear
+          && matchesMonth
+          && matchesStatus
+          && matchesSearch
       })
       .sort((a, b) => {
-        const dateA = parseBookingDate(a)?.getTime() || 0
-        const dateB = parseBookingDate(b)?.getTime() || 0
+        const dateA = parseBookingDate(a.booking)?.getTime() || 0
+        const dateB = parseBookingDate(b.booking)?.getTime() || 0
         return dateB - dateA
       })
-  }, [bookingList, filterYear, filterMonth, filterStatus, searchTerm])
+  }, [classifiedBookings, effectiveFilterResource, effectiveFilterRoom, filterCategory, filterYear, filterMonth, filterStatus, searchTerm])
+
+  // Every report surface below consumes this same filtered booking collection.
+  const filteredData = useMemo(
+    () => filteredEntries.map((entry) => entry.booking),
+    [filteredEntries],
+  )
 
   const enrichedData = useMemo(() => {
     const records = Array.isArray(paymentRecords) ? paymentRecords : []
-    return filteredData.map((booking) => {
-      const financials = calculateReportBookingFinancials(booking as ReportBookingLike, records)
-      return { ...booking, _financials: financials }
+    return filteredEntries.map((entry) => {
+      const financials = calculateReportBookingFinancials(entry.booking as ReportBookingLike, records)
+      return { ...entry.booking, _category: entry.category, _financials: financials }
     })
-  }, [filteredData, paymentRecords])
+  }, [filteredEntries, paymentRecords])
 
   const reportRows = useMemo(() => buildReportRows(enrichedData), [enrichedData])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [searchTerm, filterYear, filterMonth, filterStatus, rowsPerPage])
 
   const totalPages = Math.max(1, Math.ceil(filteredData.length / rowsPerPage))
   const safePage = Math.min(currentPage, totalPages)
@@ -563,7 +1070,10 @@ export default function ReportsPage() {
   const eventTypeCounts = useMemo(() => {
     const map: Record<string, number> = {}
 
-    filteredData.forEach((booking) => {
+    enrichedData.forEach((booking) => {
+      // Office business-nature values are not event types. The existing chart
+      // remains useful for venue bookings and stays empty for office-only data.
+      if (booking._category !== "venue") return
       const eventType = getEventType(booking)
       map[eventType] = (map[eventType] || 0) + 1
     })
@@ -572,7 +1082,7 @@ export default function ReportsPage() {
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 8)
-  }, [filteredData])
+  }, [enrichedData])
 
   const reportPeriod =
     filterYear !== "all" && filterMonth !== "all"
@@ -583,10 +1093,55 @@ export default function ReportsPage() {
           ? MONTHS[Number(filterMonth)]
           : "All Years"
 
+  const reportCategoryLabel =
+    filterCategory === "venue"
+      ? "Event Venues"
+      : filterCategory === "office"
+        ? "Office Reservations"
+        : "All Categories"
+  const reportResourceLabel = selectedResourceOption?.name
+    || (filterCategory === "venue"
+      ? "All Event Venues"
+      : filterCategory === "office"
+        ? "All Offices"
+        : "All Venues / Offices")
+  const reportRoomLabel = selectedResourceOption?.category === "office"
+    ? effectiveFilterRoom === "all"
+      ? "All Rooms"
+      : roomOptions.find((room) => room.id === effectiveFilterRoom)?.name || effectiveFilterRoom
+    : "Not applicable"
+  const isOfficeOnlyReport = filterCategory === "office"
+    || selectedResourceOption?.category === "office"
+    || (enrichedData.length > 0 && enrichedData.every((booking) => booking._category === "office"))
+
   const activeReportFilters = [
+    filterCategory !== "all"
+      ? `Booking Category: ${filterCategory === "venue" ? "Event Venues" : "Office Reservations"}`
+      : "",
+    selectedResourceOption ? `Venue / Office: ${selectedResourceOption.name}` : "",
+    effectiveFilterRoom !== "all" ? `Office Room: ${roomOptions.find((room) => room.id === effectiveFilterRoom)?.name || effectiveFilterRoom}` : "",
     filterStatus !== "all" ? `Booking Status: ${prettifyStatus(filterStatus)}` : "",
     searchTerm.trim() ? `Search: ${searchTerm.trim()}` : "",
   ].filter(Boolean)
+  const hasActiveFilters = Boolean(
+    filterYear !== "all"
+    || filterMonth !== "all"
+    || filterStatus !== "all"
+    || filterCategory !== "all"
+    || effectiveFilterResource !== "all"
+    || effectiveFilterRoom !== "all"
+    || searchTerm.trim(),
+  )
+  const resetFilters = () => {
+    setFilterYear("all")
+    setFilterMonth("all")
+    setFilterStatus("all")
+    setFilterCategory("all")
+    setFilterResource("all")
+    setFilterRoom("all")
+    setSearchTerm("")
+    setCurrentPage(1)
+  }
   const reportGeneratedAt = printDate ?? new Date()
   const reportSummaryItems: { label: string; value: string }[] = [
     { label: "Total Bookings", value: String(reportSummary.totalBookings) },
@@ -596,13 +1151,22 @@ export default function ReportsPage() {
     { label: "Cancelled", value: String(reportSummary.cancelled) },
     { label: "Total Revenue", value: formatReportMoney(reportSummary.totalRevenue) },
     { label: "Total Refunds", value: formatReportMoney(reportSummary.totalRefunds) },
+    { label: "Net Revenue", value: formatReportMoney(netRevenue) },
   ]
+
+  const printReport = () => {
+    // Commit fixed chart dimensions and the complete filtered row set before
+    // the browser starts its print snapshot. Ctrl/Cmd+P is still covered by
+    // the beforeprint listener above.
+    flushSync(() => setPrintDate(new Date()))
+    window.print()
+  }
 
   const exportExcel = async () => {
     if (filteredData.length === 0) {
       toast({
         title: "No records available to export",
-        description: "There are no records for the selected period. Try adjusting the year or month filter.",
+        description: "There are no records for the selected filters. Try adjusting the report filters.",
         className: "bg-slate-900 text-white",
       })
       return
@@ -970,6 +1534,19 @@ export default function ReportsPage() {
         }
         [data-report-print-meta] span { min-width: 0; }
         [data-report-print-meta] strong { color: #000; font-weight: 800; }
+        [data-report-print-selection] {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 2mm 5mm;
+          padding: 3mm 0 0;
+          color: #000;
+          font-size: 8pt;
+          font-weight: 700;
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+        [data-report-print-selection] span { min-width: 0; }
+        [data-report-print-selection] strong { color: #000; font-weight: 800; }
         [data-report-print-summary] {
           margin-top: 4mm;
           break-inside: avoid;
@@ -1008,6 +1585,113 @@ export default function ReportsPage() {
           text-align: right;
           font-variant-numeric: tabular-nums;
         }
+        [data-report-print-analytics] {
+          margin-top: 5mm;
+          break-inside: auto;
+          page-break-inside: auto;
+        }
+        [data-report-print-analytics-heading] {
+          margin: 0 0 2mm;
+          padding: 2.5mm 3mm;
+          color: #fff;
+          background: #1e293b;
+          font-size: 9pt;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          break-after: avoid;
+          page-break-after: avoid;
+        }
+        [data-report-print-chart-grid] {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+          gap: 4mm;
+        }
+        [data-report-print-chart-card] {
+          min-width: 0;
+          padding: 3.5mm;
+          border: 0.3mm solid #cbd5e1;
+          background: #fff;
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+        [data-report-print-chart-card-wide] { grid-column: 1 / -1; }
+        [data-report-print-chart-card] h4 {
+          margin: 0;
+          color: #000;
+          font-size: 10pt;
+          font-weight: 800;
+        }
+        [data-report-print-chart-card] p {
+          margin: 1mm 0 2mm;
+          color: #475569;
+          font-size: 7.5pt;
+          font-weight: 700;
+        }
+        [data-report-print-chart-canvas] {
+          width: 100%;
+          height: 58mm;
+          overflow: visible !important;
+        }
+        [data-report-print-chart-canvas-compact] { height: 51mm; }
+        [data-report-print-chart-canvas] .recharts-wrapper,
+        [data-report-print-chart-canvas] .recharts-surface,
+        [data-report-print-chart-canvas] svg {
+          overflow: visible !important;
+        }
+        [data-report-print-chart-canvas] .recharts-legend-wrapper {
+          overflow: visible !important;
+          font-family: Arial, Helvetica, sans-serif !important;
+        }
+        [data-report-print-chart-canvas] .recharts-text {
+          font-family: Arial, Helvetica, sans-serif !important;
+        }
+        [data-report-print-status-layout] {
+          display: grid;
+          grid-template-columns: 44mm minmax(0, 1fr);
+          align-items: center;
+          gap: 4mm;
+          min-height: 42mm;
+        }
+        [data-report-print-status-chart] {
+          width: 42mm;
+          height: 42mm;
+        }
+        [data-report-print-status-legend] {
+          display: grid;
+          gap: 2mm;
+          min-width: 0;
+        }
+        [data-report-print-status-legend] div {
+          display: flex;
+          align-items: center;
+          gap: 2mm;
+          min-width: 0;
+          color: #334155;
+          font-size: 8pt;
+          font-weight: 700;
+        }
+        [data-report-print-status-legend] i {
+          width: 3mm;
+          height: 3mm;
+          flex: 0 0 auto;
+          border-radius: 50%;
+        }
+        [data-report-print-status-legend] span:last-child {
+          margin-left: auto;
+          color: #000;
+          font-variant-numeric: tabular-nums;
+        }
+        [data-report-print-chart-empty] {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          height: 43mm;
+          border: 0.3mm dashed #cbd5e1;
+          color: #64748b;
+          font-size: 8pt;
+          font-weight: 700;
+          text-align: center;
+        }
         [data-report-print-table] {
           margin-top: 5mm;
           width: 100%;
@@ -1019,6 +1703,8 @@ export default function ReportsPage() {
           font-size: 9pt;
           font-weight: 800;
           letter-spacing: 0.08em;
+          break-after: avoid;
+          page-break-after: avoid;
         }
         [data-report-print-table] table {
           width: 100%;
@@ -1072,9 +1758,24 @@ export default function ReportsPage() {
         </header>
 
         <div data-report-print-title>
-          <h2>Booking Records Report</h2>
-          <p>Report Period: {reportPeriod}</p>
-          {activeReportFilters.length > 0 && <p>Filters: {activeReportFilters.join(" | ")}</p>}
+          <h2>Venue Booking and Revenue Report</h2>
+          <p>Reporting Period: {reportPeriod}</p>
+          <p>Applied Filters: {activeReportFilters.length > 0 ? activeReportFilters.join(" | ") : "None"}</p>
+        </div>
+
+        <div data-report-print-selection>
+          <span>
+            <strong>Booking Category:</strong> {reportCategoryLabel}
+          </span>
+          <span>
+            <strong>Venue / Office:</strong> {reportResourceLabel}
+          </span>
+          <span>
+            <strong>Office Room:</strong> {reportRoomLabel}
+          </span>
+          <span>
+            <strong>Records Included:</strong> {filteredData.length}
+          </span>
         </div>
 
         <div data-report-print-meta>
@@ -1098,6 +1799,72 @@ export default function ReportsPage() {
                 <span>{item.value}</span>
               </div>
             ))}
+          </div>
+        </section>
+
+        <section data-report-print-analytics aria-label="Visual analytics">
+          <h3 data-report-print-analytics-heading>VISUAL ANALYTICS</h3>
+          <div data-report-print-chart-grid>
+            <article data-report-print-chart-card data-report-print-chart-card-wide>
+              <h4>Monthly Performance</h4>
+              <p>Booking volume and accepted/received revenue per month.</p>
+              <div data-report-print-chart-canvas>
+                {filteredData.length > 0 ? (
+                  <ReportMonthlyPerformanceChart data={monthlyPerformance} isPrinting={isPrinting} printOnly />
+                ) : (
+                  <div data-report-print-chart-empty>No booking data available for the selected filters.</div>
+                )}
+              </div>
+            </article>
+
+            <article data-report-print-chart-card>
+              <h4>Revenue per Venue</h4>
+              <p>Based on accepted/received payment amounts.</p>
+              <div data-report-print-chart-canvas data-report-print-chart-canvas-compact>
+                {revenueByVenue.length > 0 ? (
+                  <ReportRevenueByVenueChart data={revenueByVenue} isPrinting={isPrinting} printOnly />
+                ) : (
+                  <div data-report-print-chart-empty>No revenue data yet.</div>
+                )}
+              </div>
+            </article>
+
+            <article data-report-print-chart-card>
+              <h4>Booking Status Distribution</h4>
+              <p>Status breakdown for the selected records.</p>
+              {statusCounts.length > 0 ? (
+                <div data-report-print-status-layout>
+                  <div data-report-print-status-chart data-report-print-chart-canvas>
+                    <ReportStatusPieChart data={statusCounts} isPrinting={isPrinting} printOnly />
+                  </div>
+                  <div data-report-print-status-legend>
+                    {statusCounts.map((entry) => (
+                      <div key={entry.name}>
+                        <i aria-hidden="true" style={{ backgroundColor: getStatusGroupColor(entry.name) }} />
+                        <span>{entry.name}</span>
+                        <span>{entry.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div data-report-print-chart-empty>No status data.</div>
+              )}
+            </article>
+
+            {!isOfficeOnlyReport && (
+              <article data-report-print-chart-card data-report-print-chart-card-wide>
+                <h4>Top Event Types</h4>
+                <p>Shows which event categories are most booked.</p>
+                <div data-report-print-chart-canvas>
+                  {eventTypeCounts.length > 0 ? (
+                    <ReportEventTypeChart data={eventTypeCounts} isPrinting={isPrinting} printOnly />
+                  ) : (
+                    <div data-report-print-chart-empty>No event type data.</div>
+                  )}
+                </div>
+              </article>
+            )}
           </div>
         </section>
 
@@ -1178,13 +1945,22 @@ export default function ReportsPage() {
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <input
               value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
+              onChange={(event) => {
+                setSearchTerm(event.target.value)
+                setCurrentPage(1)
+              }}
               placeholder="Search booking..."
               className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-4 text-xs font-bold text-slate-700 outline-none transition focus:border-orange-300 focus:ring-4 focus:ring-orange-100 sm:w-[230px]"
             />
           </div>
 
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
+          <Select
+            value={filterStatus}
+            onValueChange={(value) => {
+              setFilterStatus(value)
+              setCurrentPage(1)
+            }}
+          >
             <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[175px]">
               <SelectValue placeholder="All Status" />
             </SelectTrigger>
@@ -1210,7 +1986,7 @@ export default function ReportsPage() {
           <Button
             type="button"
             variant="outline"
-            onClick={() => window.print()}
+            onClick={printReport}
             className="h-10 w-full rounded-xl border-slate-200 bg-white px-4 text-xs font-black text-slate-900 shadow-none hover:bg-slate-50 hover:text-slate-900 dark:border-slate-200 dark:bg-white dark:hover:bg-slate-50 sm:w-auto"
           >
             <Printer className="mr-1.5 h-3.5 w-3.5" />
@@ -1234,8 +2010,112 @@ export default function ReportsPage() {
           </div>
 
           <div data-report-print-hidden className="flex flex-wrap items-center gap-2 sm:gap-3 print:hidden">
-            <Select value={filterYear} onValueChange={setFilterYear}>
-              <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[130px]">
+            <Select
+              value={filterCategory}
+              onValueChange={(value) => {
+                setFilterCategory(value as ReportCategoryFilter)
+                setFilterResource("all")
+                setFilterRoom("all")
+                setCurrentPage(1)
+              }}
+            >
+              <SelectTrigger
+                aria-label="Booking Category"
+                className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[175px]"
+              >
+                <div className="flex items-center gap-2">
+                  <Filter className="h-3.5 w-3.5 text-slate-400" />
+                  <SelectValue placeholder="All Categories" />
+                </div>
+              </SelectTrigger>
+
+              <SelectContent className="rounded-xl shadow-xl">
+                <SelectItem value="all" className="font-bold">
+                  All Categories
+                </SelectItem>
+                <SelectItem value="venue">Event Venues</SelectItem>
+                <SelectItem value="office">Office Reservations</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={effectiveFilterResource}
+              onValueChange={(value) => {
+                setFilterResource(value)
+                setFilterRoom("all")
+                setCurrentPage(1)
+              }}
+            >
+              <SelectTrigger
+                aria-label="Venue / Office"
+                className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[220px]"
+              >
+                <SelectValue
+                  placeholder={
+                    filterCategory === "venue"
+                      ? "All Event Venues"
+                      : filterCategory === "office"
+                        ? "All Offices"
+                        : "All Venues / Offices"
+                  }
+                />
+              </SelectTrigger>
+
+              <SelectContent className="rounded-xl shadow-xl">
+                <SelectItem value="all" className="font-bold">
+                  {filterCategory === "venue"
+                    ? "All Event Venues"
+                    : filterCategory === "office"
+                      ? "All Offices"
+                      : "All Venues / Offices"}
+                </SelectItem>
+                {resourceOptions.map((resource) => (
+                  <SelectItem
+                    key={getResourceFilterValue(resource.category, resource.id)}
+                    value={getResourceFilterValue(resource.category, resource.id)}
+                  >
+                    {resource.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {selectedResourceOption?.category === "office" && roomOptions.length > 0 && (
+              <Select
+                value={effectiveFilterRoom}
+                onValueChange={(value) => {
+                  setFilterRoom(value)
+                  setCurrentPage(1)
+                }}
+              >
+                <SelectTrigger
+                  aria-label="Office Room"
+                  className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[155px]"
+                >
+                  <SelectValue placeholder="All Rooms" />
+                </SelectTrigger>
+
+                <SelectContent className="rounded-xl shadow-xl">
+                  <SelectItem value="all" className="font-bold">
+                    All Rooms
+                  </SelectItem>
+                  {roomOptions.map((room) => (
+                    <SelectItem key={room.id} value={room.id}>
+                      {room.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            <Select
+              value={filterYear}
+              onValueChange={(value) => {
+                setFilterYear(value)
+                setCurrentPage(1)
+              }}
+            >
+              <SelectTrigger aria-label="Year" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[130px]">
                 <div className="flex items-center gap-2">
                   <Filter className="h-3.5 w-3.5 text-slate-400" />
                   <SelectValue placeholder="All Years" />
@@ -1254,8 +2134,14 @@ export default function ReportsPage() {
               </SelectContent>
             </Select>
 
-            <Select value={filterMonth} onValueChange={setFilterMonth}>
-              <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[145px]">
+            <Select
+              value={filterMonth}
+              onValueChange={(value) => {
+                setFilterMonth(value)
+                setCurrentPage(1)
+              }}
+            >
+              <SelectTrigger aria-label="Month" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[145px]">
                 <div className="flex items-center gap-2">
                   <Filter className="h-3.5 w-3.5 text-slate-400" />
                   <SelectValue placeholder="All Months" />
@@ -1273,6 +2159,17 @@ export default function ReportsPage() {
                 ))}
               </SelectContent>
             </Select>
+
+            {hasActiveFilters && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={resetFilters}
+                className="h-10 w-full rounded-xl border-slate-200 bg-white px-3 text-xs font-black text-slate-700 shadow-none hover:bg-slate-50 hover:text-slate-900 sm:w-auto"
+              >
+                Reset Filters
+              </Button>
+            )}
           </div>
         </div>
 
@@ -1282,60 +2179,11 @@ export default function ReportsPage() {
               <BarChart3 className="h-6 w-6" />
             </div>
             <p className="mt-4 text-sm font-black text-slate-600">No booking data available for the selected period.</p>
-            <p className="mt-1 text-xs font-semibold text-slate-400">Try a different year or month.</p>
+            <p className="mt-1 text-xs font-semibold text-slate-400">Try adjusting the selected filters.</p>
           </div>
         ) : (
           <div data-report-print-chart className="h-[280px] sm:h-[320px] w-full">
-            <ResponsiveContainer width={isPrinting ? 1000 : "100%"} height={isPrinting ? 210 : "100%"}>
-              <ComposedChart data={monthlyPerformance} margin={{ top: 10, right: 10, left: -18, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-              <XAxis
-                dataKey="month"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }}
-                dy={10}
-              />
-              <YAxis
-                yAxisId="left"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }}
-                tickFormatter={(value) => abbreviateMoney(Number(value))}
-              />
-              <YAxis
-                yAxisId="right"
-                orientation="right"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }}
-              />
-              <Tooltip
-                formatter={(value, name) => {
-                  if (name === "revenue") return [formatMoney(Number(value)), "Revenue"]
-                  return [`${value} booking/s`, "Bookings"]
-                }}
-                contentStyle={{
-                  borderRadius: "1rem",
-                  border: "1px solid #e2e8f0",
-                  boxShadow: "0 10px 25px -15px rgb(15 23 42 / 0.35)",
-                  fontWeight: 700,
-                }}
-              />
-              <Legend wrapperStyle={{ fontSize: 11, fontWeight: 800 }} />
-              <Bar yAxisId="left" dataKey="revenue" fill="#ea580c" radius={[8, 8, 0, 0]} name="Revenue" isAnimationActive={!isPrinting} />
-              <Line
-                yAxisId="right"
-                type="monotone"
-                dataKey="bookings"
-                stroke="#0f172a"
-                strokeWidth={3}
-                dot={{ r: 4 }}
-                name="Bookings"
-                isAnimationActive={!isPrinting}
-              />
-            </ComposedChart>
-          </ResponsiveContainer>
+            <ReportMonthlyPerformanceChart data={monthlyPerformance} isPrinting={isPrinting} />
           </div>
         )}
       </div>
@@ -1356,35 +2204,7 @@ export default function ReportsPage() {
 
           <div data-report-print-chart className="h-[250px] sm:h-[300px] w-full">
             {revenueByVenue.length > 0 ? (
-              <ResponsiveContainer width={isPrinting ? 480 : "100%"} height={isPrinting ? 190 : "100%"}>
-                <BarChart data={revenueByVenue} margin={{ top: 5, right: 10, left: -18, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                  <XAxis
-                    dataKey="name"
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }}
-                    dy={10}
-                  />
-                  <YAxis
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }}
-                    tickFormatter={(value) => abbreviateMoney(Number(value))}
-                  />
-                  <Tooltip
-                    cursor={{ fill: "#f8fafc" }}
-                    formatter={(value) => [formatMoney(Number(value)), "Revenue"]}
-                    contentStyle={{
-                      borderRadius: "1rem",
-                      border: "1px solid #e2e8f0",
-                      boxShadow: "0 10px 25px -15px rgb(15 23 42 / 0.35)",
-                      fontWeight: 700,
-                    }}
-                  />
-                  <Bar dataKey="total" fill="#ea580c" radius={[8, 8, 0, 0]} barSize={42} isAnimationActive={!isPrinting} />
-                </BarChart>
-              </ResponsiveContainer>
+              <ReportRevenueByVenueChart data={revenueByVenue} isPrinting={isPrinting} />
             ) : (
               <div data-report-print-empty className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50">
                 <div className="text-center">
@@ -1417,34 +2237,7 @@ export default function ReportsPage() {
             <div data-report-print-status-layout className={isWideLayout ? "flex items-center gap-10" : "flex flex-col gap-6"}>
               <div className={isWideLayout ? "w-[45%] shrink-0" : "w-full"}>
                 <div data-report-print-status-chart className="mx-auto aspect-square w-full max-w-[280px] sm:max-w-[300px]">
-                  <ResponsiveContainer width={isPrinting ? 160 : "100%"} height={isPrinting ? 160 : "100%"}>
-                    <PieChart>
-                      <Pie
-                        data={statusCounts}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius="56%"
-                        outerRadius="80%"
-                        paddingAngle={3}
-                        dataKey="value"
-                        stroke="none"
-                        isAnimationActive={!isPrinting}
-                      >
-                        {statusCounts.map((entry) => (
-                          <Cell key={entry.name} fill={getStatusGroupColor(entry.name)} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(value) => [`${value} booking/s`, "Total"]}
-                        contentStyle={{
-                          borderRadius: "1rem",
-                          border: "1px solid #e2e8f0",
-                          boxShadow: "0 10px 25px -15px rgb(15 23 42 / 0.35)",
-                          fontWeight: 700,
-                        }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  <ReportStatusPieChart data={statusCounts} isPrinting={isPrinting} />
                 </div>
               </div>
               <div className={isWideLayout ? "min-w-0 w-[55%]" : "w-full"}>
@@ -1494,39 +2287,16 @@ export default function ReportsPage() {
 
         <div data-report-print-chart className="h-[250px] sm:h-[300px] w-full">
           {eventTypeCounts.length > 0 ? (
-            <ResponsiveContainer width={isPrinting ? 1000 : "100%"} height={isPrinting ? 210 : "100%"}>
-              <BarChart data={eventTypeCounts} margin={{ top: 5, right: 10, left: -18, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis
-                  dataKey="name"
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }}
-                  dy={10}
-                />
-                <YAxis
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }}
-                />
-                <Tooltip
-                  cursor={{ fill: "#f8fafc" }}
-                  formatter={(value) => [`${value} booking/s`, "Total"]}
-                  contentStyle={{
-                    borderRadius: "1rem",
-                    border: "1px solid #e2e8f0",
-                    boxShadow: "0 10px 25px -15px rgb(15 23 42 / 0.35)",
-                    fontWeight: 700,
-                  }}
-                />
-                <Bar dataKey="value" fill="#0f172a" radius={[8, 8, 0, 0]} barSize={42} isAnimationActive={!isPrinting} />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div data-report-print-empty className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50">
-              <p className="text-sm font-black text-slate-400">No event type data.</p>
-            </div>
-          )}
+            <ReportEventTypeChart data={eventTypeCounts} isPrinting={isPrinting} />
+            ) : (
+              <div data-report-print-empty className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50">
+                <p className="px-4 text-center text-sm font-black text-slate-400">
+                  {filterCategory === "office"
+                    ? "Event types do not apply to office reservations."
+                    : "No event type data."}
+                </p>
+              </div>
+            )}
         </div>
       </div>
 
@@ -1596,9 +2366,9 @@ export default function ReportsPage() {
                 <tr>
                   <td colSpan={6} className="p-12 text-center">
                     <div className="mx-auto max-w-sm">
-                      <p className="text-base font-black text-slate-600">No booking records found for the selected period.</p>
+                      <p className="text-base font-black text-slate-600">No booking records found for the selected filters.</p>
                       <p className="mt-1 text-sm font-semibold text-slate-400">
-                        Try adjusting the year, month, status, or search keyword.
+                        Try adjusting the category, venue, room, date, status, or search filter.
                       </p>
                     </div>
                   </td>
