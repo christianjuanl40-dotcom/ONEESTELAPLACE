@@ -106,8 +106,11 @@ Password changes stay client-side through `AuthProvider.updatePassword`: email/p
 
 | Collection / document | Purpose and important links |
 | --- | --- |
-| `users/{uid}` | Profile, role, active status, staff permissions, contact details, and presence timestamp; matches Firebase Auth UID |
+| `users/{uid}` | Profile, role, active status, staff permissions, contact details, presence timestamp, and client-only `chatSuggestionState` visibility metadata; matches Firebase Auth UID |
 | `cms/data` | Public website content, venues, offices with nested rooms, policies, payment instructions, contract references, and `bookingCounter` |
+| `chatSuggestionQuestions/config` | Protected CMS-managed question/answer records, publication flags, stable IDs, status groups, priorities, and revision metadata; readable only by CMS-authorized backoffice users |
+| `chatSuggestionQuestions/published` | Server-maintained question-only publication projection; never contains configured answers and is not directly readable by customer browsers |
+| `chatSuggestionQuestions/publishedVersion` | Small customer-readable publication revision marker; contains no question or answer content |
 | `bookings/{id}` | Venue or office reservation; owner is `userId`; resource identity uses `venueId`, `officeId`, and `spaceId` |
 | `payments/{id}` | One document per payment submission; joins via `bookingId`/`bookingCode`, client owner via `customerId` |
 | `receipts/{receiptNumber}` | Transaction receipts linked to a booking and, for the per-payment flow, a `paymentId` |
@@ -144,6 +147,9 @@ All paths below map to `app/api/<path>/route.ts` and require a Firebase Bearer I
 | `/api/cloudinary/upload` | POST | Authenticated, folder-scoped upload with size/type/signature checks |
 | `/api/cloudinary/delete` | POST | Authenticated, folder-scoped asset deletion |
 | `/api/contracts` | GET | CMS permission: list static files under `public/contracts/venue` or `public/contracts/office` |
+| `/api/chat-suggestions/config` | GET, PATCH | CMS permission: read or transactionally save the protected predefined question configuration and published projection with revision conflict checks |
+| `/api/chat-suggestions/published` | GET | Client-only, server-filtered current status category/top-three question metadata; answers and other categories are never returned |
+| `/api/chat-suggestions/answer` | POST | Client-only, status/ownership-checked selected-question delivery; atomically records the customer question, optional trusted automated answer, and idempotency record |
 
 Contract listing is authenticated; the listed files themselves are public `/contracts/...` assets.
 
@@ -269,7 +275,8 @@ Venue/office entries include optional `detailedDescription` alongside the short 
 
 - The active support chat is `src/modules/shared/contexts/chat-context.tsx`, mounted by `GlobalProvider`. Components write messages/read flags through the browser SDK and subscribe within the permitted client/admin scope.
 - Portal chat pages and the portal widget manage the lazy conversation listener. Keep that lifecycle intact when changing chat surfaces.
-- Quick replies and the checked-in chatbot knowledge are local rules/copy, with no external LLM integration configured.
+- Status-aware customer suggestions use the deterministic selector in `chat-suggestions.ts`, the server-filtered `/api/chat-suggestions/published` response, and the owning client's `users/{uid}.chatSuggestionState` cooldown metadata. Customer browsers subscribe only to `chatSuggestionQuestions/publishedVersion`; the server then evaluates the authenticated customer's bookings/payments and returns at most the current status category's top three question-only records. They are rendered by the portal page/widget and are displayed/sent only after an explicit customer click.
+- A selected question is delivered through `/api/chat-suggestions/answer`, which rechecks the current status category/top three, reads the protected answer, and transactionally writes `chatMessages` plus `chatMessageIdempotency`. Automated messages use `senderId: "automated-support"`, `senderName: "One Estela Place Support"`, and `isBot: true`; clients cannot create those messages through browser rules. Free-text messages never trigger this route and no LLM is involved.
 - Notifications use `isRead` for the bell and `moduleRead` for module badges; read actions update both. Staff notification queries preserve permission-based type filtering.
 
 ## Business behavior to preserve
@@ -317,7 +324,7 @@ Paths are relative to the repository root.
 
 - Root `components/` contains mixed implementations: `chat-context.tsx` is an older localStorage chat context, while the public contact `message-context.tsx` and payment-proof adapters still have imports. Trace imports before choosing or removing a file.
 - `lib/central-data.ts` is an older static catalog, not the admin bookings/maintenance source; that page now uses CMS. `lib/mock-db.ts`, `src/modules/admin/contexts/report-context.tsx`, Supabase/socket stubs, and the alternate `virtual-tour.tsx` are not authoritative for the current server booking flow, reports, or CMS-driven tour.
-- CMS policy text, defaults, and chatbot copy contain differing historical thresholds. Enforced server/helper behavior and published policy copy need to be traced together when a business-policy change is requested.
+- CMS policy text and starter predefined-answer copy are editable content, not substitutes for the enforced server/helper behavior. Trace both when a business-policy change is requested.
 - CMS/profile/review/receipt paths retain some direct browser writes. Maintenance is server-only; legacy office-rental browser writers remain in source but are frozen by rules and are not the active booking path.
 - CMS section transactions preserve `bookingCounter` and reject conflicting stale sections. Public normalization does not blacklist catalog names or append defaults to explicit empty/partial lists; missing-data fallbacks, including the legacy absent-room exception, are documented in [CMS_ARCHITECTURE.md](CMS_ARCHITECTURE.md#read-flow). Server scheduling never injects a default catalog.
 - Test counts, lint counts, and audit notes in `IMPROVEMENTS.md` describe an earlier pass. Use current command output for current verification; a skipped emulator suite is not a rules validation pass.

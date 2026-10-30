@@ -8,6 +8,7 @@ import { CMSHomepageTab } from "@admin/components/cms/cms-homepage-tab"
 import { CMSVenuesTab } from "@admin/components/cms/cms-venues-tab"
 import { CMSOfficesTab } from "@admin/components/cms/cms-offices-tab"
 import { CMSFaqsTab } from "@admin/components/cms/cms-faqs-tab"
+import { CMSPredefinedQuestionsTab } from "@admin/components/cms/cms-predefined-questions-tab"
 import { CMSPoliciesTab } from "@admin/components/cms/cms-policies-tab"
 import { CMSPastClientsTab } from "@admin/components/cms/cms-past-clients-tab"
 import { CMSContractsTab } from "@admin/components/cms/cms-contracts-tab"
@@ -31,6 +32,7 @@ export default function CMSPage() {
         {activeTab === "venues" && <CMSVenuesTab onNavigate={setActiveTab} />}
         {activeTab === "offices" && <CMSOfficesTab onNavigate={setActiveTab} />}
         {activeTab === "faqs" && <CMSFaqsTab onNavigate={setActiveTab} />}
+        {activeTab === "predefinedQuestions" && <CMSPredefinedQuestionsTab onNavigate={setActiveTab} />}
         {activeTab === "policies" && <CMSPoliciesTab onNavigate={setActiveTab} />}
         {activeTab === "pastClients" && <CMSPastClientsTab onNavigate={setActiveTab} />}
         {activeTab === "contracts" && <CMSContractsTab onNavigate={setActiveTab} />}

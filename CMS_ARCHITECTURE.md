@@ -1,6 +1,6 @@
 # CMS Architecture
 
-Source reviewed: **2026-10-25**. The active CMS uses **Cloud Firestore**, with one shared **`cms/data`** document. See [ARCHITECTURE.md](ARCHITECTURE.md) for the overall system and scheduling invariants.
+Source reviewed: **2026-10-30**. The active CMS uses **Cloud Firestore**, with one shared **`cms/data`** document plus a protected predefined-question configuration. See [ARCHITECTURE.md](ARCHITECTURE.md) for the overall system and scheduling invariants.
 
 ## Implementation map
 
@@ -9,10 +9,15 @@ Source reviewed: **2026-10-25**. The active CMS uses **Cloud Firestore**, with o
 | `src/modules/admin/contexts/cms-context.tsx` | `CMSData` types, defaults, normalization, snapshot subscription, and content mutations |
 | `src/modules/shared/components/global-provider.tsx` | Mounts `CMSProvider` for all route groups |
 | `app/(admin)/dashboard/cms/page.tsx` | CMS entry point at `/dashboard/cms` |
-| `src/modules/admin/components/cms/` | Homepage, venues, offices, FAQs, policies, past clients, contracts, and payment editors |
+| `src/modules/admin/components/cms/` | Homepage, venues, offices, FAQs, predefined questions/answers, policies, past clients, contracts, and payment editors |
 | `src/modules/client/lib/venue-data.ts` | Normalized public catalog and in-memory venue/office cache |
 | `src/modules/shared/lib/resource-identity.ts` | Exact resource IDs/categories, parent-scoped room resolution, and current/legacy aliases for all scheduling records |
 | `src/modules/shared/lib/policies.ts` | Cached published policies and fallback policy text |
+| `src/modules/shared/lib/chat-suggestions.ts` | Supported status groups, managed-question validation, publication projection, and deterministic top-three selector |
+| `src/modules/shared/hooks/use-chat-suggestions.ts` | Customer-only version subscription, server-filtered retrieval, cooldown, and display state |
+| `app/api/chat-suggestions/config/route.ts` | CMS-authenticated transactional config, projection, and version-marker writes |
+| `app/api/chat-suggestions/published/route.ts` | Client-authenticated current-status/top-three question retrieval without answers |
+| `app/api/chat-suggestions/answer/route.ts` | Client-authenticated selected-question delivery with protected answer lookup and idempotency |
 | `app/api/bookings/route.ts` | Reads the persisted CMS catalog and transactionally increments `bookingCounter` |
 | `firestore.rules` | Public read and admin/CMS-staff content-write policy |
 
@@ -32,6 +37,12 @@ The `CMSData` interface lives in `cms-context.tsx`. Main sections:
 | `eventVenueContract`, `officeRentalContract` | Contract file name, type, and URL |
 | `paymentInfo` | Bank/account/instructions/optional QR code |
 | `bookingCounter` | Additional persisted field used by server booking creation; not declared in the `CMSData` interface |
+
+### Predefined Questions & Answers
+
+The CMS section immediately after FAQs manages `chatSuggestionQuestions/config` through `/api/chat-suggestions/config`. Each record contains `questionId`, `question`, `answer`, `statusGroup`, `enabled`, `autoReplyEnabled`, `priority`, `isPublished`, `createdAt`, `updatedAt`, `updatedBy`, and optional archive metadata. IDs are immutable; archive keeps the record and its history. Active exact duplicate questions within one supported status group are rejected, and automatic replies require a nonempty answer.
+
+The protected config is not customer-readable. The server maintains `chatSuggestionQuestions/published`, a question-only projection containing stable ID, text, status group, and priority, and `chatSuggestionQuestions/publishedVersion`, a revision-only customer signal. The projection excludes answers and disabled, unpublished, or archived records, but is not directly readable by customer browsers. On a version change, `/api/chat-suggestions/published` authenticates the customer, evaluates that customer's current bookings/payments, and returns only the current status category's top three question metadata. A revision number is written with the config, projection, and version marker so stale CMS saves return a conflict instead of overwriting another editor. Starter records preserve the Phase 6 wording and safe portal-directed answer guidance but remain unpublished until an administrator reviews and explicitly publishes them; no production migration is performed on mount.
 
 `CMSCatalogSpace` types the optional description fields while retaining existing catalog properties through an open index signature. Follow the editor, catalog normalization, availability helpers, and server validation together when changing the shape. In-code prices and contact/payment details are defaults, not confirmed live configuration.
 
@@ -66,6 +77,8 @@ CMSProvider mounts
   -> public page, catalog, policies, and tour render shared content
 ```
 
+CMS-authorized backoffice sessions also subscribe to `chatSuggestionQuestions/config` for the dedicated editor. Customer chat sessions subscribe only to `chatSuggestionQuestions/publishedVersion`, then call `/api/chat-suggestions/published`; the answer is retrieved server-side only after a customer selects a returned question.
+
 Normalization merges homepage/footer/payment defaults and handles older gallery photo shapes. Explicit catalog, FAQ, policy, and gallery arrays, including empty or partial lists, remain authoritative: there are no hardcoded catalog-name exclusions or default entries appended to them. Missing arrays still use starter defaults; short FAQ lists are not padded.
 
 **Legacy fallback exception:** `ensureBuiltinOfficeRooms()` still synthesizes numbered default rooms for `office-a`/`office-b` only when the `rooms` property is absent. An explicit `rooms: []` stays empty, and custom offices receive no generated rooms. This is not a blanket no-default-injection implementation: booking/availability/maintenance APIs read the raw persisted catalog and do not accept those fallback-only identities until explicitly saved.
@@ -99,7 +112,7 @@ Inside the transaction, every edited section is compared with the original provi
 - Reservation UI uses CMS/catalog normalization; booking APIs independently read stored CMS data, resolve catalog status, and reject new allocations for `under_renovation` resources.
 - The active tour is `src/modules/client/components/tour-button.tsx`, using CMS venue/office `panoImage` with an image fallback and Pannellum from the CDN.
 - Policies are read through helpers that prefer cached, published CMS copy and otherwise return defaults.
-- CMS navigation is available to admin users and staff with `cms` permission. Firestore rules enforce content writes; `cms/data` is publicly readable.
+- CMS navigation is available to admin users and staff with `cms` permission. Firestore rules keep `cms/data` publicly readable, keep the predefined config and publication projection readable only by CMS-authorized backoffice users, and expose only the revision marker to clients. Config, projection, and version writes are server-route transactions; browser clients cannot write any of those documents.
 
 ## Assets and contract previews
 

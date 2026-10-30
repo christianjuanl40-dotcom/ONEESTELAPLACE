@@ -4,8 +4,12 @@ import { useState, useRef, useEffect } from "react"
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { useChat } from "@/src/modules/shared/contexts/chat-context"
 import { Button } from "@/src/modules/shared/components/ui/button"
-import { ShieldCheck, Paperclip, Send, MessageCircle, X } from "lucide-react"
+import { ShieldCheck, Paperclip, Send, X } from "lucide-react"
 import { UserAvatar } from "@/src/modules/shared/components/user-avatar"
+import { ChatSuggestionPills } from "@/src/modules/shared/components/chat-suggestion-pills"
+import { useChatSuggestions } from "@/src/modules/shared/hooks/use-chat-suggestions"
+import type { ChatSuggestion } from "@/src/modules/shared/lib/chat-suggestions"
+import { useToast } from "@/src/modules/shared/hooks/use-toast"
 
 function formatMessageTime(timestamp?: string | number | Date, now: Date = new Date()): string {
   if (!timestamp) return ""
@@ -44,12 +48,18 @@ function isSameDay(ts1?: string | number | Date, ts2?: string | number | Date): 
 export default function ClientSupportChatPage() {
   const { user } = useAuth()
 
-  const { messages, sendMessage, isChatLoaded, markAsReadByClient, loadChat, unloadChat } = useChat()
+  const { messages, sendMessage, sendPredefinedQuestion, isChatLoaded, markAsReadByClient, loadChat, unloadChat } = useChat()
+  const { toast } = useToast()
+  const { suggestions, context: suggestionContext, dismiss: dismissSuggestions } = useChatSuggestions({
+    visible: Boolean(user),
+    chatReady: isChatLoaded,
+  })
   
   const [inputValue, setInputValue] = useState("")
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null)
   const [nowTick, setNowTick] = useState(() => new Date())
+  const [isSending, setIsSending] = useState(false)
 
   useEffect(() => {
     const id = setInterval(() => setNowTick(new Date()), 60 * 1000)
@@ -63,26 +73,11 @@ export default function ClientSupportChatPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
-  const hasGreeted = useRef(false)
-
-  const predefinedAnswers: Record<string, string> = {
-    "How do I book a venue?": "To book a venue, please go to the 'My Bookings' tab and click on 'New Booking' to select your preferred date and space.",
-    "What are the payment methods?": "We accept Bank Transfer, GCash, Maya, and Pay at the Office payments at our main office.",
-    "Can I reschedule my event?": "Yes! Rescheduling is allowed up to 30 days before the event, subject to venue availability."
-  }
-  const predefinedQuestions = Object.keys(predefinedAnswers)
+  const sendInProgress = useRef(false)
 
   const myMessages = messages.filter((m: any) => m.clientId === user?.id)
-  const hasRealAdminReplied = myMessages.some((m: any) => m.sender === "admin" && !m.isBot)
 
   const unreadCount = myMessages.filter((m: any) => m.sender === "admin" && !m.isReadByClient).length
-
-  useEffect(() => {
-    if (isChatLoaded && user?.id && myMessages.length === 0 && !hasGreeted.current) {
-      hasGreeted.current = true
-      sendMessage("Hello! Welcome to One Estela Place Support. How can we help you today?", "admin", user.id, user.name, true)
-    }
-  }, [isChatLoaded, user?.id, myMessages.length])
 
   useEffect(() => {
     if (unreadCount > 0 && user?.id) {
@@ -102,20 +97,39 @@ export default function ClientSupportChatPage() {
     reader.readAsDataURL(file)
   }
 
-  const handleSend = (text: string = inputValue) => {
-    if (!text.trim() && !imagePreview) return
-    sendMessage(text, "client", user?.id, user?.name, false, imagePreview || undefined) 
-    setInputValue("")
-    setImagePreview(null)
-    if (fileInputRef.current) fileInputRef.current.value = ""
+  const handleSend = async (text: string = inputValue): Promise<boolean> => {
+    if (sendInProgress.current || (!text.trim() && !imagePreview) || !user?.id) return false
+    sendInProgress.current = true
+    setIsSending(true)
+    try {
+      await sendMessage(text, "client", user.id, user.name, false, imagePreview || undefined)
+      setInputValue("")
+      setImagePreview(null)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+      return true
+    } catch (error) {
+      console.error("[ClientChat] message send failed", error)
+      toast({ title: "Message not sent", description: "Check your connection and try again." })
+      return false
+    } finally {
+      sendInProgress.current = false
+      setIsSending(false)
+    }
+  }
 
-    if (text && predefinedAnswers[text]) {
-      setTimeout(() => { sendMessage(predefinedAnswers[text], "admin", user?.id, user?.name, true) }, 600)
-    } else if (text) {
-      const customMsgsCount = myMessages.filter((m: any) => m.sender === "client" && !predefinedAnswers[m.text]).length
-      if (customMsgsCount === 0) {
-        setTimeout(() => { sendMessage("Thank you for your message! An admin will review it and assist you shortly.", "admin", user?.id, user?.name, true) }, 1000)
-      }
+  const handleSuggestionSelect = async (suggestion: ChatSuggestion) => {
+    if (sendInProgress.current || !user?.id) return
+    sendInProgress.current = true
+    setIsSending(true)
+    try {
+      await sendPredefinedQuestion(suggestion.id)
+      dismissSuggestions()
+    } catch (error) {
+      console.error("[ClientChat] predefined question send failed", error)
+      toast({ title: "Question not sent", description: error instanceof Error ? error.message : "Check your connection and try again." })
+    } finally {
+      sendInProgress.current = false
+      setIsSending(false)
     }
   }
 
@@ -147,6 +161,11 @@ export default function ClientSupportChatPage() {
                 <div className={`flex items-start gap-3 ${msg.sender === "client" ? "justify-end" : ""}`}>
                   {msg.sender === "admin" && (<div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 shrink-0 mt-1"><ShieldCheck className="w-4 h-4" /></div>)}
                   <div className={`flex flex-col gap-1 max-w-[75%] ${msg.sender === "client" ? "items-end" : ""}`}>
+                    {msg.sender === "admin" && (
+                      <span className="ml-1 text-[10px] font-bold text-slate-500">
+                        {msg.isBot ? "One Estela Place Support · Automated reply" : msg.senderName || "Support"}
+                      </span>
+                    )}
                     <div className={`shadow-sm text-[15px] leading-relaxed flex flex-col gap-1.5 ${msg.sender === "client" ? "items-end" : "items-start"}`}>
                       {msg.imageUrl && (
                         <div 
@@ -178,20 +197,20 @@ export default function ClientSupportChatPage() {
             </div>
           )}
 
-          {!hasRealAdminReplied && (
-            <div className="flex flex-wrap gap-2 px-4 sm:px-6 pt-4 pb-1">
-              {predefinedQuestions.map((q, idx) => (
-                <Button key={idx} variant="outline" size="sm" onClick={() => handleSend(q)} className="text-xs font-medium text-orange-700 bg-orange-50 border-orange-200 hover:bg-orange-100 hover:text-orange-800 rounded-full h-8"><MessageCircle className="w-3 h-3 mr-1.5" />{q}</Button>
-              ))}
-            </div>
-          )}
+          <ChatSuggestionPills
+            suggestions={suggestions}
+            bookingLabel={suggestionContext?.bookingId ? suggestionContext.bookingLabel : undefined}
+            onSelect={handleSuggestionSelect}
+            onDismiss={dismissSuggestions}
+            disabled={isSending}
+          />
 
           <div className="p-4 md:p-6">
             <div className="flex items-center gap-3 w-full bg-slate-50 border border-slate-200 rounded-full pl-4 pr-1.5 py-1.5 focus-within:ring-2 focus-within:ring-orange-500/20 focus-within:border-orange-500 transition-all">
               <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
               <button onClick={() => fileInputRef.current?.click()} className="text-slate-400 hover:text-orange-600 transition-colors shrink-0"><Paperclip className="w-5 h-5" /></button>
-              <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} placeholder="Type a message..." className="flex-1 bg-transparent border-none focus:outline-none focus:ring-0 text-[15px] px-2 h-10 placeholder:text-slate-400 w-full" />
-              <Button onClick={() => handleSend()} className="w-10 h-10 rounded-full bg-[#ea580c] hover:bg-[#c2410c] text-white p-0 shrink-0 shadow-sm transition-transform hover:scale-105 active:scale-95"><Send className="w-4 h-4 ml-0.5" /></Button>
+              <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void handleSend() }} placeholder="Type a message..." className="flex-1 bg-transparent border-none focus:outline-none focus:ring-0 text-[15px] px-2 h-10 placeholder:text-slate-400 w-full" />
+              <Button onClick={() => void handleSend()} disabled={isSending} className="w-10 h-10 rounded-full bg-[#ea580c] hover:bg-[#c2410c] text-white p-0 shrink-0 shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"><Send className="w-4 h-4 ml-0.5" /></Button>
             </div>
           </div>
         </div>

@@ -85,7 +85,7 @@ Use the same Firebase project for the browser configuration and Admin credential
 2. Configure that project with [firestore.rules](firestore.rules) and [firestore.indexes.json](firestore.indexes.json). [firebase.json](firebase.json) points the Firebase CLI at these files; running Next.js does not deploy them.
 3. Provision the first admin in Firebase Authentication and a matching `users/{uid}` Firestore document with `uid`, `fullName`, `email`, `role: "admin"`, `status: "active"`, and an ISO `createdAt`. There is no checked-in admin seed command. Public signup creates client accounts.
 4. Sign in as admin, open `/dashboard/cms`, and save the initial CMS configuration. The website can display fallback content without a stored document, but booking creation requires a persisted **`cms/data`** catalog.
-5. Review the venue/office prices, capacities, rooms, payment details, policy copy, images, and contract previews in CMS. In-code defaults are starter content.
+5. Review the venue/office prices, capacities, rooms, payment details, policy copy, images, contract previews, and **Predefined Questions & Answers** in CMS. Starter question/answer records are shown for review but are not published until an administrator explicitly saves them with the desired entries enabled and published.
 
 Staff accounts are managed from `/dashboard/staff` after the admin account is available.
 

@@ -9,6 +9,16 @@ import { DEFAULT_POLICY_CONTENT, POLICY_LABELS, ALL_POLICY_KEYS, type PolicyKey 
 import { setCachedPolicies } from "@/src/modules/shared/lib/policies"
 import { setCachedVenuesAndOffices } from "@/src/modules/client/lib/venue-data"
 import type { SpaceDescription } from "@/src/modules/shared/lib/space-description"
+import { getAuthHeaders } from "@/src/modules/shared/lib/auth-token"
+import { useOptionalAuth } from "@/src/modules/shared/auth/auth-context"
+import {
+  CHAT_SUGGESTION_CONFIG_COLLECTION,
+  CHAT_SUGGESTION_CONFIG_DOCUMENT,
+  DEFAULT_CHAT_SUGGESTION_QUESTIONS,
+  normalizeChatSuggestionQuestions,
+  validateChatSuggestionQuestions,
+  type ChatSuggestionQuestion,
+} from "@/src/modules/shared/lib/chat-suggestions"
 import {
   getCatalogStatus,
   parseCatalogStatus,
@@ -168,6 +178,13 @@ type CMSContextType = {
   updateFAQ: (id: string, data: Partial<FAQ>) => void
   deleteFAQ: (id: string) => void
   reorderFAQs: (orderedIds: string[]) => void
+
+  predefinedQuestions: ChatSuggestionQuestion[]
+  predefinedQuestionsRevision: number
+  predefinedQuestionsConfigured: boolean
+  predefinedQuestionsLoading: boolean
+  predefinedQuestionsError: string | null
+  savePredefinedQuestions: (questions: ChatSuggestionQuestion[], expectedRevision?: number) => Promise<boolean>
 
   policies: Policy[]
   addPolicy: (data: Omit<Policy, "id" | "createdAt" | "updatedAt">) => void
@@ -420,6 +437,13 @@ const defaultContextValue: CMSContextType = {
   deleteFAQ: () => {},
   reorderFAQs: () => {},
 
+  predefinedQuestions: DEFAULT_CHAT_SUGGESTION_QUESTIONS,
+  predefinedQuestionsRevision: 0,
+  predefinedQuestionsConfigured: false,
+  predefinedQuestionsLoading: false,
+  predefinedQuestionsError: null,
+  savePredefinedQuestions: async () => false,
+
   policies: defaultCMSData.policies,
   addPolicy: () => {},
   updatePolicy: () => {},
@@ -593,10 +617,61 @@ function normalizeCMSData(parsed: Partial<CMSData> | null): CMSData {
 }
 
 const cmsDocRef = doc(db, CMS_DOC_PATH)
+const chatSuggestionConfigRef = doc(db, CHAT_SUGGESTION_CONFIG_COLLECTION, CHAT_SUGGESTION_CONFIG_DOCUMENT)
 
 export const CMSProvider = ({ children }: { children: React.ReactNode }) => {
   const [cmsData, setCmsData] = useState<CMSData>(defaultCMSData)
+  const authContext = useOptionalAuth()
   const { toast } = useToast()
+  const canManagePredefinedQuestions = Boolean(
+    authContext?.user && (
+      authContext.user.role === "admin"
+      || (authContext.user.role === "staff" && authContext.user.permissions?.cms === true)
+    ),
+  )
+  const [predefinedQuestions, setPredefinedQuestions] = useState<ChatSuggestionQuestion[]>(() =>
+    DEFAULT_CHAT_SUGGESTION_QUESTIONS.map((question) => ({ ...question })),
+  )
+  const [predefinedQuestionsRevision, setPredefinedQuestionsRevision] = useState(0)
+  const [predefinedQuestionsConfigured, setPredefinedQuestionsConfigured] = useState(false)
+  const [predefinedQuestionsLoading, setPredefinedQuestionsLoading] = useState(false)
+  const [predefinedQuestionsError, setPredefinedQuestionsError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!canManagePredefinedQuestions) {
+      setPredefinedQuestionsLoading(false)
+      setPredefinedQuestionsError(null)
+      setPredefinedQuestionsConfigured(false)
+      setPredefinedQuestionsRevision(0)
+      setPredefinedQuestions(DEFAULT_CHAT_SUGGESTION_QUESTIONS.map((question) => ({ ...question })))
+      return
+    }
+
+    setPredefinedQuestionsLoading(true)
+    setPredefinedQuestionsError(null)
+    const unsubscribe = onSnapshot(
+      chatSuggestionConfigRef,
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          setPredefinedQuestions(DEFAULT_CHAT_SUGGESTION_QUESTIONS.map((question) => ({ ...question })))
+          setPredefinedQuestionsRevision(0)
+          setPredefinedQuestionsConfigured(false)
+        } else {
+          const data = snapshot.data() as Record<string, unknown>
+          setPredefinedQuestions(normalizeChatSuggestionQuestions(data.questions))
+          setPredefinedQuestionsRevision(typeof data.revision === "number" ? data.revision : 0)
+          setPredefinedQuestionsConfigured(true)
+        }
+        setPredefinedQuestionsLoading(false)
+      },
+      (error) => {
+        console.error("[Chat suggestion config snapshot error]", { code: error.code, message: error.message })
+        setPredefinedQuestionsLoading(false)
+        setPredefinedQuestionsError("Predefined questions could not be loaded")
+      },
+    )
+    return unsubscribe
+  }, [canManagePredefinedQuestions])
 
   useEffect(() => {
     console.log("[Firestore Listener START] CMS")
@@ -671,6 +746,53 @@ export const CMSProvider = ({ children }: { children: React.ReactNode }) => {
       toast({
         title: error instanceof CMSConflictError ? "Content Changed" : "Error",
         description: error instanceof CMSConflictError ? error.message : "Failed to save changes. Please try again.",
+        variant: "destructive",
+      })
+      return false
+    }
+  }
+
+  const savePredefinedQuestions = async (questions: ChatSuggestionQuestion[], expectedRevision = predefinedQuestionsRevision): Promise<boolean> => {
+    const validationErrors = validateChatSuggestionQuestions(questions)
+    if (validationErrors.length > 0) {
+      toast({
+        title: "Review questions",
+        description: validationErrors[0],
+        variant: "destructive",
+      })
+      return false
+    }
+
+    try {
+      const headers = await getAuthHeaders(true)
+      const response = await fetch("/api/chat-suggestions/config", {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({
+          expectedRevision,
+          questions: normalizeChatSuggestionQuestions(questions),
+        }),
+      })
+      const payload = await response.json().catch(() => ({})) as Record<string, unknown>
+      if (!response.ok) {
+        throw new Error(typeof payload.error === "string" ? payload.error : "Failed to save predefined questions.")
+      }
+
+      const savedQuestions = normalizeChatSuggestionQuestions(payload.questions)
+      setPredefinedQuestions(savedQuestions)
+      setPredefinedQuestionsRevision(typeof payload.revision === "number" ? payload.revision : predefinedQuestionsRevision + 1)
+      setPredefinedQuestionsConfigured(true)
+      toast({
+        title: "Content Saved",
+        description: "Predefined questions have been saved and published entries are now available to customers.",
+        className: "bg-emerald-500 text-white border-none",
+      })
+      return true
+    } catch (error) {
+      console.error("[Predefined question save failed]", error)
+      toast({
+        title: "Unable to save questions",
+        description: error instanceof Error ? error.message : "Failed to save predefined questions. Please try again.",
         variant: "destructive",
       })
       return false
@@ -1034,6 +1156,13 @@ export const CMSProvider = ({ children }: { children: React.ReactNode }) => {
         updateFAQ,
         deleteFAQ,
         reorderFAQs,
+
+        predefinedQuestions,
+        predefinedQuestionsRevision,
+        predefinedQuestionsConfigured,
+        predefinedQuestionsLoading,
+        predefinedQuestionsError,
+        savePredefinedQuestions,
 
         policies: cmsData.policies,
         addPolicy,

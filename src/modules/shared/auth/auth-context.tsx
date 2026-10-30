@@ -480,3 +480,10 @@ export const useAuth = () => {
   if (!context) throw new Error("useAuth must be used within an AuthProvider")
   return context
 }
+
+/**
+ * Used by globally mounted providers that can also be exercised in isolation
+ * (for example, CMS tests). Feature pages should continue to use useAuth so a
+ * missing authentication provider is surfaced immediately.
+ */
+export const useOptionalAuth = () => useContext(AuthContext)

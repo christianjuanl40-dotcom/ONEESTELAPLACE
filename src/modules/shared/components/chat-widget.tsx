@@ -6,38 +6,41 @@ import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { useChat } from "@/src/modules/shared/contexts/chat-context"
 import { Button } from "@/src/modules/shared/components/ui/button"
 import { MessageSquare, X, Send, Paperclip, ShieldCheck } from "lucide-react"
+import { ChatSuggestionPills } from "@/src/modules/shared/components/chat-suggestion-pills"
+import { useChatSuggestions } from "@/src/modules/shared/hooks/use-chat-suggestions"
+import type { ChatSuggestion } from "@/src/modules/shared/lib/chat-suggestions"
+import { useToast } from "@/src/modules/shared/hooks/use-toast"
 
 export function ClientChatWidget() {
   const pathname = usePathname()
   const { user } = useAuth()
-  const { messages, sendMessage, isChatLoaded, markAsReadByClient, loadChat, unloadChat, unreadMessages } = useChat()
+  const { messages, sendMessage, sendPredefinedQuestion, isChatLoaded, markAsReadByClient, loadChat, unloadChat, unreadMessages } = useChat()
+  const { toast } = useToast()
 
   const [isOpen, setIsOpen] = useState(false)
   const [inputValue, setInputValue] = useState("")
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null)
+  const [isSending, setIsSending] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
-  const hasGreeted = useRef(false)
+  const sendInProgress = useRef(false)
 
   const myMessages = messages.filter((m: any) => m.clientId === user?.id)
   const unreadCount = unreadMessages
+  const { suggestions, context: suggestionContext, dismiss: dismissSuggestions } = useChatSuggestions({
+    visible: isOpen && pathname !== "/portal/chat",
+    chatReady: isChatLoaded && pathname !== "/portal/chat",
+  })
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && pathname !== "/portal/chat") {
       loadChat()
     } else if (pathname !== "/portal/chat") {
       unloadChat()
     }
   }, [isOpen, pathname, loadChat, unloadChat])
-
-  useEffect(() => {
-    if (isChatLoaded && isOpen && user?.id && myMessages.length === 0 && pathname !== "/portal/chat" && !hasGreeted.current) {
-      hasGreeted.current = true 
-      sendMessage("Hello! Welcome to One Estela Place Support 👋 How can we help you today?", "admin", user.id, user.name, true)
-    }
-  }, [isChatLoaded, isOpen, user?.id, user?.name, myMessages.length, pathname, sendMessage])
 
   useEffect(() => {
     if (isOpen && unreadCount > 0 && user?.id) { markAsReadByClient(user.id) }
@@ -50,12 +53,40 @@ export function ClientChatWidget() {
   const shouldShowWidget = pathname !== "/portal/chat" && user;
   if (!shouldShowWidget) return null;
 
-  const handleSend = () => {
-    if (!inputValue.trim() && !imagePreview) return
-    sendMessage(inputValue, "client", user.id, user.name, false, imagePreview || undefined) 
-    setInputValue("")
-    setImagePreview(null)
-    if (fileInputRef.current) fileInputRef.current.value = ""
+  const handleSend = async (text: string = inputValue): Promise<boolean> => {
+    if (sendInProgress.current || (!text.trim() && !imagePreview) || !user?.id) return false
+    sendInProgress.current = true
+    setIsSending(true)
+    try {
+      await sendMessage(text, "client", user.id, user.name, false, imagePreview || undefined)
+      setInputValue("")
+      setImagePreview(null)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+      return true
+    } catch (error) {
+      console.error("[ClientChatWidget] message send failed", error)
+      toast({ title: "Message not sent", description: "Check your connection and try again." })
+      return false
+    } finally {
+      sendInProgress.current = false
+      setIsSending(false)
+    }
+  }
+
+  const handleSuggestionSelect = async (suggestion: ChatSuggestion) => {
+    if (sendInProgress.current || !user?.id) return
+    sendInProgress.current = true
+    setIsSending(true)
+    try {
+      await sendPredefinedQuestion(suggestion.id)
+      dismissSuggestions()
+    } catch (error) {
+      console.error("[ClientChatWidget] predefined question send failed", error)
+      toast({ title: "Question not sent", description: error instanceof Error ? error.message : "Check your connection and try again." })
+    } finally {
+      sendInProgress.current = false
+      setIsSending(false)
+    }
   }
 
   return (
@@ -76,6 +107,7 @@ export function ClientChatWidget() {
           <div className="flex-1 overflow-y-auto bg-slate-50 flex flex-col p-4 space-y-4">
             {myMessages.map((msg: any) => (
               <div key={msg.id} className={`flex flex-col gap-1 max-w-[85%] ${msg.sender === "client" ? "self-end items-end" : "self-start items-start"}`}>
+                {msg.sender === "admin" && <span className="px-1 text-[9px] font-bold text-slate-500">{msg.isBot ? "One Estela Place Support · Automated reply" : msg.senderName || "Support"}</span>}
                 <div className={`shadow-sm text-[13px] leading-relaxed flex flex-col gap-1 ${msg.sender === "client" ? "items-end" : "items-start"}`}>
                   {msg.imageUrl && (<div className="p-1 bg-white rounded-xl border border-slate-200 shadow-sm cursor-zoom-in hover:opacity-90 transition-opacity" onClick={() => setFullScreenImage(msg.imageUrl)}><img src={msg.imageUrl} alt="attached" className="max-w-full rounded-lg object-cover" /></div>)}
                   {msg.text && (<div className={`px-4 py-2.5 ${msg.sender === "client" ? "bg-[#ea580c] text-white rounded-2xl rounded-tr-sm" : "bg-white border border-slate-200 text-slate-700 rounded-2xl rounded-tl-sm"}`}>{msg.text}</div>)}
@@ -93,11 +125,18 @@ export function ClientChatWidget() {
                 <button onClick={() => { setImagePreview(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} className="absolute -top-2 -right-2 bg-slate-800 text-white rounded-full p-1 shadow-lg hover:scale-110 transition-transform"><X className="w-3 h-3" /></button>
               </div>
             )}
+            <ChatSuggestionPills
+              suggestions={suggestions}
+              bookingLabel={suggestionContext?.bookingId ? suggestionContext.bookingLabel : undefined}
+              onSelect={handleSuggestionSelect}
+              onDismiss={dismissSuggestions}
+              disabled={isSending}
+            />
             <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-full pl-3 pr-1.5 py-1.5 focus-within:ring-2 focus-within:ring-orange-500/20 focus-within:border-orange-500 transition-all">
               <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={(e) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = (ev) => setImagePreview(ev.target?.result as string); reader.readAsDataURL(file); } }} />
               <button onClick={() => fileInputRef.current?.click()} className="text-slate-400 hover:text-orange-600 p-1.5 transition-colors"><Paperclip className="w-4 h-4 sm:w-5 sm:h-5" /></button>
-              <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} placeholder="Message admin..." className="flex-1 bg-transparent border-none focus:outline-none text-[13px] sm:text-[14px] h-11 placeholder:text-slate-400" />
-              <Button onClick={handleSend} className="w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-[#ea580c] hover:bg-[#c2410c] text-white p-0 shrink-0 shadow-sm active:scale-90 transition-transform"><Send className="w-4 h-4 sm:w-4 sm:h-4 ml-0.5" /></Button>
+              <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void handleSend() }} placeholder="Message admin..." className="flex-1 bg-transparent border-none focus:outline-none text-[13px] sm:text-[14px] h-11 placeholder:text-slate-400" />
+              <Button onClick={() => void handleSend()} disabled={isSending} className="w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-[#ea580c] hover:bg-[#c2410c] text-white p-0 shrink-0 shadow-sm active:scale-90 transition-transform disabled:cursor-not-allowed disabled:opacity-60"><Send className="w-4 h-4 sm:w-4 sm:h-4 ml-0.5" /></Button>
             </div>
           </div>
         </div>

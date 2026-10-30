@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import {
-  Banknote, Building2, ChevronDown, FileText, HelpCircle, Home,
+  Banknote, Building2, ChevronDown, FileText, HelpCircle, Home, MessageCircleQuestion,
   Newspaper, Tent, Users,
 } from "lucide-react"
 import type { ReactNode } from "react"
@@ -12,6 +12,7 @@ const SECTIONS = [
   { key: "venues", label: "Event Venues", icon: <Tent className="h-4 w-4" /> },
   { key: "offices", label: "Office Spaces", icon: <Building2 className="h-4 w-4" /> },
   { key: "faqs", label: "FAQs", icon: <HelpCircle className="h-4 w-4" /> },
+  { key: "predefinedQuestions", label: "Predefined Questions & Answers", icon: <MessageCircleQuestion className="h-4 w-4" /> },
   { key: "policies", label: "Terms & Policies", icon: <Newspaper className="h-4 w-4" /> },
   { key: "pastClients", label: "Past Client Bookings", icon: <Users className="h-4 w-4" /> },
   { key: "contracts", label: "Contracts", icon: <FileText className="h-4 w-4" /> },

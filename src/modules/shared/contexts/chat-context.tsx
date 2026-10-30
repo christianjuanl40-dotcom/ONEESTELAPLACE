@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { useAuth } from "../auth/auth-context"
 import { perfListener } from "../lib/perf-trace"
+import { getAuthHeaders } from "../lib/auth-token"
 import { db } from "@/lib/firebase"
 import {
   collection,
@@ -39,6 +40,8 @@ export interface ChatMessageItem {
   isReadByClient?: boolean
   read?: boolean
   isBot?: boolean
+  automationType?: string
+  sourceQuestionId?: string
   followUps?: string[]
   escalated?: boolean
 }
@@ -73,7 +76,8 @@ interface ChatContextValue {
     clientName?: string,
     isBot?: boolean,
     imageUrl?: string
-  ) => void
+  ) => Promise<void>
+  sendPredefinedQuestion: (questionId: string) => Promise<void>
   markAsRead: (clientId: string) => void
   markAsReadByClient: (clientId: string) => void
   markAdminAsRead: () => void
@@ -202,6 +206,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           isReadByClient: data.isReadByClient ?? false,
           read: data.read ?? false,
           isBot: data.isBot ?? false,
+          automationType: data.automationType,
+          sourceQuestionId: data.sourceQuestionId,
           followUps: data.followUps,
           escalated: data.escalated,
         })
@@ -245,6 +251,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const normalizedRole: ChatMessageItem["sender"] =
         senderRole === "user" ? "user" : senderRole === "bot" ? "bot" : senderRole
 
+      if ((normalizedRole === "client" || normalizedRole === "user") && isBot) {
+        throw new Error("Automated support messages must be sent by the trusted server.")
+      }
+
       const resolvedClientId = clientId ?? user?.id ?? ""
 
       const messageData = {
@@ -287,6 +297,42 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     },
     [user]
   )
+
+  const predefinedRequestKeys = useRef(new Map<string, string>())
+  const predefinedRequests = useRef(new Map<string, Promise<void>>())
+  const sendPredefinedQuestion: ChatContextValue["sendPredefinedQuestion"] = useCallback((questionId) => {
+    if (!user || user.role !== "client") return Promise.reject(new Error("Authentication is required."))
+    const existingRequest = predefinedRequests.current.get(questionId)
+    if (existingRequest) return existingRequest
+
+    const existingKey = predefinedRequestKeys.current.get(questionId)
+    const idempotencyKey = existingKey || (
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? `suggestion-${crypto.randomUUID()}`
+        : `suggestion-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    )
+    predefinedRequestKeys.current.set(questionId, idempotencyKey)
+
+    const request = (async () => {
+      const headers = await getAuthHeaders(true)
+      const response = await fetch("/api/chat-suggestions/answer", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ questionId, idempotencyKey }),
+      })
+      const payload = await response.json().catch(() => ({})) as Record<string, unknown>
+      if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "The selected question could not be sent.")
+      predefinedRequestKeys.current.delete(questionId)
+    })()
+
+    predefinedRequests.current.set(questionId, request)
+    void request.then(() => {
+      if (predefinedRequests.current.get(questionId) === request) predefinedRequests.current.delete(questionId)
+    }, () => {
+      if (predefinedRequests.current.get(questionId) === request) predefinedRequests.current.delete(questionId)
+    })
+    return request
+  }, [user])
 
   const markAsRead = useCallback(async (clientId: string) => {
     if (!user || (user.role === "client" && clientId !== user.id) || (user.role === "staff" && user.permissions?.chat !== true)) return
@@ -376,6 +422,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       loadChat,
       unloadChat,
       sendMessage,
+      sendPredefinedQuestion,
       markAsRead,
       markAsReadByClient,
       markAdminAsRead,
@@ -399,6 +446,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       loadChat,
       unloadChat,
       sendMessage,
+      sendPredefinedQuestion,
       markAsRead,
       markAsReadByClient,
       markAdminAsRead,

@@ -98,6 +98,23 @@ service cloud.firestore {
         && isProfileMetadataUpdate();
     }
 
+    // Customers may record only the visibility metadata for their own
+    // status-aware chat suggestions. This is intentionally separate from the
+    // ordinary profile allowlist so it cannot be used to alter contact data or
+    // authorization fields.
+    function isChatSuggestionStateUpdate(userId) {
+      return ownsUser(userId)
+        && resource.data.get("role", "") == "client"
+        && request.resource.data.get("role", "") == "client"
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["chatSuggestionState"])
+        && request.resource.data.get("chatSuggestionState", {}).keys().hasOnly(["lastShownAt", "contextKey"])
+        && request.resource.data.get("chatSuggestionState", {}).get("contextKey", "") is string
+        && request.resource.data.get("chatSuggestionState", {}).get("contextKey", "").size() > 0
+        && request.resource.data.get("chatSuggestionState", {}).get("contextKey", "").size() <= 500
+        && request.resource.data.get("chatSuggestionState", {}).get("lastShownAt", null) is timestamp
+        && preservesUserAuthorization();
+    }
+
     function bookingPath(bookingId) {
       return /databases/$(database)/documents/bookings/$(bookingId);
     }
@@ -281,6 +298,7 @@ service cloud.firestore {
       // same metadata allowlist; staff/admin authorization fields are frozen.
       allow update: if (isAdmin() && isProfileMetadataUpdate())
         || (isStaff() && hasPermission("users") && isClientProfileMetadataUpdate())
+        || (isClient() && isChatSuggestionStateUpdate(userId))
         || (ownsUser(userId) && isProfileMetadataUpdate());
 
       allow delete: if false;
@@ -381,15 +399,10 @@ service cloud.firestore {
         && request.resource.data.get("clientId", "") == request.auth.uid
         && request.resource.data.get("text", "") is string
         && request.resource.data.get("text", "").size() <= 5000
+        && request.resource.data.get("isBot", false) == false
         && (
-          (
-            request.resource.data.get("sender", "") in ["client", "user"]
-            && request.resource.data.get("senderId", "") == request.auth.uid
-          )
-          || (
-            request.resource.data.get("isBot", false) == true
-            && request.resource.data.get("sender", "") in ["admin", "bot"]
-          )
+          request.resource.data.get("sender", "") in ["client", "user"]
+          && request.resource.data.get("senderId", "") == request.auth.uid
         )
       ) || (
         canReadChat()
@@ -441,6 +454,24 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["bookingCounter"])
           && request.resource.data.get("bookingCounter", 0) == resource.data.get("bookingCounter", 0) + 1
         );
+    }
+
+    // Automated-answer content is split from the public CMS document. The
+    // protected config contains unpublished answers; customers can only read
+    // a version marker. The filtered question projection is returned by the
+    // authenticated server route, never through a browser client.
+    match /chatSuggestionQuestions/{document} {
+      allow read: if (
+        document == "publishedVersion"
+        && (isClient() || hasPermission("cms"))
+      ) || (
+        document == "config"
+        && hasPermission("cms")
+      ) || (
+        document == "published"
+        && hasPermission("cms")
+      );
+      allow create, update, delete: if false;
     }
 
     match /contracts/{contractId} {

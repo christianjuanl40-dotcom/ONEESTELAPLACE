@@ -7,6 +7,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from "@firebase/rules-unit-testing"
+import { Timestamp } from "firebase/firestore"
 
 const rulesSuite = process.env.FIRESTORE_EMULATOR_HOST ? describe : describe.skip
 const officeBooking = {
@@ -58,6 +59,11 @@ rulesSuite("Firestore security rules", () => {
           role: "staff",
           status: "active",
           permissions: { users: true },
+        }),
+        firestore.collection("users").doc("cms-staff").set({
+          role: "staff",
+          status: "active",
+          permissions: { cms: true },
         }),
         firestore.collection("users").doc("payment-staff").set({
           role: "staff",
@@ -275,6 +281,87 @@ rulesSuite("Firestore security rules", () => {
         uid: "another-user",
       }),
     )
+  })
+
+  it("allows only an authenticated client to update narrow chat suggestion metadata", async () => {
+    await seedProfilesAndRecords()
+    const firestore = testEnv.authenticatedContext("client").firestore()
+    const state = {
+      lastShownAt: Timestamp.fromDate(new Date("2099-01-01T12:00:00.000Z")),
+      contextKey: "BK001|pending_booking",
+    }
+
+    await assertSucceeds(firestore.collection("users").doc("client").update({ chatSuggestionState: state }))
+    await assertFails(firestore.collection("users").doc("another-client").update({ chatSuggestionState: state }))
+    await assertFails(firestore.collection("users").doc("client").update({
+      chatSuggestionState: { ...state, unexpected: true },
+    }))
+    await assertFails(firestore.collection("users").doc("client").update({
+      chatSuggestionState: { ...state, lastShownAt: "2099-01-01T12:00:00.000Z" },
+    }))
+    await assertFails(firestore.collection("users").doc("client").update({
+      chatSuggestionState: state,
+      role: "admin",
+    }))
+  })
+
+  it("keeps predefined answers and question projections backoffice-only, exposing only a version marker", async () => {
+    await seedProfilesAndRecords()
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().collection("chatSuggestionQuestions").doc("config").set({
+        questions: [{ questionId: "q1", question: "Question", answer: "Private answer" }],
+      })
+      await context.firestore().collection("chatSuggestionQuestions").doc("published").set({
+        questions: [{ questionId: "q1", question: "Question", statusGroup: "no_booking", priority: 1 }],
+      })
+    })
+
+    const admin = testEnv.authenticatedContext("admin").firestore()
+    const cmsStaff = testEnv.authenticatedContext("cms-staff").firestore()
+    const client = testEnv.authenticatedContext("client").firestore()
+    const unauthenticated = testEnv.unauthenticatedContext().firestore()
+
+    await assertSucceeds(admin.collection("chatSuggestionQuestions").doc("config").get())
+    await assertSucceeds(cmsStaff.collection("chatSuggestionQuestions").doc("config").get())
+    await assertFails(client.collection("chatSuggestionQuestions").doc("config").get())
+    await assertSucceeds(client.collection("chatSuggestionQuestions").doc("publishedVersion").get())
+    await assertFails(client.collection("chatSuggestionQuestions").doc("published").get())
+    await assertFails(unauthenticated.collection("chatSuggestionQuestions").doc("publishedVersion").get())
+    await assertFails(admin.collection("chatSuggestionQuestions").doc("config").set({ questions: [] }))
+    await assertFails(cmsStaff.collection("chatSuggestionQuestions").doc("published").set({ questions: [] }))
+  })
+
+  it("prevents customers from forging automated or support messages", async () => {
+    await seedProfilesAndRecords()
+    const client = testEnv.authenticatedContext("client").firestore().collection("chatMessages")
+    const normalMessage = {
+      text: "A real customer message",
+      content: "A real customer message",
+      sender: "client",
+      senderId: "client",
+      clientId: "client",
+      timestamp: Timestamp.now(),
+      isRead: false,
+      isReadByClient: true,
+      read: false,
+      isBot: false,
+    }
+    await assertSucceeds(client.doc("normal").set(normalMessage))
+    await assertFails(client.doc("forged-admin").set({
+      ...normalMessage,
+      sender: "admin",
+      senderId: "admin",
+      isBot: true,
+    }))
+    await assertFails(client.doc("forged-bot-flag").set({
+      ...normalMessage,
+      isBot: true,
+    }))
+    await assertFails(client.doc("forged-bot-sender").set({
+      ...normalMessage,
+      sender: "bot",
+      isBot: false,
+    }))
   })
 
   it("restricts Users-management staff to client metadata and blocks authorization escalation", async () => {
