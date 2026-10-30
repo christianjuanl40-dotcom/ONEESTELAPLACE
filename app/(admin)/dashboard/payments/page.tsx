@@ -24,6 +24,7 @@ import {
   ReceiptPaper,
   type ReceiptPaperData,
 } from "@/src/modules/shared/components/receipt-paper"
+import { PaymentReviewModal as SharedPaymentReviewModal } from "@/src/modules/admin/components/payment-review-modal"
 import { PaymentReviewDetails } from "@/src/modules/shared/components/payment-review-details"
 import { usePaymentHistorySelection } from "@/src/modules/shared/hooks/use-payment-history-selection"
 import { resolvePaymentReviewNote } from "@/src/modules/shared/lib/payment-review"
@@ -739,7 +740,7 @@ export default function AdminPaymentsPage() {
         >
           <DialogContent aria-describedby={undefined} showCloseButton={false} className="w-[95vw] sm:max-w-4xl lg:max-w-5xl max-h-[90dvh] overflow-hidden rounded-3xl bg-white shadow-2xl">
             {selectedPayment && (
-              <PaymentReviewModal
+              <SharedPaymentReviewModal
                 key={selectedPayment.id}
                 payment={selectedPayment}
                 onClose={() => setSelectedPayment(null)}

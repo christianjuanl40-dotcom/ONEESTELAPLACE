@@ -1,13 +1,12 @@
 "use client"
 
 import type React from "react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import {
   Activity,
   AlertCircle,
   ArrowRight,
-  Banknote,
   Building2,
   CheckCircle2,
   Clock,
@@ -15,26 +14,47 @@ import {
   Inbox,
   Tent,
   TrendingUp,
+  X,
 } from "lucide-react"
 
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { useRouter } from "next/navigation"
 import { cn } from "@/src/modules/shared/lib/utils"
-import { perfListener, perfMark } from "@/src/modules/shared/lib/perf-trace"
+import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-identity"
-import { db } from "@/lib/firebase"
+import { useBookingData, type Booking } from "@/src/modules/client/contexts/booking-context"
 import {
-  collection,
-  query,
-  where,
-  orderBy,
-  limit,
-  onSnapshot,
-  getCountFromServer,
-} from "firebase/firestore"
-
-const BOOKINGS_REF = collection(db, "bookings")
-const PAYMENTS_REF = collection(db, "payments")
+  calculatePaymentSummary,
+  getPaymentOverallStatusLabel,
+  getRecordsForBooking,
+  type PaymentRecordLike,
+} from "@/src/modules/shared/lib/payment-calculations"
+import { getBookingLifecycleStatus } from "@/src/modules/shared/lib/booking-helpers"
+import { Button } from "@/src/modules/shared/components/ui/button"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/src/modules/shared/components/ui/dialog"
+import { ModifyBookingDialog } from "@/src/modules/admin/components/modify-booking-dialog"
+import {
+  buildPaymentReviewQueue,
+  DashboardPaymentReviewQueueModal,
+  type PaymentReviewQueueEntry,
+} from "@/src/modules/admin/components/dashboard-payment-review-queue"
+import {
+  ApproveCancellationConfirmModal,
+  ApproveModificationConfirmModal,
+  BalanceReminderModal,
+  BookingDetailsModal,
+  ContractSigningConfirmModal,
+  DeclineCancellationModal,
+  DeclineModificationModal,
+  MarkCompletedConfirmModal,
+  RecordOnsitePaymentModal,
+} from "@/src/modules/admin/components/booking-management-page"
 
 interface DashboardStats {
   totalRevenue: number
@@ -43,143 +63,50 @@ interface DashboardStats {
   confirmed: number
   cancelled: number
   cancellationRequests: number
+  modificationRequests: number
   total: number
 }
 
-const EMPTY_STATS: DashboardStats = {
-  totalRevenue: 0,
-  pending: 0,
-  verifying: 0,
-  confirmed: 0,
-  cancelled: 0,
-  cancellationRequests: 0,
-  total: 0,
-}
-
-// Dashboard data strategy (no full-collection download):
-//  - status counts use Firestore aggregate count queries (no document transfer)
-//  - revenue streams ONLY confirmed/completed bookings
-//  - recent bookings stream only the latest 50 docs, showing 4
+// Dashboard data uses the same page-scoped provider streams as Booking
+// Management. This keeps the details modal/actions and Dashboard summaries on
+// one realtime source without creating duplicate booking/payment listeners.
 function useDashboardData() {
-  const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS)
-  const [recentBookings, setRecentBookings] = useState<any[]>([])
-  const [ready, setReady] = useState(false)
+  const bookingCtx = useBookingData({ bookings: true, payments: true })
+  const paymentReviewQueue = useMemo<PaymentReviewQueueEntry[]>(
+    () => buildPaymentReviewQueue(bookingCtx.bookings, bookingCtx.paymentRecords),
+    [bookingCtx.bookings, bookingCtx.paymentRecords],
+  )
+  const stats = useMemo<DashboardStats>(() => {
+    const bookings = bookingCtx.bookings
 
-  const loadCounts = useCallback(async () => {
-    perfMark("Dashboard counts START")
-    const countOf = async (q: any) => {
-      try {
-        const snap = await getCountFromServer(q)
-        return snap.data().count
-      } catch (err) {
-        console.error("[Dashboard] count query error:", err)
-        return 0
-      }
+    return {
+      totalRevenue: bookings
+        .filter((booking) => ["confirmed", "completed"].includes(String(booking.status || "").toLowerCase()))
+        .reduce((total, booking) => total + getSafePrice(booking.totalPrice), 0),
+      pending: bookings.filter((booking) => ["pending", "verifying"].includes(String(booking.status || "").toLowerCase())).length,
+      verifying: paymentReviewQueue.length,
+      confirmed: bookings.filter((booking) => String(booking.status || "").toLowerCase() === "confirmed").length,
+      cancelled: bookings.filter((booking) => ["cancelled", "declined"].includes(String(booking.status || "").toLowerCase())).length,
+      cancellationRequests: bookings.filter((booking) => String(booking.status || "").toLowerCase() === "cancellation_requested").length,
+      modificationRequests: bookings.filter((booking) => String(booking.status || "").toLowerCase() === "modification_under_review").length,
+      total: bookings.length,
     }
-    const [total, pending, verifying, confirmed, cancelled, cancellationRequests] =
-      await Promise.all([
-        countOf(query(BOOKINGS_REF)),
-        countOf(query(BOOKINGS_REF, where("status", "in", ["pending", "verifying"]))),
-        countOf(query(PAYMENTS_REF, where("status", "in", [
-          "For Verification",
-          "For Review",
-          "Awaiting Onsite Payment",
-          "Pending",
-          "Pending Verification",
-          "for_review",
-          "pending",
-        ]))),
-        countOf(query(BOOKINGS_REF, where("status", "==", "confirmed"))),
-        countOf(
-          query(BOOKINGS_REF, where("status", "in", ["cancelled", "declined"])),
-        ),
-        countOf(
-          query(BOOKINGS_REF, where("status", "==", "cancellation_requested")),
-        ),
-      ])
-    perfMark("Dashboard counts DONE")
-    setStats((prev) => ({
-      ...prev,
-      total,
-      pending,
-      verifying,
-      confirmed,
-      cancelled,
-      cancellationRequests,
-    }))
-  }, [])
+  }, [bookingCtx.bookings, paymentReviewQueue])
 
-  useEffect(() => {
-    let destroyed = false
+  const recentBookings = useMemo(() => (
+    [...bookingCtx.bookings]
+      .sort((a, b) => getDateTime(b.createdAt) - getDateTime(a.createdAt))
+      .slice(0, 50)
+  ), [bookingCtx.bookings])
 
-    perfListener("DashboardRecent", "START")
-    const recentUnsub = onSnapshot(
-      query(BOOKINGS_REF, orderBy("createdAt", "desc"), limit(50)),
-      (snapshot) => {
-        const items: any[] = []
-        snapshot.forEach((docSnap) => {
-          items.push({ ...(docSnap.data() as object), id: docSnap.id })
-        })
-        setRecentBookings(items)
-        perfListener("DashboardRecent", "FIRST_SNAPSHOT", items.length)
-      },
-      (error) => {
-        perfListener("DashboardRecent", "ERROR")
-        console.error("[Dashboard] recent bookings listener error:", error?.message || error)
-      },
-    )
-
-    perfListener("DashboardRevenue", "START")
-    const revenueUnsub = onSnapshot(
-      query(BOOKINGS_REF, where("status", "in", ["confirmed", "completed"])),
-      (snapshot) => {
-        let totalRevenue = 0
-        snapshot.forEach((docSnap) => {
-          totalRevenue += getSafePrice((docSnap.data() as any).totalPrice)
-        })
-        setStats((prev) => ({ ...prev, totalRevenue }))
-        perfListener("DashboardRevenue", "FIRST_SNAPSHOT", snapshot.size)
-      },
-      (error) => {
-        perfListener("DashboardRevenue", "ERROR")
-        console.error("[Dashboard] revenue listener error:", error?.message || error)
-      },
-    )
-
-    let countsLoaded = false
-    loadCounts().then(() => {
-      if (!destroyed && !countsLoaded) {
-        countsLoaded = true
-        setReady(true)
-      }
-    })
-
-    const refresh = () => {
-      if (!destroyed) loadCounts()
-    }
-    const interval = setInterval(refresh, 60_000)
-    window.addEventListener("focus", refresh)
-
-    return () => {
-      destroyed = true
-      clearInterval(interval)
-      window.removeEventListener("focus", refresh)
-      perfListener("DashboardRecent", "STOP")
-      perfListener("DashboardRevenue", "STOP")
-      recentUnsub()
-      revenueUnsub()
-    }
-  }, [loadCounts])
-
-  return { stats, recentBookings, ready }
+  return { stats, recentBookings, paymentReviewQueue, ready: !bookingCtx.isLoading, bookingCtx }
 }
+
+type DashboardQueueMode = "pending" | "requests"
 
 const ROUTES = {
   bookings: "/dashboard/bookings",
-  payments: "/dashboard/payments",
   reports: "/dashboard/reports",
-  pendingBookings: "/dashboard/bookings?status=pending",
-  verifyingPayments: "/dashboard/payments?status=for_review",
   confirmedBookings: "/dashboard/bookings?status=confirmed",
   cancelledBookings: "/dashboard/bookings?status=cancelled",
 }
@@ -187,7 +114,32 @@ const ROUTES = {
 export default function AdminDashboardPage() {
   const { user } = useAuth()
   const router = useRouter()
-  const { stats, recentBookings, ready } = useDashboardData()
+  const { toast } = useToast()
+  const { stats, recentBookings, paymentReviewQueue, ready, bookingCtx } = useDashboardData()
+  const bookings = bookingCtx.bookings
+  const canManageBookings = user?.role === "admin" || user?.permissions?.bookings === true
+  const [queueOpen, setQueueOpen] = useState(false)
+  const [paymentReviewOpen, setPaymentReviewOpen] = useState(false)
+  const [queueMode, setQueueMode] = useState<DashboardQueueMode>("pending")
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
+  const [editBookingTarget, setEditBookingTarget] = useState<Booking | null>(null)
+  const [onsitePaymentTarget, setOnsitePaymentTarget] = useState<Booking | null>(null)
+  const [reminderTarget, setReminderTarget] = useState<Booking | null>(null)
+  const [actionPending, setActionPending] = useState<string | null>(null)
+  const [showContractConfirm, setShowContractConfirm] = useState(false)
+  const [showApproveCancellationConfirm, setShowApproveCancellationConfirm] = useState(false)
+  const [approveCancellationTarget, setApproveCancellationTarget] = useState<string | null>(null)
+  const [showDeclineCancellationModal, setShowDeclineCancellationModal] = useState(false)
+  const [declineCancellationTarget, setDeclineCancellationTarget] = useState<Booking | null>(null)
+  const [declineCancellationReason, setDeclineCancellationReason] = useState("")
+  const [showApproveModificationConfirm, setShowApproveModificationConfirm] = useState(false)
+  const [approveModificationTarget, setApproveModificationTarget] = useState<string | null>(null)
+  const [showDeclineModificationModal, setShowDeclineModificationModal] = useState(false)
+  const [declineModificationTarget, setDeclineModificationTarget] = useState<Booking | null>(null)
+  const [declineModificationReason, setDeclineModificationReason] = useState("")
+  const [showMarkCompletedConfirm, setShowMarkCompletedConfirm] = useState(false)
+  const [markCompletedTarget, setMarkCompletedTarget] = useState<string | null>(null)
+  const [isEditingBooking, setIsEditingBooking] = useState(false)
 
   useEffect(() => {
     if (user && user.role === "staff" && !user.permissions?.dashboard) {
@@ -195,7 +147,226 @@ export default function AdminDashboardPage() {
     }
   }, [user, router])
 
+  useEffect(() => {
+    if (!selectedBooking) return
+    const current = bookings.find((booking) => booking.id === selectedBooking.id)
+    if (current && current !== selectedBooking) setSelectedBooking(current)
+  }, [bookings, selectedBooking?.id])
+
   const recent = useMemo(() => recentBookings.slice(0, 4), [recentBookings])
+  const findBooking = (id: string | null) => id ? bookings.find((booking) => booking.id === id) || null : null
+  const toastSuccess = (title: string, description: string) => toast({ title, description, className: "border-none bg-emerald-500 text-white" })
+  const toastError = (title: string, error: unknown) => toast({
+    title,
+    description: error instanceof Error ? error.message : "Unable to complete this booking action.",
+    variant: "destructive",
+  })
+
+  const openPendingQueue = () => {
+    setQueueMode("pending")
+    setQueueOpen(true)
+  }
+
+  const openRequestQueue = () => {
+    setQueueMode("requests")
+    setQueueOpen(true)
+  }
+
+  const openPaymentReviewQueue = () => {
+    setPaymentReviewOpen(true)
+  }
+
+  const openBooking = (booking: Booking) => {
+    setQueueOpen(false)
+    setSelectedBooking(booking)
+  }
+
+  const handleMarkCompleted = (id: string) => {
+    if (!canManageBookings || actionPending) return
+    setMarkCompletedTarget(id)
+    setShowMarkCompletedConfirm(true)
+  }
+
+  const confirmMarkCompleted = async () => {
+    const id = markCompletedTarget
+    if (!id || !canManageBookings || actionPending) return
+    setActionPending("complete")
+    try {
+      const updated = await bookingCtx.updateBookingStatus(id, "completed")
+      if (!updated) return
+      setShowMarkCompletedConfirm(false)
+      setMarkCompletedTarget(null)
+      toastSuccess("Booking Completed", `Booking ${id} has been marked as completed.`)
+    } finally {
+      setActionPending(null)
+    }
+  }
+
+  const handleMarkContractSigned = () => {
+    if (!canManageBookings || actionPending || !selectedBooking) return
+    setShowContractConfirm(true)
+  }
+
+  const confirmMarkContractSigned = async () => {
+    const id = selectedBooking?.id
+    if (!id || !canManageBookings || actionPending) return
+    setActionPending("contract")
+    try {
+      await bookingCtx.markContractSigned(id, "Administrator")
+      setShowContractConfirm(false)
+      toastSuccess("Contract Signed", `Contract for booking ${id} has been marked as signed.`)
+    } catch (error) {
+      toastError("Contract Update Failed", error)
+    } finally {
+      setActionPending(null)
+    }
+  }
+
+  const handleApproveCancellation = (id: string) => {
+    if (!canManageBookings || actionPending) return
+    setApproveCancellationTarget(id)
+    setShowApproveCancellationConfirm(true)
+  }
+
+  const confirmApproveCancellation = async () => {
+    const id = approveCancellationTarget
+    if (!id || !canManageBookings || actionPending) return
+    setActionPending("approve-cancellation")
+    try {
+      await bookingCtx.approveCancellation(id)
+      setShowApproveCancellationConfirm(false)
+      setApproveCancellationTarget(null)
+      toastSuccess("Cancellation Approved", `Booking ${id} has been cancelled.`)
+    } catch (error) {
+      toastError("Cancellation Approval Failed", error)
+    } finally {
+      setActionPending(null)
+    }
+  }
+
+  const handleDeclineCancellation = (id: string) => {
+    if (!canManageBookings || actionPending) return
+    const target = findBooking(id)
+    if (!target) return
+    setDeclineCancellationTarget(target)
+    setShowDeclineCancellationModal(true)
+  }
+
+  const confirmDeclineCancellation = async () => {
+    const target = declineCancellationTarget
+    const reason = declineCancellationReason.trim()
+    if (!target || !reason || !canManageBookings || actionPending) return
+    setActionPending("decline-cancellation")
+    try {
+      await bookingCtx.declineCancellation(target.id, reason)
+      setShowDeclineCancellationModal(false)
+      setDeclineCancellationTarget(null)
+      setDeclineCancellationReason("")
+      toastSuccess("Cancellation Declined", `Booking ${target.id} will continue.`)
+    } catch (error) {
+      toastError("Cancellation Rejection Failed", error)
+    } finally {
+      setActionPending(null)
+    }
+  }
+
+  const handleApproveModification = (id: string) => {
+    if (!canManageBookings || actionPending) return
+    setApproveModificationTarget(id)
+    setShowApproveModificationConfirm(true)
+  }
+
+  const confirmApproveModification = async () => {
+    const id = approveModificationTarget
+    if (!id || !canManageBookings || actionPending) return
+    setActionPending("approve-modification")
+    try {
+      const updated = await bookingCtx.approveModification(id)
+      setShowApproveModificationConfirm(false)
+      setApproveModificationTarget(null)
+      setSelectedBooking(updated)
+      toastSuccess("Modification Approved", `Booking ${id} has been updated.`)
+    } catch (error) {
+      toastError("Modification Approval Failed", error)
+    } finally {
+      setActionPending(null)
+    }
+  }
+
+  const handleDeclineModification = (id: string) => {
+    if (!canManageBookings || actionPending) return
+    const target = findBooking(id)
+    if (!target) return
+    setDeclineModificationTarget(target)
+    setShowDeclineModificationModal(true)
+  }
+
+  const confirmDeclineModification = async () => {
+    const target = declineModificationTarget
+    const reason = declineModificationReason.trim()
+    if (!target || !reason || !canManageBookings || actionPending) return
+    setActionPending("decline-modification")
+    try {
+      const updated = await bookingCtx.declineModification(target.id, reason)
+      setShowDeclineModificationModal(false)
+      setDeclineModificationTarget(null)
+      setDeclineModificationReason("")
+      setSelectedBooking(updated)
+      toastSuccess("Modification Declined", `Booking ${target.id} remains unchanged.`)
+    } catch (error) {
+      toastError("Modification Rejection Failed", error)
+    } finally {
+      setActionPending(null)
+    }
+  }
+
+  const confirmBalanceReminder = async () => {
+    const target = reminderTarget
+    if (!target || !canManageBookings || actionPending) return
+    setActionPending("balance-reminder")
+    try {
+      await bookingCtx.sendBalanceReminder(target.id)
+      setReminderTarget(null)
+      toastSuccess("Balance Reminder Sent", `Reminder recorded for booking ${target.id}.`)
+    } catch (error) {
+      toastError("Balance Reminder Failed", error)
+    } finally {
+      setActionPending(null)
+    }
+  }
+
+  const handleMarkAsRefunded = async (id: string) => {
+    if (!canManageBookings || actionPending) return
+    setActionPending("refund")
+    try {
+      await bookingCtx.markAsRefunded(id)
+    } finally {
+      setActionPending(null)
+    }
+  }
+
+  const handleEditBooking = (id: string) => {
+    if (!canManageBookings || actionPending) return
+    const target = findBooking(id)
+    if (!target) return
+    setSelectedBooking(null)
+    setEditBookingTarget(target)
+  }
+
+  const saveEditedBooking = async (updatedBooking: Booking) => {
+    if (isEditingBooking || !canManageBookings) return
+    setIsEditingBooking(true)
+    try {
+      const updated = await bookingCtx.modifyBooking(updatedBooking.id, updatedBooking)
+      setEditBookingTarget(null)
+      setSelectedBooking(updated)
+      toastSuccess("Booking Updated", `Booking ${updatedBooking.id} has been updated.`)
+    } catch (error) {
+      toastError("Booking Update Failed", error)
+    } finally {
+      setIsEditingBooking(false)
+    }
+  }
 
   if (!ready) {
     return (
@@ -208,25 +379,112 @@ export default function AdminDashboardPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
-      <div className="mb-6">
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Link
-            href={ROUTES.bookings}
-            className="inline-flex h-9 items-center justify-center rounded-lg bg-orange-600 px-3 text-xs font-black text-white shadow-sm transition hover:bg-orange-700"
-          >
-            Manage Bookings
-            <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-          </Link>
-          <Link
-            href={ROUTES.payments}
-            className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 shadow-sm transition hover:bg-slate-50"
-          >
-            Review Payments
-          </Link>
-        </div>
-      </div>
+    <>
+      <DashboardPaymentReviewQueueModal
+        open={paymentReviewOpen}
+        entries={paymentReviewQueue}
+        onClose={() => setPaymentReviewOpen(false)}
+      />
+      <DashboardBookingQueue
+        open={queueOpen}
+        mode={queueMode}
+        bookings={bookings}
+        paymentRecords={bookingCtx.paymentRecords}
+        onClose={() => setQueueOpen(false)}
+        onReview={openBooking}
+      />
+      <BookingDetailsModal
+        booking={selectedBooking}
+        open={!!selectedBooking}
+        onClose={() => { setSelectedBooking(null); setShowContractConfirm(false) }}
+        onMarkCompleted={canManageBookings ? handleMarkCompleted : undefined}
+        onMarkContractSigned={canManageBookings ? handleMarkContractSigned : undefined}
+        onEditBooking={canManageBookings ? handleEditBooking : undefined}
+        onSendReminder={canManageBookings ? (id) => {
+          const target = findBooking(id)
+          if (target) setReminderTarget(target)
+        } : undefined}
+        onRecordOnsitePayment={canManageBookings ? (id) => {
+          const target = findBooking(id)
+          if (target) setOnsitePaymentTarget(target)
+        } : undefined}
+        onApproveCancellation={canManageBookings ? handleApproveCancellation : undefined}
+        onContinueBooking={canManageBookings ? handleDeclineCancellation : undefined}
+        onApproveModification={canManageBookings ? handleApproveModification : undefined}
+        onDeclineModification={canManageBookings ? handleDeclineModification : undefined}
+        onMarkAsRefunded={canManageBookings ? handleMarkAsRefunded : undefined}
+        paymentRecords={bookingCtx.paymentRecords}
+        actionPending={Boolean(actionPending)}
+      />
+      {editBookingTarget && (
+        <ModifyBookingDialog
+          open={!!editBookingTarget}
+          onOpenChange={(open) => { if (!open && !isEditingBooking) setEditBookingTarget(null) }}
+          booking={editBookingTarget}
+          isSaving={isEditingBooking}
+          onSave={saveEditedBooking}
+        />
+      )}
+      <RecordOnsitePaymentModal
+        booking={onsitePaymentTarget}
+        open={!!onsitePaymentTarget}
+        onClose={() => setOnsitePaymentTarget(null)}
+        paymentRecords={bookingCtx.paymentRecords}
+        onRecorded={(updated) => {
+          setSelectedBooking(updated)
+          setOnsitePaymentTarget(null)
+          toastSuccess("Onsite Payment Recorded", `Payment recorded for booking ${updated.id}.`)
+        }}
+      />
+      <BalanceReminderModal
+        booking={reminderTarget}
+        remainingBalance={reminderTarget ? calculatePaymentSummary(reminderTarget, getRecordsForBooking(bookingCtx.paymentRecords, reminderTarget)).remainingBalance : undefined}
+        open={!!reminderTarget}
+        onCancel={() => setReminderTarget(null)}
+        onConfirm={() => { void confirmBalanceReminder() }}
+      />
+      <ContractSigningConfirmModal
+        booking={selectedBooking}
+        open={showContractConfirm}
+        onCancel={() => setShowContractConfirm(false)}
+        onConfirm={() => { void confirmMarkContractSigned() }}
+      />
+      <ApproveCancellationConfirmModal
+        booking={findBooking(approveCancellationTarget)}
+        open={showApproveCancellationConfirm}
+        onCancel={() => { setShowApproveCancellationConfirm(false); setApproveCancellationTarget(null) }}
+        onConfirm={() => { void confirmApproveCancellation() }}
+      />
+      <DeclineCancellationModal
+        booking={declineCancellationTarget}
+        open={showDeclineCancellationModal}
+        reason={declineCancellationReason}
+        onReasonChange={setDeclineCancellationReason}
+        onCancel={() => { setShowDeclineCancellationModal(false); setDeclineCancellationTarget(null); setDeclineCancellationReason("") }}
+        onConfirm={() => { void confirmDeclineCancellation() }}
+      />
+      <ApproveModificationConfirmModal
+        booking={findBooking(approveModificationTarget)}
+        open={showApproveModificationConfirm}
+        onCancel={() => { setShowApproveModificationConfirm(false); setApproveModificationTarget(null) }}
+        onConfirm={() => { void confirmApproveModification() }}
+      />
+      <DeclineModificationModal
+        booking={declineModificationTarget}
+        open={showDeclineModificationModal}
+        reason={declineModificationReason}
+        onReasonChange={setDeclineModificationReason}
+        onCancel={() => { setShowDeclineModificationModal(false); setDeclineModificationTarget(null); setDeclineModificationReason("") }}
+        onConfirm={() => { void confirmDeclineModification() }}
+      />
+      <MarkCompletedConfirmModal
+        booking={findBooking(markCompletedTarget)}
+        open={showMarkCompletedConfirm}
+        onCancel={() => { setShowMarkCompletedConfirm(false); setMarkCompletedTarget(null) }}
+        onConfirm={() => { void confirmMarkCompleted() }}
+      />
 
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
         <section className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5 xl:gap-5 mb-6">
           <StatCard
             href={ROUTES.reports}
@@ -237,15 +495,15 @@ export default function AdminDashboardPage() {
             tone="orange"
           />
           <StatCard
-            href={ROUTES.pendingBookings}
+            onClick={openPendingQueue}
             icon={<Clock className="h-4 w-4" />}
             label="Pending"
             value={stats.pending.toString()}
-            description="Needs approval"
+            description="Needs review"
             tone="amber"
           />
           <StatCard
-            href={ROUTES.verifyingPayments}
+            onClick={openPaymentReviewQueue}
             icon={<CreditCard className="h-4 w-4" />}
              label="Payment Review"
             value={stats.verifying.toString()}
@@ -303,6 +561,7 @@ export default function AdminDashboardPage() {
                       key={booking.id}
                       booking={booking}
                       statusBadge={getStatusBadge(booking.status)}
+                      onOpen={() => openBooking(booking)}
                     />
                   ))}
                 </div>
@@ -328,24 +587,24 @@ export default function AdminDashboardPage() {
 
               <div className="space-y-3">
                 <ActionItem
-                  href={ROUTES.pendingBookings}
+                  onClick={openPendingQueue}
                   icon={<Clock className="h-4 w-4" />}
-                  label="Pending approval"
+                  label="Pending bookings"
                   value={stats.pending}
                   tone="orange"
                 />
                 <ActionItem
-                  href={ROUTES.verifyingPayments}
+                  onClick={openPaymentReviewQueue}
                   icon={<CreditCard className="h-4 w-4" />}
                    label="Payments under review"
                   value={stats.verifying}
                   tone="purple"
                 />
                 <ActionItem
-                  href={ROUTES.cancelledBookings}
+                  onClick={openRequestQueue}
                   icon={<AlertCircle className="h-4 w-4" />}
-                  label="Cancel requests"
-                  value={stats.cancellationRequests}
+                  label="Cancellation / modification requests"
+                  value={stats.cancellationRequests + stats.modificationRequests}
                   tone="rose"
                 />
               </div>
@@ -369,7 +628,8 @@ export default function AdminDashboardPage() {
             </div>
           </aside>
         </section>
-    </div>
+      </div>
+    </>
   )
 }
 
@@ -379,13 +639,263 @@ function getSafePrice(value: unknown) {
   return Number(safePrice) || 0
 }
 
+function getDateTime(value: unknown) {
+  const raw = value && typeof value === "object" && "toDate" in value && typeof (value as { toDate?: unknown }).toDate === "function"
+    ? (value as { toDate: () => Date }).toDate()
+    : value
+  const time = new Date(String(raw || 0)).getTime()
+  return Number.isFinite(time) ? time : 0
+}
+
 function formatCurrency(value: number) {
   return `₱${Number(value || 0).toLocaleString()}`
+}
+
+function DashboardBookingQueue({
+  open,
+  mode,
+  bookings,
+  paymentRecords,
+  onClose,
+  onReview,
+}: {
+  open: boolean
+  mode: DashboardQueueMode
+  bookings: Booking[]
+  paymentRecords: PaymentRecordLike[]
+  onClose: () => void
+  onReview: (booking: Booking) => void
+}) {
+  const queuedBookings = useMemo(() => {
+    return bookings
+      .filter((booking) => {
+        const status = String(booking.status || "").trim().toLowerCase()
+        if (mode === "pending") return status === "pending" || status === "verifying"
+        return status === "cancellation_requested" || status === "modification_under_review"
+      })
+      .sort((a, b) => getDateTime(b.createdAt) - getDateTime(a.createdAt))
+  }, [bookings, mode])
+
+  const isRequestQueue = mode === "requests"
+  const title = isRequestQueue ? "Cancellation & Modification Requests" : "Pending Booking Queue"
+  const description = isRequestQueue
+    ? "Review customer requests without leaving the dashboard."
+    : "Review pending and payment-verification bookings without leaving the dashboard."
+
+  return (
+    <Dialog open={open} onOpenChange={(value) => !value && onClose()}>
+      <DialogContent
+        aria-describedby={undefined}
+        plain
+        showCloseButton={false}
+        className="flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[920px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+      >
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <header className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-4 py-4 sm:px-6">
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">Dashboard Queue</p>
+              <DialogTitle className="mt-1 text-lg font-black leading-snug text-slate-950 sm:text-xl">
+                {title}
+              </DialogTitle>
+              <DialogDescription className="mt-1 text-xs font-medium leading-5 text-slate-500">
+                {description}
+              </DialogDescription>
+            </div>
+            <DialogClose asChild>
+              <button
+                type="button"
+                aria-label="Close dashboard booking queue"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600 focus-visible:ring-offset-2"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </DialogClose>
+          </header>
+
+          <div role="region" aria-label="Dashboard booking queue" tabIndex={0} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-orange-600 sm:px-6">
+            {queuedBookings.length === 0 ? (
+              <div className="flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+                <Inbox className="mb-3 h-9 w-9 text-slate-300" />
+                <h3 className="text-sm font-black text-slate-900">
+                  {isRequestQueue ? "No requests awaiting review" : "No pending bookings"}
+                </h3>
+                <p className="mt-1 max-w-sm text-xs font-medium leading-5 text-slate-500">
+                  {isRequestQueue
+                    ? "Cancellation and modification requests will appear here."
+                    : "New pending reservations will appear here as they are submitted."}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {queuedBookings.map((booking) => {
+                  const records = getRecordsForBooking(paymentRecords, booking)
+                  const paymentSummary = calculatePaymentSummary(booking, records)
+                  const paymentLabel = records.length > 0
+                    ? getPaymentOverallStatusLabel(paymentSummary.overallStatus)
+                    : getStoredPaymentStatusLabel(booking.paymentStatus)
+
+                  return (
+                    <article key={booking.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md sm:p-5">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <div className={cn(
+                            "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
+                            isOfficeResourceBooking(booking) ? "bg-blue-50 text-blue-600" : "bg-orange-50 text-orange-600",
+                          )}>
+                            {isOfficeResourceBooking(booking)
+                              ? <Building2 className="h-5 w-5" />
+                              : <Tent className="h-5 w-5" />}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="break-words text-sm font-black leading-snug text-slate-950">
+                              {booking.eventName || "Untitled Booking"}
+                            </p>
+                            <p className="mt-0.5 break-all text-[11px] font-bold text-orange-700">#{booking.id}</p>
+                            <p className="mt-1 break-words text-xs font-semibold text-slate-500">
+                              {booking.userInfo?.name || "Customer unavailable"}
+                              {booking.userInfo?.email ? ` · ${booking.userInfo.email}` : ""}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex shrink-0 flex-wrap gap-1.5 sm:max-w-[260px] sm:justify-end">
+                          {getQueueStatusBadge(booking)}
+                          <span className={cn(
+                            "inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em]",
+                            getQueuePaymentBadgeClass(records.length > 0 ? paymentSummary.overallStatus : (booking.paymentStatus || "unpaid")),
+                          )}>
+                            Payment: {paymentLabel}
+                          </span>
+                        </div>
+                      </div>
+
+                      <dl className="mt-4 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2 lg:grid-cols-4">
+                        <div className="min-w-0">
+                          <dt className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Schedule</dt>
+                          <dd className="mt-1 break-words text-xs font-bold leading-5 text-slate-800">{getQueueSchedule(booking)}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Location</dt>
+                          <dd className="mt-1 break-words text-xs font-bold leading-5 text-slate-800">{getQueueLocation(booking)}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Booking Total</dt>
+                          <dd className="mt-1 text-xs font-black tabular-nums text-slate-900">{formatCurrency(paymentSummary.bookingTotal)}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Balance Due</dt>
+                          <dd className="mt-1 text-xs font-black tabular-nums text-orange-700">{formatCurrency(paymentSummary.remainingBalance)}</dd>
+                        </div>
+                      </dl>
+
+                      <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-[11px] font-semibold text-slate-500">
+                          Submitted {formatQueueDate(booking.createdAt)}
+                        </p>
+                        <Button
+                          type="button"
+                          onClick={() => onReview(booking)}
+                          className="h-10 w-full rounded-xl bg-orange-600 px-4 text-xs font-black text-white hover:bg-orange-700 sm:w-auto"
+                        >
+                          Review Booking
+                          <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function getQueuePaymentBadgeClass(overallStatus: string, storedStatus?: unknown) {
+  const status = String(storedStatus || overallStatus || "").trim().toLowerCase()
+  if (["completed", "paid", "fully paid", "verified", "slot_verified"].includes(status)) {
+    return "border-emerald-100 bg-emerald-50 text-emerald-700"
+  }
+  if (["rejected", "cancelled"].includes(status)) return "border-rose-100 bg-rose-50 text-rose-700"
+  if (["partial", "incomplete", "for_review", "for review", "for verification", "awaiting onsite payment", "pending", "pending_verification", "pending verification", "cash_pending", "slot_pending"].includes(status)) {
+    return "border-amber-100 bg-amber-50 text-amber-700"
+  }
+  return "border-slate-200 bg-slate-50 text-slate-600"
+}
+
+function getQueueStatusBadge(booking: Booking) {
+  const status = String(booking.status || "").trim().toLowerCase()
+  const classes = status === "pending"
+    ? "border-orange-100 bg-orange-50 text-orange-700"
+    : status === "verifying"
+      ? "border-purple-100 bg-purple-50 text-purple-700"
+      : status === "cancellation_requested"
+        ? "border-amber-100 bg-amber-50 text-amber-700"
+        : status === "modification_under_review"
+          ? "border-purple-100 bg-purple-50 text-purple-700"
+          : "border-slate-200 bg-slate-50 text-slate-600"
+
+  return (
+    <span className={cn("inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em]", classes)}>
+      {getQueueBookingStatus(booking)}
+    </span>
+  )
 }
 
 function getBookingTime(booking: any) {
   if (booking.time) return booking.time
   return `${booking.startTime || "—"} - ${booking.endTime || "—"}`
+}
+
+function formatQueueDate(value?: string) {
+  if (!value) return "—"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat("en-PH", { month: "short", day: "2-digit", year: "numeric" }).format(date)
+}
+
+function getQueueSchedule(booking: Booking) {
+  const start = formatQueueDate(booking.date)
+  if (isOfficeResourceBooking(booking)) {
+    const end = booking.endDate ? formatQueueDate(booking.endDate) : start
+    return start === end ? start : `${start} – ${end}`
+  }
+  return `${start} · ${getBookingTime(booking)}`
+}
+
+function getQueueLocation(booking: Booking) {
+  const venue = booking.venue || (isOfficeResourceBooking(booking) ? "Office rental" : "Venue unavailable")
+  if (!isOfficeResourceBooking(booking)) return venue
+  const room = (booking as any).roomName || (booking as any).spaceName || (booking as any).room || booking.spaceId
+  return room ? `${venue} · ${room}` : venue
+}
+
+function getStoredPaymentStatusLabel(value: unknown) {
+  const status = String(value || "unpaid").trim().toLowerCase()
+  if (status === "unpaid") return "Unpaid"
+  if (["for_review", "for review", "pending_verification", "pending verification", "for verification", "cash_pending", "slot_pending"].includes(status)) return "For Review"
+  if (["paid", "fully paid", "completed", "verified", "slot_verified"].includes(status)) return "Paid"
+  if (status === "partial") return "Partial Payment"
+  if (status === "rejected") return "Rejected"
+  return String(value || "Unpaid")
+}
+
+function getQueueBookingStatus(booking: Booking) {
+  const status = String(booking.status || "").trim().toLowerCase()
+  if (status === "verifying") return "Pending Verification"
+  if (status === "cancellation_requested") return "Cancellation Requested"
+  if (status === "modification_under_review") return "Modification Under Review"
+  if (status === "reservation_secured") return "Slot Secured"
+  if (status === "contract_signing_required") return "Contract Signing Required"
+  if (status === "active_rental") return "Active Rental"
+  if (status === "rental_expired") return "Rental Expired"
+  if (status === "declined") return "Declined"
+  if (status === "cancelled") return "Cancelled"
+  if (status === "completed") return "Completed"
+  if (status === "confirmed") return "Confirmed"
+  return getBookingLifecycleStatus(booking as unknown as Record<string, unknown>) === "pending" ? "Pending" : "Confirmed"
 }
 
 function getStatusBadge(status: string) {
@@ -415,6 +925,12 @@ function getStatusBadge(status: string) {
       return (
         <span className={cn(baseClass, "bg-amber-100 text-amber-700")}>
           Cancel Req.
+        </span>
+      )
+    case "modification_under_review":
+      return (
+        <span className={cn(baseClass, "bg-purple-100 text-purple-700")}>
+          Modify Req.
         </span>
       )
     case "cancelled":
@@ -459,13 +975,15 @@ function getStatusBadge(status: string) {
 
 function StatCard({
   href,
+  onClick,
   icon,
   label,
   value,
   description,
   tone,
 }: {
-  href: string
+  href?: string
+  onClick?: () => void
   icon: React.ReactNode
   label: string
   value: string
@@ -480,11 +998,8 @@ function StatCard({
     rose: "bg-rose-50 text-rose-600",
   }
 
-  return (
-    <Link
-      href={href}
-      className="group flex min-h-[110px] flex-col rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:p-4"
-    >
+  const content = (
+    <>
       <div className="mb-2 flex items-center justify-between gap-2">
         <div
           className={cn(
@@ -508,23 +1023,33 @@ function StatCard({
       <p className="mt-auto pt-1 text-[10px] font-medium leading-4 text-slate-500 sm:text-xs">
         {description}
       </p>
-    </Link>
+    </>
+  )
+
+  const className = "group flex min-h-[110px] cursor-pointer flex-col rounded-2xl border border-slate-200 bg-white p-3.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:p-4"
+  return onClick ? (
+    <button type="button" onClick={onClick} className={className}>{content}</button>
+  ) : (
+    <Link href={href || ROUTES.bookings} className={className}>{content}</Link>
   )
 }
 
 function BookingRow({
   booking,
   statusBadge,
+  onOpen,
 }: {
   booking: any
   statusBadge: React.ReactNode
+  onOpen: () => void
 }) {
   const isOffice = isOfficeResourceBooking(booking)
 
   return (
-    <Link
-      href={ROUTES.bookings}
-      className="group block rounded-xl border border-slate-200 bg-white p-3.5 transition hover:border-orange-200 hover:bg-orange-50/30 sm:p-4"
+    <button
+      type="button"
+      onClick={onOpen}
+       className="group block w-full cursor-pointer text-left rounded-xl border border-slate-200 bg-white p-3.5 transition hover:border-orange-200 hover:bg-orange-50/30 sm:p-4"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
@@ -553,18 +1078,20 @@ function BookingRow({
 
         <div className="shrink-0">{statusBadge}</div>
       </div>
-    </Link>
+    </button>
   )
 }
 
 function ActionItem({
   href,
+  onClick,
   icon,
   label,
   value,
   tone,
 }: {
-  href: string
+  href?: string
+  onClick?: () => void
   icon: React.ReactNode
   label: string
   value: number
@@ -576,11 +1103,8 @@ function ActionItem({
     rose: "bg-rose-50 text-rose-600",
   }
 
-  return (
-    <Link
-      href={href}
-      className="flex min-h-[58px] items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-2.5 transition hover:bg-slate-50 sm:p-3"
-    >
+  const content = (
+    <>
       <div className="flex min-w-0 items-center gap-2.5">
         <div
           className={cn(
@@ -595,7 +1119,14 @@ function ActionItem({
       <div className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-slate-950 px-2 text-[11px] font-black text-white">
         {value}
       </div>
-    </Link>
+    </>
+  )
+
+  const className = "flex min-h-[58px] w-full cursor-pointer items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-2.5 text-left transition hover:bg-slate-50 sm:p-3"
+  return onClick ? (
+    <button type="button" onClick={onClick} className={className}>{content}</button>
+  ) : (
+    <Link href={href || ROUTES.bookings} className={className}>{content}</Link>
   )
 }
 

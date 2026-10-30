@@ -48,7 +48,7 @@ The server runs in the Next.js application; there is no separate backend service
 | `src/modules/client/components/` | Reservation dialogs, tour, contracts, and client feature UI |
 | `src/modules/client/contexts/booking-context.tsx` | Booking/payment types, page-scoped subscriptions, action orchestration, and legacy normalization |
 | `src/modules/client/lib/venue-data.ts` | Public catalog normalization and in-memory CMS catalog cache |
-| `src/modules/admin/components/` | Booking/payment dialogs and `cms/` editors |
+| `src/modules/admin/components/` | Reusable booking-management UI, booking/payment dialogs, and `cms/` editors |
 | `src/modules/admin/contexts/` | CMS and staff state; also older report/payment-proof adapters |
 | `src/modules/shared/auth/` | Firebase auth context and login/signup UI |
 | `src/modules/shared/contexts/` | Active Firestore chat and notification providers |

@@ -8,8 +8,14 @@ import type { PaymentRecordLike } from "../lib/payment-calculations"
 export function usePaymentHistorySelection<T extends PaymentRecordLike>(
   bookingId: string,
   records: ReadonlyArray<T>,
+  initialPaymentRecordId?: string | null,
 ) {
-  const firstKey = records[0] ? getPaymentHistoryKey(records[0]) : ""
+  const firstRecord = initialPaymentRecordId
+    ? records.find((record) => record.id === initialPaymentRecordId)
+    : undefined
+  const firstKey = firstRecord || records[0]
+    ? getPaymentHistoryKey(firstRecord || records[0]!)
+    : ""
   const [selection, setSelection] = useState(() => ({ bookingId, key: firstKey }))
 
   // Reset synchronously on a booking switch so another booking's selected ID
