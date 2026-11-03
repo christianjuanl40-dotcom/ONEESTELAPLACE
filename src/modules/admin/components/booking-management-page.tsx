@@ -25,6 +25,7 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/src/modules/shared/components/ui/button"
+import { Table, TableBody, TableCell, TableHead, TableHeader } from "@/src/modules/shared/components/ui/table"
 import { BookingDetailsFooter, bookingDetailsStackedActionClassName, bookingDetailsActionToneClassNames } from "@/src/modules/shared/components/booking-details-actions"
 import { Input } from "@/src/modules/shared/components/ui/input"
 import {
@@ -806,7 +807,7 @@ export default function AdminBookingsPage() {
               </div>
         </div>
 
-        <section className="mt-4 space-y-3">
+        <section className="mt-4">
           {filteredBookings.length === 0 ? (
             <div className="flex min-h-[230px] flex-col items-center justify-center px-6 py-10 text-center">
               <Inbox className="mb-3 h-10 w-10 text-slate-300" />
@@ -818,14 +819,11 @@ export default function AdminBookingsPage() {
               </p>
             </div>
           ) : (
-            paginatedBookings.map((booking) => (
-              <AdminBookingCard
-                key={booking.id}
-                booking={booking}
-                onView={() => { setSelectedBooking(booking); markByBookingId(booking.id, ADMIN_BOOKING_TYPES) }}
-                isHighlighted={highlightedBookingId === booking.id}
-              />
-            ))
+            <AdminBookingTable
+              bookings={paginatedBookings}
+              onView={(booking) => { setSelectedBooking(booking); markByBookingId(booking.id, ADMIN_BOOKING_TYPES) }}
+              highlightedBookingId={highlightedBookingId}
+            />
           )}
         </section>
 
@@ -857,101 +855,235 @@ export default function AdminBookingsPage() {
   )
 }
 
-function AdminBookingCard({
+function getBookingResourceParts(booking: Booking) {
+  const officeBooking = isOfficeBooking(booking)
+  const primary = String(
+    booking.venue ||
+      (booking as any).officeSpaceName ||
+      (booking as any).officeName ||
+      "",
+  ).trim()
+  const room = officeBooking
+    ? String(
+        (booking as any).roomName ||
+          (booking as any).spaceName ||
+          (booking as any).room ||
+          "",
+      ).trim()
+    : ""
+
+  return {
+    primary: primary || "—",
+    room: room && room.toLowerCase() !== primary.toLowerCase() ? room : "",
+  }
+}
+
+function getBookingScheduleParts(booking: Booking) {
+  const startDate = formatDate(booking.date)
+  if (isOfficeBooking(booking)) {
+    const endDate = (booking as any).endDate ? formatDate((booking as any).endDate) : ""
+    const term = (booking as any).officeRentalTerm || (booking as any).rentalTerm || (booking as any).contractTerm
+    return {
+      primary: endDate && endDate !== startDate ? `${startDate} – ${endDate}` : startDate,
+      secondary: term ? String(term).replaceAll("_", " ") : "Rental period",
+    }
+  }
+
+  const time = [booking.startTime, booking.endTime].filter(Boolean).join(" – ")
+  return { primary: startDate, secondary: time || "Time not set" }
+}
+
+function AdminBookingStatusBadges({ booking }: { booking: Booking }) {
+  return (
+    <div className="flex min-w-0 flex-col items-start gap-1.5">
+      <span className={cn("inline-flex max-w-full whitespace-normal break-words items-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase leading-4", getStatusBadgeClass(booking.status))}>
+        {getStatusLabel(booking.status)}
+      </span>
+      {isCancellationRequestPending(booking) && (
+        <span className="inline-flex max-w-full whitespace-normal break-words items-center rounded-md border border-amber-100 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase leading-4 text-amber-700">
+          Cancellation Requested
+        </span>
+      )}
+    </div>
+  )
+}
+
+function AdminBookingTable({
+  bookings,
+  onView,
+  highlightedBookingId,
+}: {
+  bookings: Booking[]
+  onView: (booking: Booking) => void
+  highlightedBookingId: string | null
+}) {
+  return (
+    <>
+      <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm md:block">
+        <Table className="min-w-[1080px] table-fixed xl:min-w-0">
+          <caption className="sr-only">Admin booking management records</caption>
+          <colgroup>
+            <col style={{ width: "19%" }} />
+            <col style={{ width: "20%" }} />
+            <col style={{ width: "18%" }} />
+            <col style={{ width: "16%" }} />
+            <col style={{ width: "13%" }} />
+            <col style={{ width: "14%" }} />
+          </colgroup>
+          <TableHeader className="bg-slate-50/80">
+            <tr>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Booking / Customer</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Event / Business</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Reserved Space</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Schedule</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Status</TableHead>
+              <TableHead className="px-3 py-2.5 text-right text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Actions</TableHead>
+            </tr>
+          </TableHeader>
+          <TableBody>
+            {bookings.map((booking) => (
+              <AdminBookingTableRow
+                key={booking.id}
+                booking={booking}
+                onView={onView}
+                isHighlighted={highlightedBookingId === booking.id}
+              />
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      <div className="space-y-2 md:hidden">
+        {bookings.map((booking) => (
+          <AdminBookingCompactRow
+            key={booking.id}
+            booking={booking}
+            onView={onView}
+            isHighlighted={highlightedBookingId === booking.id}
+          />
+        ))}
+      </div>
+    </>
+  )
+}
+
+function AdminBookingTableRow({
   booking,
   onView,
   isHighlighted,
 }: {
   booking: Booking
-  onView: () => void
-  isHighlighted?: boolean
+  onView: (booking: Booking) => void
+  isHighlighted: boolean
 }) {
-  const isOfficeRental = isOfficeBooking(booking)
-  const cardRef = useRef<HTMLDivElement>(null)
-  const highlightRef = useRef(false)
+  const rowRef = useRef<HTMLTableRowElement>(null)
+  const handledRef = useRef(false)
+  const resource = getBookingResourceParts(booking)
+  const schedule = getBookingScheduleParts(booking)
 
   useEffect(() => {
-    if (!isHighlighted || !cardRef.current) return
-    if (highlightRef.current) return
-    highlightRef.current = true
-    cardRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
+    if (!isHighlighted || !rowRef.current || handledRef.current) return
+    handledRef.current = true
+    rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
     sessionStorage.removeItem("admin_booking_highlight")
-    const timer = setTimeout(() => {
-      highlightRef.current = false
-    }, 3000)
+    const timer = setTimeout(() => { handledRef.current = false }, 3000)
     return () => clearTimeout(timer)
   }, [isHighlighted])
 
-  const innerCard = (
-    <div
-      ref={cardRef}
-      className="group grid w-full max-w-full min-w-0 grid-cols-2 gap-x-4 gap-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition sm:flex sm:items-center sm:gap-6 hover:border-orange-200 hover:shadow-md"
-    >
-      <div className="flex min-w-0 items-center gap-3 sm:flex-1">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
-          {isOfficeRental ? <FileText className="h-5 w-5" /> : <Calendar className="h-5 w-5" />}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
-            {isOfficeRental ? "Rental" : "Event"}
-          </p>
-          <p className="break-words whitespace-normal text-sm font-black leading-snug text-slate-900 line-clamp-2">
-            {booking.eventName || "Untitled"}
-          </p>
-          <p className="break-words text-[11px] font-bold text-orange-600">
-            {booking.id}
-          </p>
-        </div>
-      </div>
-
-      <div className="min-w-0 sm:flex-1">
-        <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-black">Customer</p>
-        <p className="whitespace-normal break-words text-xs font-black text-slate-800">{booking.userInfo?.name || "—"}</p>
-        <p className="whitespace-normal break-words text-[10px] font-bold text-slate-500">{booking.userInfo?.email || "—"}</p>
-      </div>
-
-      <div className="min-w-0 sm:flex-1">
-        <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-black">Venue</p>
-        <p className="whitespace-normal break-words text-xs font-bold text-slate-800">{booking.venue || "N/A"}</p>
-      </div>
-
-      <div className="col-span-2 flex shrink-0 flex-col gap-2.5 sm:col-span-1 sm:w-[160px] sm:items-end">
-        <span
-          className={cn(
-            "inline-flex w-full items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap sm:w-[160px]",
-            getStatusBadgeClass(booking.status),
-          )}
+  return (
+    <tr ref={rowRef} className={cn("border-b border-slate-100 transition-colors hover:bg-slate-50/70", isHighlighted && "notification-target-highlight")}>
+      <TableCell className="min-w-0 px-3 py-2.5 align-top whitespace-normal">
+        <p className="truncate text-[11px] font-bold text-orange-600">{booking.id}</p>
+        <p className="mt-0.5 line-clamp-2 whitespace-normal break-words text-xs font-semibold leading-4 text-slate-800">{booking.userInfo?.name || "Customer not listed"}</p>
+        <p className="truncate text-[10px] font-medium text-slate-500">{booking.userInfo?.email || "—"}</p>
+      </TableCell>
+      <TableCell className="min-w-0 px-3 py-2.5 align-top whitespace-normal">
+        <p className="line-clamp-2 whitespace-normal text-xs font-semibold leading-4 text-slate-900">{booking.eventName || booking.companyName || booking.natureOfBusiness || "—"}</p>
+        <p className="mt-0.5 truncate text-[10px] font-medium text-orange-600">{isOfficeBooking(booking) ? "Office rental" : booking.eventType || "Event venue"}</p>
+      </TableCell>
+      <TableCell className="min-w-0 px-3 py-2.5 align-top whitespace-normal">
+        <p className="line-clamp-2 whitespace-normal text-xs font-semibold leading-4 text-slate-800">{resource.primary}</p>
+        {resource.room && <p className="mt-0.5 line-clamp-2 whitespace-normal break-words text-[10px] font-medium leading-4 text-slate-500">Room: {resource.room}</p>}
+      </TableCell>
+      <TableCell className="min-w-0 max-w-0 px-3 py-2.5 align-top whitespace-normal">
+        <p className="max-w-full whitespace-normal break-words text-xs font-semibold leading-4 text-slate-800">{schedule.primary}</p>
+        <p className="mt-0.5 max-w-full whitespace-normal break-words text-[10px] font-medium leading-4 text-slate-500">{schedule.secondary}</p>
+      </TableCell>
+      <TableCell className="min-w-0 max-w-0 px-3 py-2.5 align-top whitespace-normal"><AdminBookingStatusBadges booking={booking} /></TableCell>
+      <TableCell className="px-3 py-2.5 align-top whitespace-nowrap">
+        <div className="flex justify-end">
+        <Button
+          variant="outline"
+          onClick={() => onView(booking)}
+          className="h-8 min-w-[96px] whitespace-nowrap rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
         >
-          {getStatusLabel(booking.status)}
-        </span>
-        {isCancellationRequestPending(booking) && (
-          <span className="inline-flex w-full items-center justify-center rounded-md border border-amber-100 bg-amber-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-amber-700 whitespace-nowrap sm:w-[160px]">
-            Cancellation Requested
-          </span>
-        )}
-        <TooltipProvider delayDuration={400}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                onClick={onView}
-                className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:w-[160px]"
-              >
-                View Details
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="left" className="text-[10px] font-semibold">
-              Open booking details
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </div>
-    </div>
+          View Details
+        </Button>
+        </div>
+      </TableCell>
+    </tr>
   )
+}
+
+function AdminBookingCompactRow({
+  booking,
+  onView,
+  isHighlighted,
+}: {
+  booking: Booking
+  onView: (booking: Booking) => void
+  isHighlighted: boolean
+}) {
+  const rowRef = useRef<HTMLDivElement>(null)
+  const handledRef = useRef(false)
+  const resource = getBookingResourceParts(booking)
+  const schedule = getBookingScheduleParts(booking)
+
+  useEffect(() => {
+    if (!isHighlighted || !rowRef.current || handledRef.current) return
+    handledRef.current = true
+    rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
+    sessionStorage.removeItem("admin_booking_highlight")
+    const timer = setTimeout(() => { handledRef.current = false }, 3000)
+    return () => clearTimeout(timer)
+  }, [isHighlighted])
 
   return (
-    <div className={isHighlighted ? "notification-target-highlight" : undefined}>
-      {innerCard}
+      <div ref={rowRef} className={cn("rounded-xl border border-slate-200 bg-white p-3 shadow-sm", isHighlighted && "notification-target-highlight")}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-[10px] font-black uppercase tracking-[0.14em] text-orange-600">{booking.id}</p>
+          <p className="mt-0.5 line-clamp-2 text-sm font-black leading-4 text-slate-900">{booking.eventName || booking.companyName || booking.natureOfBusiness || "—"}</p>
+          <p className="mt-0.5 text-[10px] font-semibold text-slate-500">{booking.userInfo?.name || "Customer not listed"}</p>
+        </div>
+        <div className="min-w-0 max-w-[44%] shrink-0">
+          <AdminBookingStatusBadges booking={booking} />
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
+        <div className="min-w-0">
+          <p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Category</p>
+          <p className="truncate text-xs font-bold text-slate-700">{isOfficeBooking(booking) ? "Office rental" : booking.eventType || "Event venue"}</p>
+        </div>
+        <div className="min-w-0">
+          <p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Reserved space</p>
+          <p className="line-clamp-2 text-xs font-bold text-slate-700">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p>
+        </div>
+        <div className="min-w-0">
+          <p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Date / period</p>
+          <p className="text-xs font-bold text-slate-700">{schedule.primary}</p>
+          <p className="text-[10px] font-semibold text-slate-500">{schedule.secondary}</p>
+        </div>
+      </div>
+      <div className="mt-3 flex justify-end border-t border-slate-100 pt-3">
+        <Button
+          variant="outline"
+          onClick={() => onView(booking)}
+          className="h-8 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
+        >
+          View Details
+        </Button>
+      </div>
     </div>
   )
 }

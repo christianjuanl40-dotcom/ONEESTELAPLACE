@@ -40,6 +40,7 @@ import {
   useBookings,
 } from "@/src/modules/client/contexts/booking-context"
 import { Button } from "@/src/modules/shared/components/ui/button"
+import { Table, TableBody, TableCell, TableHead, TableHeader } from "@/src/modules/shared/components/ui/table"
 import { BookingDetailsFooter, bookingDetailsActionClassName, bookingDetailsActionRowClassName, bookingDetailsActionToneClassNames } from "@/src/modules/shared/components/booking-details-actions"
 import { ReserveDialog } from "@/src/modules/client/components/reserve-dialog"
 import { ContractPreviewModal } from "@/src/modules/client/components/contract-preview-modal"
@@ -65,7 +66,6 @@ import {
   type PaymentRecordLike,
   type ReceiptPresentation,
 } from "@/src/modules/shared/lib/payment-calculations"
-import { NotificationTargetWrapper } from "@/src/modules/shared/components/notification-target"
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
 import type { NotificationType } from "@/src/modules/shared/lib/notifications"
 import {
@@ -349,61 +349,6 @@ function hasPendingCancellationIndicator(booking: Booking) {
   )
 }
 
-function getPaymentStatusLabel(paymentStatus?: string, paymentStage?: string, remainingBalance?: number, status?: string) {
-  const bookingStatus = String(status || "").toLowerCase()
-  if (bookingStatus === "cancelled") return "Cancelled"
-  if (bookingStatus === "declined") return "Declined"
-  if (bookingStatus === "completed") return "Completed"
-  if (bookingStatus === "rental_expired") return "Rental Expired"
-
-  const v = String(paymentStatus || "").toLowerCase()
-  const stage = String(paymentStage || "").toLowerCase()
-  const hasRemaining = typeof remainingBalance === "number" ? remainingBalance > 0 : false
-
-  if (hasRemaining && v !== "unpaid" && v !== "rejected" && v !== "for_review" && v !== "cash_pending" && v !== "slot_pending") {
-    return "Partial Payment"
-  }
-  if ((stage === "fully paid" || v === "paid" || v === "fully paid") && !hasRemaining) return "Fully Paid"
-  if (v === "verified" || v === "slot_verified") return "Verified"
-  if (v === "for_review" || v === "cash_pending" || v === "slot_pending") return "For Review"
-  if (v === "partial") return "Partial Payment"
-  if (v === "rejected") return "Rejected"
-  if (v === "incomplete") return "Incomplete Payment"
-  if (v === "unpaid") return "Unpaid"
-  if (!v) return "Not Set"
-  return formatTextLabel(paymentStatus)
-}
-
-function getPaymentBadgeClass(paymentStatus?: string, paymentStage?: string, remainingBalance?: number, status?: string) {
-  const bookingStatus = String(status || "").toLowerCase()
-  if (["cancelled", "declined"].includes(bookingStatus)) return "border-rose-100 bg-rose-50 text-rose-700"
-  if (bookingStatus === "completed") return "border-blue-100 bg-blue-50 text-blue-700"
-  if (bookingStatus === "rental_expired") return "border-red-100 bg-red-50 text-red-700"
-
-  const v = String(paymentStatus || "").toLowerCase()
-  const stage = String(paymentStage || "").toLowerCase()
-  const hasRemaining = typeof remainingBalance === "number" ? remainingBalance > 0 : false
-
-  if (hasRemaining && v !== "unpaid" && v !== "rejected" && v !== "for_review" && v !== "cash_pending" && v !== "slot_pending") {
-    return "border-amber-100 bg-amber-50 text-amber-700"
-  }
-  if ((stage === "fully paid" || v === "paid" || v === "fully paid") && !hasRemaining) {
-    return "border-emerald-100 bg-emerald-50 text-emerald-700"
-  }
-  if (["verified", "slot_verified"].includes(v)) {
-    return "border-emerald-100 bg-emerald-50 text-emerald-700"
-  }
-  if (v === "partial" || stage === "complete downpayment" || stage === "settle remaining balance") {
-    return "border-amber-100 bg-amber-50 text-amber-700"
-  }
-  if (["for_review", "cash_pending", "slot_pending"].includes(v)) {
-    return "border-amber-100 bg-amber-50 text-amber-700"
-  }
-  if (v === "rejected") return "border-rose-100 bg-rose-50 text-rose-700"
-  if (!v) return "border-slate-200 bg-slate-50 text-slate-600"
-  return "border-slate-200 bg-slate-50 text-slate-700"
-}
-
 function readStoredReceipts(bookingId?: string): Promise<BookingReceipt[]> {
   const constraints: any[] = bookingId
     ? [where("bookingId", "==", bookingId)]
@@ -454,205 +399,185 @@ async function getStoredReceiptByBookingId(
   return receipts[0]
 }
 
-function HorizontalBookingCard({
-  booking,
-  onView,
-}: {
-  booking: Booking
-  onView: (b: Booking) => void
-}) {
-  const isOfficeRental = isOfficeResourceBooking(booking)
-  const typeLabel = isOfficeRental
-    ? "Office Space Rental"
-    : booking.eventType || "Event Venue Rental"
+function getClientBookingResourceParts(booking: Booking) {
+  const primary = String(
+    booking.venue ||
+      (booking as any).officeSpaceName ||
+      (booking as any).officeName ||
+      "",
+  ).trim()
+  const room = isOfficeResourceBooking(booking)
+    ? String(
+        (booking as any).roomName ||
+          (booking as any).spaceName ||
+          (booking as any).room ||
+          "",
+      ).trim()
+    : ""
+  return {
+    primary: primary || "—",
+    room: room && room.toLowerCase() !== primary.toLowerCase() ? room : "",
+  }
+}
 
+function getClientBookingScheduleParts(booking: Booking) {
+  const startDate = formatDate(booking.date)
+  if (isOfficeResourceBooking(booking)) {
+    const endDate = (booking as any).endDate ? formatDate((booking as any).endDate) : ""
+    const term = (booking as any).officeRentalTerm || (booking as any).rentalTerm || (booking as any).contractTerm
+    return {
+      primary: endDate && endDate !== startDate ? `${startDate} – ${endDate}` : startDate,
+      secondary: term ? String(term).replaceAll("_", " ") : "Rental period",
+    }
+  }
+  return {
+    primary: startDate,
+    secondary: [booking.startTime, booking.endTime].filter(Boolean).join(" – ") || "Time not set",
+  }
+}
+
+function ClientBookingStatusBadges({ booking }: { booking: Booking }) {
   return (
-    <div className="group flex w-full min-w-0 flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-4">
-      {/* ---- Mobile layout (hidden on sm+) ---- */}
-      <div className="sm:hidden">
-        <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
-            {isOfficeRental ? <FileText className="h-5 w-5" /> : <Calendar className="h-5 w-5" />}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="break-words whitespace-normal text-base font-black leading-snug text-slate-900">
-              {booking.eventName || "Untitled"}
-            </p>
-            <p className="mt-0.5 text-sm font-bold text-orange-600">
-              {typeLabel}
-            </p>
-          </div>
-        </div>
-        <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
-          <div className="min-w-0">
-            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Booking ID</p>
-            <p className="mt-0.5 break-all text-xs font-black text-slate-800">{booking.id}</p>
-          </div>
-          <div className="min-w-0">
-            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Venue</p>
-            <p className="mt-0.5 break-words text-xs font-bold text-slate-800">{booking.venue || "N/A"}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* ---- Tablet: grouped info block (sm to md) ---- */}
-      <div className="hidden min-w-0 items-center gap-3 sm:flex md:hidden">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
-          {isOfficeRental ? <FileText className="h-5 w-5" /> : <Calendar className="h-5 w-5" />}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
-            {isOfficeRental ? "Rental" : "Event"}
-          </p>
-          <p className="mt-0.5 flex items-center gap-1.5 text-sm font-black text-slate-900">
-            <span className="break-words whitespace-normal min-w-0">{booking.eventName || "Untitled"}</span>
-            <span className="shrink-0 whitespace-nowrap text-xs font-black text-slate-800">• {booking.id}</span>
-          </p>
-          <p className="mt-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-black">Venue</p>
-          <p className="mt-0.5 truncate text-xs font-bold text-slate-800">{booking.venue || "N/A"}</p>
-          <p className="mt-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-black">Type</p>
-          <p className="mt-0.5 break-words text-[11px] font-bold text-orange-600">{typeLabel}</p>
-        </div>
-      </div>
-
-      {/* ---- Desktop: Event block + 3-col info grid (md+) ---- */}
-      <div className="hidden shrink-0 items-center gap-3 md:flex md:w-[220px]">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
-          {isOfficeRental ? <FileText className="h-5 w-5" /> : <Calendar className="h-5 w-5" />}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
-            {isOfficeRental ? "Rental" : "Event"}
-          </p>
-          <p className="break-words whitespace-normal text-sm font-black leading-snug text-slate-900 min-w-0">
-            {booking.eventName || "Untitled"}
-          </p>
-          <p className="break-words whitespace-normal text-[11px] font-bold text-orange-600">
-            {typeLabel}
-          </p>
-        </div>
-      </div>
-
-      <div className="hidden min-w-0 flex-1 grid-cols-[1fr_1fr] gap-x-8 md:grid">
-        <div className="min-w-0 max-w-full">
-          <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-black">Booking ID</p>
-          <p className="whitespace-normal break-words text-xs font-black text-slate-800 truncate">{booking.id}</p>
-        </div>
-        <div className="min-w-0 max-w-full">
-          <p className="whitespace-normal break-words text-[9px] font-black uppercase tracking-[0.2em] text-black">Venue</p>
-          <p className="whitespace-normal break-words text-xs font-bold text-slate-800">{booking.venue || "N/A"}</p>
-        </div>
-      </div>
-
-      {/* ---- RIGHT: Status + Actions ---- */}
-      <div className="flex flex-col items-stretch gap-2.5 w-full sm:mt-0 sm:w-auto sm:shrink-0 sm:ml-auto sm:flex-col sm:items-end sm:gap-2.5">
-        <span
-          className={cn(
-            "inline-flex w-full items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap sm:w-auto",
-            getStatusBadgeClass(booking.status),
-          )}
-        >
-          {getStatusLabel(booking.status)}
+    <div className="flex min-w-0 flex-col items-start gap-1.5">
+      <span className={cn("inline-flex max-w-full whitespace-normal break-words items-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase leading-4", getStatusBadgeClass(booking.status))}>
+        {getStatusLabel(booking.status)}
+      </span>
+      {hasPendingCancellationIndicator(booking) && (
+        <span className="inline-flex max-w-full whitespace-normal break-words items-center rounded-md border border-amber-100 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase leading-4 text-amber-700">
+          Cancellation Requested
         </span>
-        {hasPendingCancellationIndicator(booking) && (
-          <span className="inline-flex w-full items-center justify-center rounded-md border border-amber-100 bg-amber-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-amber-700 whitespace-nowrap sm:w-auto">
-            Cancellation Requested
-          </span>
-        )}
-        <Button
-          variant="outline"
-          onClick={() => onView(booking)}
-          className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
-        >
-          View Details
-        </Button>
-      </div>
+      )}
     </div>
   )
 }
 
-function HistoryRow({
+function ClientBookingsTable({
+  bookings,
+  onView,
+  highlightedBookingId,
+  caption,
+}: {
+  bookings: Booking[]
+  onView: (booking: Booking) => void
+  highlightedBookingId: string | null
+  caption: string
+}) {
+  return (
+    <>
+      <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm md:block">
+        <Table className="min-w-[1040px] table-fixed xl:min-w-0">
+          <caption className="sr-only">{caption}</caption>
+          <colgroup>
+            <col style={{ width: "16%" }} />
+            <col style={{ width: "22%" }} />
+            <col style={{ width: "18%" }} />
+            <col style={{ width: "16%" }} />
+            <col style={{ width: "14%" }} />
+            <col style={{ width: "14%" }} />
+          </colgroup>
+          <TableHeader className="bg-slate-50/80">
+            <tr>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Booking Reference</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Event / Business</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Reserved Space</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Schedule</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Status</TableHead>
+              <TableHead className="px-3 py-2.5 text-right text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Actions</TableHead>
+            </tr>
+          </TableHeader>
+          <TableBody>
+            {bookings.map((booking) => (
+              <ClientBookingTableRow
+                key={booking.id}
+                booking={booking}
+                onView={onView}
+                isHighlighted={highlightedBookingId === booking.id}
+              />
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <div className="space-y-2 md:hidden">
+        {bookings.map((booking) => (
+          <ClientBookingCompactRow
+            key={booking.id}
+            booking={booking}
+            onView={onView}
+            isHighlighted={highlightedBookingId === booking.id}
+          />
+        ))}
+      </div>
+    </>
+  )
+}
+
+function ClientBookingTableRow({
   booking,
   onView,
+  isHighlighted,
 }: {
   booking: Booking
-  onView: (b: Booking) => void
+  onView: (booking: Booking) => void
+  isHighlighted: boolean
 }) {
-  const isOfficeRental = isOfficeResourceBooking(booking)
-  const typeLabel = isOfficeRental
-    ? "Office Space Rental"
-    : booking.eventType || "Event Venue Rental"
+  const rowRef = useRef<HTMLTableRowElement>(null)
+  const handledRef = useRef(false)
+  const resource = getClientBookingResourceParts(booking)
+  const schedule = getClientBookingScheduleParts(booking)
+
+  useEffect(() => {
+    if (!isHighlighted || !rowRef.current || handledRef.current) return
+    handledRef.current = true
+    rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
+    sessionStorage.removeItem("client_booking_highlight")
+    const timer = setTimeout(() => { handledRef.current = false }, 3000)
+    return () => clearTimeout(timer)
+  }, [isHighlighted])
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 transition hover:border-orange-200 sm:flex-row sm:items-center sm:gap-3 md:gap-4">
-      {/* ---- Mobile layout ---- */}
-      <div className="sm:hidden">
-        <p className="break-words whitespace-normal text-sm font-black text-slate-900">
-          {booking.eventName || "Untitled"}
-        </p>
-        <p className="mt-0.5 break-all text-[10px] font-semibold text-slate-500">
-          {booking.id}
-        </p>
-      </div>
+    <tr ref={rowRef} data-booking-target={booking.id} className={cn("border-b border-slate-100 transition-colors hover:bg-slate-50/70", isHighlighted && "notification-target-highlight")}>
+      <TableCell className="min-w-0 px-3 py-2.5 align-top whitespace-normal"><p className="truncate text-[11px] font-bold text-orange-600">{booking.id}</p><p className="mt-0.5 truncate text-[10px] font-medium text-slate-500">{isOfficeResourceBooking(booking) ? "Office rental" : "Event booking"}</p></TableCell>
+      <TableCell className="min-w-0 px-3 py-2.5 align-top whitespace-normal"><p className="line-clamp-2 whitespace-normal break-words text-xs font-semibold leading-4 text-slate-900">{booking.eventName || booking.companyName || booking.natureOfBusiness || "—"}</p><p className="mt-0.5 truncate text-[10px] font-medium text-orange-600">{isOfficeResourceBooking(booking) ? "Office space rental" : booking.eventType || "Event venue rental"}</p></TableCell>
+      <TableCell className="min-w-0 px-3 py-2.5 align-top whitespace-normal"><p className="line-clamp-2 whitespace-normal break-words text-xs font-semibold leading-4 text-slate-800">{resource.primary}</p>{resource.room && <p className="mt-0.5 line-clamp-2 whitespace-normal break-words text-[10px] font-medium leading-4 text-slate-500">Room: {resource.room}</p>}</TableCell>
+      <TableCell className="min-w-0 max-w-0 px-3 py-2.5 align-top whitespace-normal"><p className="max-w-full whitespace-normal break-words text-xs font-semibold leading-4 text-slate-800">{schedule.primary}</p><p className="mt-0.5 max-w-full whitespace-normal break-words text-[10px] font-medium leading-4 text-slate-500">{schedule.secondary}</p></TableCell>
+      <TableCell className="min-w-0 max-w-0 px-3 py-2.5 align-top whitespace-normal"><ClientBookingStatusBadges booking={booking} /></TableCell>
+      <TableCell className="px-3 py-2.5 align-top whitespace-nowrap"><div className="flex justify-end"><Button variant="outline" onClick={() => onView(booking)} className="h-8 min-w-[96px] whitespace-nowrap rounded-lg border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">View Details</Button></div></TableCell>
+    </tr>
+  )
+}
 
-      {/* ---- Tablet: grouped info block (sm to md) ---- */}
-      <div className="hidden items-center gap-3 min-w-0 sm:flex md:hidden">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
-          {isOfficeRental ? <FileText className="h-4 w-4" /> : <Calendar className="h-4 w-4" />}
-        </div>
-        <div className="min-w-0">
-          <p className="mt-0.5 flex items-center gap-1.5 text-sm font-black text-slate-900">
-            <span className="break-words whitespace-normal min-w-0">{booking.eventName || "Untitled"}</span>
-            <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-slate-500">• {booking.id}</span>
-          </p>
-          <p className="mt-1 text-[9px] font-black uppercase tracking-[0.2em] text-black">Venue</p>
-          <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-700">{booking.venue || "N/A"}</p>
-          <p className="mt-1 text-[9px] font-black uppercase tracking-[0.2em] text-black">Type</p>
-          <p className="mt-0.5 whitespace-nowrap text-[10px] font-semibold text-orange-600">{typeLabel}</p>
-        </div>
-      </div>
+function ClientBookingCompactRow({
+  booking,
+  onView,
+  isHighlighted,
+}: {
+  booking: Booking
+  onView: (booking: Booking) => void
+  isHighlighted: boolean
+}) {
+  const rowRef = useRef<HTMLDivElement>(null)
+  const handledRef = useRef(false)
+  const resource = getClientBookingResourceParts(booking)
+  const schedule = getClientBookingScheduleParts(booking)
 
-      {/* ---- Desktop layout (md+) ---- */}
-      <div className="hidden items-center gap-3 min-w-0 md:flex md:flex-1">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
-          {isOfficeRental ? <FileText className="h-4 w-4" /> : <Calendar className="h-4 w-4" />}
-        </div>
-        <div className="min-w-0">
-          <p className="truncate text-sm font-black text-slate-900">
-            {booking.eventName || "Untitled"}
-          </p>
-          <p className="truncate text-[10px] font-semibold text-slate-500 sm:text-[11px]">
-            {booking.id}
-            <span className="hidden md:inline">
-              {" · "}{typeLabel}{" · "}{booking.venue || "N/A"}
-            </span>
-          </p>
-        </div>
-      </div>
+  useEffect(() => {
+    if (!isHighlighted || !rowRef.current || handledRef.current) return
+    handledRef.current = true
+    rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
+    sessionStorage.removeItem("client_booking_highlight")
+    const timer = setTimeout(() => { handledRef.current = false }, 3000)
+    return () => clearTimeout(timer)
+  }, [isHighlighted])
 
-      {/* ---- Status + Actions ---- */}
-      <div className="flex flex-col items-stretch gap-2.5 w-full sm:mt-0 sm:w-auto sm:shrink-0 sm:ml-auto sm:flex-col sm:items-end sm:gap-2.5">
-        <span
-          className={cn(
-            "inline-flex w-full items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap sm:w-auto",
-            getStatusBadgeClass(booking.status),
-          )}
-        >
-          {getStatusLabel(booking.status)}
-        </span>
-        {hasPendingCancellationIndicator(booking) && (
-          <span className="inline-flex w-full items-center justify-center rounded-md border border-amber-100 bg-amber-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-amber-700 whitespace-nowrap sm:w-auto">
-            Cancellation Requested
-          </span>
-        )}
-        <Button
-          variant="outline"
-          onClick={() => onView(booking)}
-          className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
-        >
-          View Details
-        </Button>
+  return (
+      <div ref={rowRef} data-booking-target={booking.id} className={cn("rounded-xl border border-slate-200 bg-white p-3 shadow-sm", isHighlighted && "notification-target-highlight")}>
+      <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-[10px] font-black uppercase tracking-[0.14em] text-orange-600">{booking.id}</p><p className="mt-0.5 line-clamp-2 text-sm font-black leading-4 text-slate-900">{booking.eventName || booking.companyName || booking.natureOfBusiness || "—"}</p></div><div className="min-w-0 max-w-[44%] shrink-0"><ClientBookingStatusBadges booking={booking} /></div></div>
+      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
+        <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Reserved space</p><p className="line-clamp-2 text-xs font-bold text-slate-700">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>
+        <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Date / period</p><p className="text-xs font-bold text-slate-700">{schedule.primary}</p><p className="text-[10px] font-semibold text-slate-500">{schedule.secondary}</p></div>
+        <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Category</p><p className="truncate text-xs font-bold text-slate-700">{isOfficeResourceBooking(booking) ? "Office rental" : booking.eventType || "Event venue"}</p></div>
       </div>
+      <div className="mt-3 flex justify-end border-t border-slate-100 pt-3"><Button variant="outline" onClick={() => onView(booking)} className="h-8 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">View Details</Button></div>
     </div>
   )
 }
@@ -2847,16 +2772,12 @@ export default function MyBookingsPage() {
         />
         {currentBooking ? (
           <div className="mt-3 space-y-3">
-            <NotificationTargetWrapper
-              bookingTarget={currentBooking.id}
-              isHighlighted={highlightedBookingId === currentBooking.id}
-              storageKey="client_booking_highlight"
-            >
-              <HorizontalBookingCard
-                booking={currentBooking}
-                onView={handleView}
-              />
-            </NotificationTargetWrapper>
+            <ClientBookingsTable
+              bookings={[currentBooking]}
+              onView={handleView}
+              highlightedBookingId={highlightedBookingId}
+              caption="Current booking overview"
+            />
             {canWriteReview(currentBooking) && (
               <div className="flex justify-end">
                 <TooltipProvider delayDuration={400}>
@@ -2907,19 +2828,12 @@ export default function MyBookingsPage() {
           />
           <div className="mt-3 space-y-2">
             {paginatedOtherActive.length > 0 ? (
-              paginatedOtherActive.map((booking) => (
-                <NotificationTargetWrapper
-                  key={booking.id}
-                  bookingTarget={booking.id}
-                  isHighlighted={highlightedBookingId === booking.id}
-                  storageKey="client_booking_highlight"
-                >
-                  <HistoryRow
-                    booking={booking}
-                    onView={handleView}
-                  />
-                </NotificationTargetWrapper>
-              ))
+              <ClientBookingsTable
+                bookings={paginatedOtherActive}
+                onView={handleView}
+                highlightedBookingId={highlightedBookingId}
+                caption="Other current booking overview"
+              />
             ) : (
               <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center">
                 <p className="text-sm font-black text-slate-900">No matching bookings</p>
@@ -3028,19 +2942,12 @@ export default function MyBookingsPage() {
             </div>
           ) : (
             <div className="mt-3 space-y-2">
-              {paginatedHistory.map((booking) => (
-                <NotificationTargetWrapper
-                  key={booking.id}
-                  bookingTarget={booking.id}
-                  isHighlighted={highlightedBookingId === booking.id}
-                  storageKey="client_booking_highlight"
-                >
-                  <HistoryRow
-                    booking={booking}
-                    onView={handleView}
-                  />
-                </NotificationTargetWrapper>
-              ))}
+              <ClientBookingsTable
+                bookings={paginatedHistory}
+                onView={handleView}
+                highlightedBookingId={highlightedBookingId}
+                caption="Booking history overview"
+              />
               <Pagination
                 page={safeHistoryPage}
                 totalPages={totalHistoryPages}

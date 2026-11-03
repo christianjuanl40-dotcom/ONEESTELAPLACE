@@ -1,6 +1,6 @@
 # Design and Color Palette
 
-Source reviewed: **2026-10-19**. This is the project's visual reference for future UI work, based on the current public site, portal, dashboard, shared components, and CSS configuration.
+Source reviewed: **2026-10-19** baseline; compact booking/payment tables rechecked **2026-11-03**. This is the project's visual reference for future UI work, based on the current public site, portal, dashboard, shared components, and CSS configuration.
 
 Office occupancy badges and scheduling notices rechecked **2026-10-26**; customer/admin Booking Details button hierarchy refined **2026-10-27**. They reuse the existing compact orange/slate language.
 
@@ -136,7 +136,7 @@ For a global color change, inspect both the semantic variables and explicit bran
 | Forms | `h-10`/`h-11`, `rounded-lg`/`rounded-xl`, slate borders, visible focus rings |
 | Badges | Compact `rounded-md`/`rounded-full`, bold text, semantic background/border |
 | Dialogs | Shared Radix primitive, white `rounded-2xl` surface, capped height, scrollable inner body |
-| Tables | Readable labels, consistent cells, subdued header/background, contained horizontal overflow when needed |
+| Tables | Readable labels, approximately 5–7 intelligently grouped columns, compact consistent cells, wider identity/space columns, wrapped schedule/status content, full-width action allowance, aligned status/actions, contained horizontal overflow when needed, and labeled condensed rows on mobile |
 | Icons | Lucide, usually `h-4 w-4` or `h-5 w-5`, `shrink-0` in compact flex rows |
 
 Tailwind's configured `rounded-lg` is **10px**, `rounded-md` **8px**, and `rounded-sm` **6px** through `--radius`. Default `rounded-xl`/`rounded-2xl`/`rounded-3xl` remain 12px/16px/24px.

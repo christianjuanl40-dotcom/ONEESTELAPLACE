@@ -48,6 +48,7 @@ import {
   SelectValue,
 } from "@/src/modules/shared/components/ui/select"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
+import { Table, TableBody, TableCell, TableHead, TableHeader } from "@/src/modules/shared/components/ui/table"
 import { useBookingData } from "@/src/modules/client/contexts/booking-context"
 import type { PaymentRecord } from "@/src/modules/client/contexts/booking-context"
 import { cn } from "@/src/modules/shared/lib/utils"
@@ -695,18 +696,11 @@ export default function AdminPaymentsPage() {
           {filteredPayments.length === 0 ? (
             <EmptyState />
           ) : (
-            paginatedPayments.map((payment) => {
-              const amountPaid = getAmountPaid(payment)
-              return (
-                <PaymentCard
-                  key={payment.id}
-                  payment={payment}
-                  amountPaid={amountPaid}
-                  onView={() => { setSelectedPayment(payment); const p = payment as any; markByBookingId(p.bookingId || p.id, ADMIN_PAYMENT_TYPES) }}
-                  isHighlighted={highlightedPaymentId === payment.id}
-                />
-              )
-            })
+            <PaymentVerificationTable
+              payments={paginatedPayments}
+              onView={(payment) => { setSelectedPayment(payment); const p = payment as any; markByBookingId(p.bookingId || p.id, ADMIN_PAYMENT_TYPES) }}
+              highlightedPaymentId={highlightedPaymentId}
+            />
           )}
         </section>
 
@@ -897,94 +891,193 @@ function ConfirmLine({ label, value }: { label: string; value: string }) {
   )
 }
 
-function PaymentCard({
+function getPaymentResourceParts(payment: BookingRecord) {
+  const primary = String(payment.venue || payment.venueName || "").trim() || "—"
+  const isOffice = isOfficeResourceBooking(payment)
+  const room = isOffice
+    ? String(payment.roomName || payment.spaceName || payment.room || "").trim()
+    : ""
+  return { primary, room: room && room.toLowerCase() !== primary.toLowerCase() ? room : "" }
+}
+
+function getLatestSubmission(payment: BookingRecord): PaymentRecord | null {
+  const latest = payment.latestPayment as PaymentRecord | undefined
+  if (latest?.id) return latest
+  const submissions = Array.isArray(payment.incomingPayments) ? payment.incomingPayments as PaymentRecord[] : []
+  return submissions[0] || null
+}
+
+function getSubmittedAmount(payment: BookingRecord, submission: PaymentRecord | null) {
+  return submission ? getPaymentRecordAmount(submission) : getSafePrice(payment.pendingPaymentAmount || payment.paymentAmount || 0)
+}
+
+function PaymentVerificationTable({
+  payments,
+  onView,
+  highlightedPaymentId,
+}: {
+  payments: BookingRecord[]
+  onView: (payment: BookingRecord) => void
+  highlightedPaymentId: string | null
+}) {
+  return (
+    <>
+      <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm md:block">
+        <Table className="min-w-[1040px] table-fixed xl:min-w-0">
+          <caption className="sr-only">Admin payment verification records grouped by booking</caption>
+          <colgroup>
+            <col style={{ width: "25%" }} />
+            <col style={{ width: "17%" }} />
+            <col style={{ width: "29%" }} />
+            <col style={{ width: "14%" }} />
+            <col style={{ width: "15%" }} />
+          </colgroup>
+          <TableHeader className="bg-slate-50/80">
+            <tr>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Booking / Customer</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Reserved Space</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Payment Submission</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Review Status</TableHead>
+              <TableHead className="px-3 py-2.5 text-right text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Actions</TableHead>
+            </tr>
+          </TableHeader>
+          <TableBody>
+            {payments.map((payment) => (
+              <PaymentVerificationTableRow
+                key={payment.id}
+                payment={payment}
+                onView={onView}
+                isHighlighted={highlightedPaymentId === payment.id}
+              />
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <div className="space-y-2 md:hidden">
+        {payments.map((payment) => (
+          <PaymentVerificationCompactRow
+            key={payment.id}
+            payment={payment}
+            onView={onView}
+            isHighlighted={highlightedPaymentId === payment.id}
+          />
+        ))}
+      </div>
+    </>
+  )
+}
+
+function PaymentVerificationTableRow({
   payment,
-  amountPaid,
   onView,
   isHighlighted,
 }: {
   payment: BookingRecord
-  amountPaid: number
-  onView: () => void
-  isHighlighted?: boolean
+  onView: (payment: BookingRecord) => void
+  isHighlighted: boolean
 }) {
-  const cardRef = useRef<HTMLDivElement>(null)
-  const highlightRef = useRef(false)
-  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const rowRef = useRef<HTMLTableRowElement>(null)
+  const handledRef = useRef(false)
+  const submission = getLatestSubmission(payment)
+  const resource = getPaymentResourceParts(payment)
+  const submittedAmount = getSubmittedAmount(payment, submission)
 
   useEffect(() => {
-    if (!isHighlighted || !cardRef.current) return
-    if (highlightRef.current) return
-    highlightRef.current = true
-    cardRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
+    if (!isHighlighted || !rowRef.current || handledRef.current) return
+    handledRef.current = true
+    rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
     sessionStorage.removeItem("admin_payment_highlight")
-    highlightTimeoutRef.current = setTimeout(() => {
-      highlightRef.current = false
-    }, 3000)
-    return () => {
-      if (highlightTimeoutRef.current) {
-        clearTimeout(highlightTimeoutRef.current)
-        highlightTimeoutRef.current = null
-      }
-    }
+    const timer = setTimeout(() => { handledRef.current = false }, 3000)
+    return () => clearTimeout(timer)
   }, [isHighlighted])
 
-  const actionControlClass = "inline-flex w-full min-w-0 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-3 py-0 text-center [&_svg]:size-3.5 [&_svg]:shrink-0"
-  const secondaryControlClass = cn(actionControlClass, "h-8 whitespace-normal text-[10px] font-black uppercase leading-3 tracking-[0.06em] [overflow-wrap:anywhere]")
-
-  const innerCard = (
-    <div
-      ref={cardRef}
-      className="group grid w-full max-w-full min-w-0 grid-cols-1 gap-x-5 gap-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:bg-slate-50/70 md:grid-cols-2 md:items-center lg:min-h-[120px] lg:grid-cols-[minmax(0,24fr)_minmax(0,22fr)_minmax(0,24fr)_192px] lg:gap-y-0"
-    >
-      <div className="flex min-w-0 items-center gap-2.5">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
-          <Receipt className="h-4 w-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
-            Payment
-          </p>
-          <p className="truncate text-sm font-black leading-snug text-slate-900">
-            {payment.eventName || "Untitled"}
-          </p>
-          <p className="truncate text-[11px] font-bold text-orange-600">
-            {payment.id}
-          </p>
-        </div>
-      </div>
-
-      <div className="min-w-0">
-        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Customer</p>
-        <p className="truncate text-xs font-black text-slate-800">{payment.userInfo?.name || "—"}</p>
-      </div>
-
-      <div className="min-w-0">
-        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Venue</p>
-        <p className="truncate text-xs font-bold leading-snug text-slate-800">{payment.venue || "N/A"}</p>
-      </div>
-
-      <div className="flex w-full min-w-0 flex-col items-stretch gap-2 md:w-48 md:justify-self-end">
-        <PaymentBadge payment={payment} className={secondaryControlClass} />
+  return (
+    <tr ref={rowRef} className={cn("border-b border-slate-100 transition-colors hover:bg-slate-50/70", isHighlighted && "notification-target-highlight")}>
+      <TableCell className="min-w-0 px-3 py-2.5 align-top">
+        <p className="truncate text-[11px] font-bold text-orange-600">{payment.id || "—"}</p>
+        <p className="mt-0.5 line-clamp-2 text-xs font-semibold leading-4 text-slate-800">{payment.eventName || "Untitled booking"}</p>
+        <p className="truncate text-[10px] font-medium text-slate-500">
+          {payment.userInfo?.name || "Customer not listed"}
+          {payment.userInfo?.email ? <span className="text-slate-400"> · {payment.userInfo.email}</span> : null}
+        </p>
+      </TableCell>
+      <TableCell className="min-w-0 px-3 py-2.5 align-top">
+        <p className="line-clamp-2 whitespace-normal text-xs font-semibold leading-4 text-slate-800">{resource.primary}</p>
+        {resource.room && <p className="mt-0.5 truncate text-[10px] font-medium text-slate-500">Room: {resource.room}</p>}
+      </TableCell>
+      <TableCell className="min-w-0 px-3 py-2.5 align-top">
+        <PaymentMethodLabel payment={payment} className="text-[11px] font-semibold" />
+        <p className="mt-0.5 text-xs font-bold tabular-nums text-slate-900">{formatCurrency(submittedAmount)}</p>
+        <p className="truncate text-[10px] font-medium leading-4 text-slate-500">
+          Submitted {formatSubmittedAt(submission?.submittedAt || payment.paymentSubmittedAt)}
+          <span className="text-slate-400"> · {submission?.referenceNo || submission?.id || "Record"}</span>
+        </p>
+      </TableCell>
+      <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 align-top"><PaymentBadge payment={payment} /></TableCell>
+      <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 text-right align-top">
         <Button
           type="button"
-          onClick={onView}
-          className={cn(actionControlClass, "h-8 border-orange-600 bg-orange-600 text-xs font-bold text-white hover:border-orange-700 hover:bg-orange-700 focus-visible:ring-orange-300")}
+          onClick={() => onView(payment)}
+          className="h-8 whitespace-nowrap rounded-lg border-orange-600 bg-orange-600 px-3 text-xs font-bold text-white hover:border-orange-700 hover:bg-orange-700 focus-visible:ring-orange-300"
         >
-          <Eye className="size-3.5" aria-hidden="true" />
+          <Eye className="mr-1.5 size-3.5" aria-hidden="true" />
           Review
         </Button>
-        <span className={cn(secondaryControlClass, "border-slate-200 bg-slate-50 text-slate-500")}>
-          <History className="size-3.5" aria-hidden="true" />
-          {payment.paymentCount ?? 1} {(payment.paymentCount ?? 1) === 1 ? "Submission" : "Submissions"}
-        </span>
-      </div>
-    </div>
+      </TableCell>
+    </tr>
   )
+}
+
+function PaymentVerificationCompactRow({
+  payment,
+  onView,
+  isHighlighted,
+}: {
+  payment: BookingRecord
+  onView: (payment: BookingRecord) => void
+  isHighlighted: boolean
+}) {
+  const rowRef = useRef<HTMLDivElement>(null)
+  const handledRef = useRef(false)
+  const submission = getLatestSubmission(payment)
+  const resource = getPaymentResourceParts(payment)
+  const submittedAmount = getSubmittedAmount(payment, submission)
+
+  useEffect(() => {
+    if (!isHighlighted || !rowRef.current || handledRef.current) return
+    handledRef.current = true
+    rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
+    sessionStorage.removeItem("admin_payment_highlight")
+    const timer = setTimeout(() => { handledRef.current = false }, 3000)
+    return () => clearTimeout(timer)
+  }, [isHighlighted])
 
   return (
-    <div className={isHighlighted ? "notification-target-highlight" : undefined}>
-      {innerCard}
+    <div ref={rowRef} className={cn("rounded-xl border border-slate-200 bg-white p-3 shadow-sm", isHighlighted && "notification-target-highlight")}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-[10px] font-black uppercase tracking-[0.14em] text-orange-600">{payment.id || "—"}</p>
+          <p className="mt-0.5 line-clamp-2 text-sm font-black leading-4 text-slate-900">{payment.eventName || "Untitled booking"}</p>
+          <p className="mt-0.5 text-[10px] font-semibold text-slate-500">{payment.userInfo?.name || "Customer not listed"}</p>
+        </div>
+        <PaymentBadge payment={payment} />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
+        <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Reserved space</p><p className="line-clamp-2 text-xs font-bold text-slate-700">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>
+        <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Method</p><PaymentMethodLabel payment={payment} /></div>
+        <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Submitted</p><p className="text-xs font-black tabular-nums text-slate-800">{formatCurrency(submittedAmount)}</p><p className="truncate text-[10px] font-semibold text-slate-400">{formatSubmittedAt(submission?.submittedAt || payment.paymentSubmittedAt)}</p></div>
+        <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Submission</p><p className="truncate text-xs font-bold text-slate-700">{submission?.referenceNo || submission?.id || "Record available in review"}</p><p className="text-[10px] font-semibold text-slate-400">{payment.paymentCount ?? 1} total</p></div>
+      </div>
+      <div className="mt-3 flex justify-end border-t border-slate-100 pt-3">
+        <Button
+          type="button"
+          onClick={() => onView(payment)}
+          className="h-8 rounded-lg border-orange-600 bg-orange-600 px-3 text-xs font-bold text-white hover:border-orange-700 hover:bg-orange-700 focus-visible:ring-orange-300"
+        >
+          <Eye className="mr-1.5 size-3.5" aria-hidden="true" />
+          Review submissions
+        </Button>
+      </div>
     </div>
   )
 }
@@ -1434,11 +1527,11 @@ function PaymentReviewModal({
   )
 }
 
-function PaymentMethodLabel({ payment }: { payment: BookingRecord }) {
+function PaymentMethodLabel({ payment, className }: { payment: BookingRecord; className?: string }) {
   const isBank = payment.paymentMethod === "bank"
 
   return (
-    <span className="inline-flex max-w-full items-center gap-1.5 text-xs font-black text-slate-800">
+    <span className={cn("inline-flex max-w-full items-center gap-1.5 text-xs font-black text-slate-800", className)}>
       {isBank ? (
         <FileImage className="h-3.5 w-3.5 shrink-0 text-blue-500" />
       ) : (
@@ -1461,7 +1554,7 @@ function PaymentBadge({ payment, className }: { payment: BookingRecord; classNam
   const totalAmount = paymentSummary.bookingTotal
   const amountPaid = paymentSummary.moneyReceivedTotal
   const remainingBalance = paymentSummary.remainingBalance
-  const baseClass = cn("inline-flex items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap", className)
+  const baseClass = cn("inline-flex max-w-full items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-center text-[10px] font-black uppercase leading-4 tracking-[0.2em] whitespace-normal break-words", className)
 
   // Canonical: the badge renders EXACTLY the same overall status that the
   // status filter matches (payment.paymentStatus, set by getOverallPaymentStatus

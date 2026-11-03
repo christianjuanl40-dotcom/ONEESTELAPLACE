@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/src/modules/shared/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader } from "@/src/modules/shared/components/ui/table";
 import {
   Collapsible,
   CollapsibleContent,
@@ -49,7 +50,6 @@ import {
 import { useAuth } from "@/src/modules/shared/auth/auth-context";
 import { useCMS } from "@/src/modules/admin/contexts/cms-context";
 import { BankTransferQR } from "@/src/modules/shared/components/bank-transfer-qr";
-import { NotificationTargetWrapper } from "@/src/modules/shared/components/notification-target";
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context";
 import type { NotificationType } from "@/src/modules/shared/lib/notifications";
 import { PAYMENT_LABELS, getPaymentMethodLabel } from "@/src/modules/shared/lib/labels";
@@ -295,69 +295,39 @@ function isDateInRange(value: string, from?: string, to?: string) {
   return true;
 }
 
-function getStatusBadgeClass(paymentStatus?: string, status?: string, paymentStage?: string, remainingBalance?: number, booking?: any) {
-  const bookingStatus = String(status || "").toLowerCase();
-  const payStatus = String(paymentStatus || "").toLowerCase();
-  const refundStatus = String(booking?.refundStatus || "").toLowerCase();
+function normalizePaymentDisplayStatus(value?: string) {
+  return String(value || "").trim().toLowerCase().replaceAll(" ", "_");
+}
+
+function getStatusBadgeClass(paymentStatus?: string, booking?: any) {
+  const payStatus = normalizePaymentDisplayStatus(paymentStatus);
+  const refundStatus = normalizePaymentDisplayStatus(booking?.refundStatus);
 
   if (refundStatus === "refunded") return "border-slate-200 bg-slate-50 text-slate-700";
-  if (refundStatus === "requested") return "border-orange-100 bg-orange-50 text-orange-700";
-  if (["cancelled", "declined"].includes(bookingStatus)) return "border-rose-100 bg-rose-50 text-rose-700";
-  if (bookingStatus === "completed") return "border-blue-100 bg-blue-50 text-blue-700";
-  // Canonical payment-level statuses are authoritative over the booking-level
-  // status: an incomplete payment must NOT render as "For Verification".
-  if (payStatus === "incomplete") return "border-amber-100 bg-amber-50 text-amber-700";
-  if (payStatus === "rejected") return "border-rose-100 bg-rose-50 text-rose-700";
-  if (payStatus === "for_review" || payStatus === "for review" || payStatus === "pending_verification" || payStatus === "pending verification") return "border-amber-100 bg-amber-50 text-amber-700";
-  if (payStatus === "partial") return "border-amber-100 bg-amber-50 text-amber-700";
-  if (payStatus === "completed" || payStatus === "paid" || payStatus === "verified" || payStatus === "slot_verified") return "border-emerald-100 bg-emerald-50 text-emerald-700";
-  if (bookingStatus === "pending") return "border-orange-100 bg-orange-50 text-orange-700";
-  if (bookingStatus === "verifying") return "border-amber-100 bg-amber-50 text-amber-700";
-  if (["confirmed", "reservation_secured", "active_rental", "contract_signing_required"].includes(bookingStatus)) return "border-emerald-100 bg-emerald-50 text-emerald-700";
-  if (bookingStatus === "rental_expired") return "border-red-100 bg-red-50 text-red-700";
+  if (refundStatus === "requested" || refundStatus === "refund_requested") return "border-orange-100 bg-orange-50 text-orange-700";
+  if (["rejected", "declined", "cancelled"].includes(payStatus)) return "border-rose-100 bg-rose-50 text-rose-700";
+  if (["completed", "paid", "fully_paid", "verified", "slot_verified"].includes(payStatus)) return "border-emerald-100 bg-emerald-50 text-emerald-700";
+  if (["partial", "for_review", "pending_verification", "cash_pending", "slot_pending", "incomplete", "pending", "verifying"].includes(payStatus)) return "border-amber-100 bg-amber-50 text-amber-700";
 
   return "border-slate-200 bg-slate-50 text-slate-700";
 }
 
-function getStatusLabel(paymentStatus?: string, status?: string, paymentStage?: string, remainingBalance?: number, booking?: any) {
-  const normStatus = String(status || "").toLowerCase();
-  const payStatus = String(paymentStatus || "").toLowerCase();
-  const refundStatus = String(booking?.refundStatus || "").toLowerCase();
+function getStatusLabel(paymentStatus?: string, booking?: any) {
+  const payStatus = normalizePaymentDisplayStatus(paymentStatus);
+  const refundStatus = normalizePaymentDisplayStatus(booking?.refundStatus);
 
   if (refundStatus === "refunded") return "Refunded";
-  if (refundStatus === "requested") return "Refund Requested";
-  if (["cancelled", "declined"].includes(normStatus)) return "Cancelled";
-  if (normStatus === "completed") return "Completed";
-  // Canonical payment-level statuses are authoritative: an INCOMPLETE PAYMENT
-  // is a distinct payment state and must NOT be shown as "For Verification"
-  // just because the booking status is "verifying".
-  if (payStatus === "incomplete") return "Incomplete Payment";
-  if (payStatus === "rejected") return "Rejected";
-  if (payStatus === "partial") return "Partial Payment";
-  if (payStatus === "for_review" || payStatus === "for review" || payStatus === "pending_verification" || payStatus === "pending verification") return "For Verification";
-  if (payStatus === "completed" || payStatus === "fully paid" || payStatus === "fully_paid") return "Fully Paid";
-  if (normStatus === "pending") return "Pending";
-  if (normStatus === "verifying") return "For Verification";
-  if (["confirmed", "reservation_secured", "active_rental", "contract_signing_required"].includes(normStatus)) return "Paid";
-
-  return "Unpaid";
-}
-
-function getBookingStatusBadgeClass(status?: string) {
-  const v = String(status || "").toLowerCase();
-  if (["confirmed", "reservation_secured", "slot_secured", "active_rental"].includes(v))
-    return "border-emerald-100 bg-emerald-50 text-emerald-700";
-  if (["completed", "complete"].includes(v))
-    return "border-blue-100 bg-blue-50 text-blue-700";
-  if (["pending", "verifying"].includes(v))
-    return "border-orange-100 bg-orange-50 text-orange-700";
-  if (["contract_signing_required"].includes(v))
-    return "border-yellow-100 bg-yellow-50 text-yellow-700";
-  if (["cancellation_requested", "cancellation requested"].includes(v))
-    return "border-amber-100 bg-amber-50 text-amber-700";
-  if (["cancelled", "declined", "rental_expired"].includes(v))
-    return "border-rose-100 bg-rose-50 text-rose-700";
-  return "border-slate-200 bg-slate-50 text-slate-600";
+  if (refundStatus === "requested" || refundStatus === "refund_requested") return "Refund Requested";
+  if (["completed", "partial", "rejected", "incomplete", "for_review"].includes(payStatus)) {
+    return getPaymentOverallStatusLabel(payStatus as "completed" | "partial" | "rejected" | "incomplete" | "for_review");
+  }
+  if (["paid", "fully_paid"].includes(payStatus)) return "Fully Paid";
+  if (["verified", "slot_verified"].includes(payStatus)) return "Verified";
+  if (["pending_verification", "cash_pending", "slot_pending", "verifying"].includes(payStatus)) return "For Review";
+  if (payStatus === "pending") return "Pending";
+  if (payStatus === "unpaid") return "Unpaid";
+  if (!payStatus) return "Unpaid";
+  return String(paymentStatus).replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function getBookingStatusLabel(status?: string) {
@@ -538,349 +508,278 @@ function PaymentActionButtons({
   return null;
 }
 
-function CurrentTransactionCard({
-  booking,
+function formatTransactionDate(value?: string) {
+  if (!value) return "—"
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return new Intl.DateTimeFormat("en-PH", { month: "short", day: "2-digit", year: "numeric" }).format(parsed)
+}
+
+function getTransactionResourceParts(booking: Booking) {
+  const primary = String(booking.venue || (booking as any).officeSpaceName || (booking as any).officeName || "").trim()
+  const room = isOfficeRentalBooking(booking)
+    ? String((booking as any).roomName || (booking as any).spaceName || (booking as any).room || "").trim()
+    : ""
+  return { primary: primary || "—", room: room && room.toLowerCase() !== primary.toLowerCase() ? room : "" }
+}
+
+function getTransactionScheduleParts(booking: Booking) {
+  const startDate = formatTransactionDate(booking.date)
+  if (isOfficeRentalBooking(booking)) {
+    const endDate = (booking as any).endDate ? formatTransactionDate((booking as any).endDate) : ""
+    const term = (booking as any).officeRentalTerm || (booking as any).rentalTerm || (booking as any).contractTerm
+    return {
+      primary: endDate && endDate !== startDate ? `${startDate} – ${endDate}` : startDate,
+      secondary: term ? String(term).replaceAll("_", " ") : "Rental period",
+    }
+  }
+  return { primary: startDate, secondary: [booking.startTime, booking.endTime].filter(Boolean).join(" – ") || "Time not set" }
+}
+
+function getTransactionRowData(booking: Booking, records: PaymentRecordLike[]) {
+  const bookingRecords = getRecordsForBooking(records, booking)
+  const summary = calculatePaymentSummary(booking, bookingRecords)
+  const storedPaymentStatus = String(booking.paymentStatus || "").toLowerCase()
+  const paymentStatus = bookingRecords.length > 0 ? summary.overallStatus : storedPaymentStatus || summary.overallStatus
+  const remaining = summary.remainingBalance
+  const isCancelled = ["cancelled", "declined"].includes(String(booking.status || "").toLowerCase())
+  return {
+    records: bookingRecords,
+    summary,
+    paymentStatus,
+    amountPaid: summary.moneyReceivedTotal,
+    remaining,
+    displayTotal: isCancelled ? 0 : summary.bookingTotal,
+    isUnpaid: bookingRecords.length === 0 && paymentStatus === "unpaid",
+    statusLabel: getStatusLabel(paymentStatus, booking),
+    statusClass: getStatusBadgeClass(paymentStatus, booking),
+  }
+}
+
+type TransactionTableMode = "active" | "history"
+
+function TransactionTable({
+  bookings,
+  records,
+  mode,
   onPay,
   onSettle,
   onView,
-  paymentCount = 0,
-  latestPaymentStatus = "",
-  records,
+  expandedBookingId,
+  onToggle,
+  highlightedBookingId,
 }: {
-  booking: Booking;
-  onPay: (b: Booking) => void;
-  onSettle: (b: Booking) => void;
-  onView: (b: Booking) => void;
-  paymentCount?: number;
-  latestPaymentStatus?: string;
-  records?: PaymentRecordLike[] | null;
+  bookings: Booking[]
+  records: PaymentRecordLike[]
+  mode: TransactionTableMode
+  onPay: (booking: Booking) => void
+  onSettle: (booking: Booking) => void
+  onView: (booking: Booking) => void
+  expandedBookingId?: string | null
+  onToggle?: (booking: Booking) => void
+  highlightedBookingId: string | null
 }) {
-  const paymentSummary = calculatePaymentSummary(booking, records || []);
-  const amountPaid = paymentSummary.moneyReceivedTotal;
-  const remaining = paymentSummary.remainingBalance;
-  const storedPaymentStatus = String(booking.paymentStatus || "").toLowerCase();
-  const paymentStatus =
-    (records?.length || 0) > 0 ? paymentSummary.overallStatus : storedPaymentStatus || paymentSummary.overallStatus;
-  const remainingMs = getRemainingMs(booking);
-  const isExpired = booking.status === "pending" && remainingMs <= 0;
-  const isCashPending = booking.paymentMethod === "cash" && storedPaymentStatus === "cash_pending";
-  // Canonical credited remainder — what the client still owes toward the
-  // required downpayment (verified payments + received amounts of short
-  // incomplete payments already subtracted from the requirement).
-  const cardDownpaymentRemainder = paymentSummary.remainingDownpayment;
-  const displayAmount = getTransactionDisplayAmount(booking, cardDownpaymentRemainder, remaining);
-  const showDisplayAmount = displayAmount !== 0 || !paymentSummary.fullyPaid;
-
   return (
-    <div className="group flex w-full min-w-0 flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-4">
-      {/* ---- Mobile layout (hidden on sm+) ---- */}
-      <div className="sm:hidden">
-        <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
-            <Receipt className="h-5 w-5" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="break-words whitespace-normal text-base font-black leading-snug text-slate-900">
-              {booking.eventName || "Untitled"}
-            </p>
-            {showDisplayAmount && (
-              <p className="mt-0.5 text-sm font-bold text-orange-600">
-                {formatMoney(displayAmount)}
-              </p>
-            )}
-          </div>
-        </div>
-        <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
-          <div className="min-w-0">
-            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Booking ID</p>
-            <p className="mt-0.5 break-all text-xs font-black text-slate-800">{booking.id}</p>
-          </div>
-          <div className="min-w-0">
-            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Method</p>
-            <p className="mt-0.5 break-words text-xs font-bold text-slate-800">
-              {getPaymentMethodLabel(booking.paymentMethod)}
-            </p>
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
-            <div>
-               <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Money Received</p>
-              <p className="mt-0.5 text-xs font-black text-emerald-700">{formatMoney(amountPaid)}</p>
-            </div>
-            <div>
-              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Balance</p>
-              <p className={cn("mt-0.5 text-xs font-black", remaining > 0 ? "text-amber-700" : "text-emerald-700")}>
-                {formatMoney(remaining)}
-              </p>
-            </div>
-          </div>
-        </div>
+    <>
+      <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm md:block">
+        <Table className="min-w-[1080px] table-fixed xl:min-w-0">
+          <caption className="sr-only">{mode === "history" ? "Transaction history" : "Active transaction overview"}</caption>
+          <colgroup>
+            <col style={{ width: "18%" }} />
+            <col style={{ width: "13%" }} />
+            <col style={{ width: "17%" }} />
+            <col style={{ width: "19%" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "21%" }} />
+          </colgroup>
+          <TableHeader className="bg-slate-50/80">
+            <tr>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Booking</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Reserved Space</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Schedule</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Financial Summary</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Payment Status</TableHead>
+              <TableHead className="px-3 py-2.5 text-right text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Actions</TableHead>
+            </tr>
+          </TableHeader>
+          <TableBody>
+            {bookings.map((booking) => (
+              <TransactionTableRow
+                key={booking.id}
+                booking={booking}
+                records={records}
+                mode={mode}
+                onPay={onPay}
+                onSettle={onSettle}
+                onView={onView}
+                expanded={expandedBookingId === booking.id}
+                onToggle={onToggle}
+                isHighlighted={highlightedBookingId === booking.id}
+              />
+            ))}
+          </TableBody>
+        </Table>
       </div>
-
-      {/* ---- Tablet: grouped info block (sm to md) ---- */}
-      <div className="hidden min-w-0 items-center gap-3 sm:flex md:hidden">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
-          <Receipt className="h-5 w-5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
-            Current Transaction
-          </p>
-          <p className="mt-0.5 flex items-center gap-1.5 text-sm font-black text-slate-900">
-            <span className="break-words whitespace-normal min-w-0">{booking.eventName || "Untitled"}</span>
-            <span className="shrink-0 whitespace-nowrap text-xs font-semibold text-slate-500">• {booking.id}</span>
-          </p>
-          {showDisplayAmount && (
-            <p className="mt-1.5 break-words whitespace-normal text-[11px] font-bold text-orange-600">
-              {formatMoney(displayAmount)}
-            </p>
-          )}
-        </div>
+      <div className="space-y-2 md:hidden">
+        {bookings.map((booking) => (
+          <TransactionCompactRow
+            key={booking.id}
+            booking={booking}
+            records={records}
+            mode={mode}
+            onPay={onPay}
+            onSettle={onSettle}
+            onView={onView}
+            expanded={expandedBookingId === booking.id}
+            onToggle={onToggle}
+            isHighlighted={highlightedBookingId === booking.id}
+          />
+        ))}
       </div>
-
-      {/* ---- Desktop: Event block + 2-col info grid (md+) ---- */}
-      <div className="hidden shrink-0 items-center gap-3 md:flex md:w-[220px]">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
-          <Receipt className="h-5 w-5" />
-        </div>
-        <div className="min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
-            Current Transaction
-          </p>
-          <p className="break-words whitespace-normal text-sm font-black leading-snug text-slate-900 min-w-0">
-            {booking.eventName || "Untitled"}
-          </p>
-          {showDisplayAmount && (
-            <p className="break-words whitespace-normal text-[11px] font-bold text-orange-600">
-              {formatMoney(displayAmount)}
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="hidden min-w-0 flex-1 grid-cols-[1fr_1fr] gap-x-8 md:grid">
-        <div className="min-w-0">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Booking ID</p>
-          <p className="mt-0.5 break-all text-xs font-black text-slate-800 truncate">{booking.id}</p>
-        </div>
-        <div className="min-w-0">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Method</p>
-          <p className="mt-0.5 break-words text-xs font-bold text-slate-800">
-            {getPaymentMethodLabel(booking.paymentMethod)}
-          </p>
-        </div>
-      </div>
-
-      {/* ---- Actions column ---- */}
-      <div className="flex flex-col items-end gap-2 sm:ml-auto">
-        {booking.status === "pending" && !isCashPending && !isExpired && (
-          <p className="rounded-md bg-orange-50 px-2 py-1 text-[10px] font-black text-orange-700 self-end sm:self-auto sm:text-right">
-            Time left: {formatCountdown(remainingMs)}
-          </p>
-        )}
-        <div className="flex flex-col items-stretch gap-2.5 w-full sm:mt-0 sm:w-auto sm:shrink-0 sm:ml-auto sm:flex-col sm:items-end sm:gap-2.5">
-          <span
-            className={cn(
-              "inline-flex w-full items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap sm:w-auto",
-              getStatusBadgeClass(paymentStatus, booking.status, (booking as any).paymentStage, remaining, booking),
-            )}
-          >
-            {getStatusLabel(paymentStatus, booking.status, (booking as any).paymentStage, remaining, booking)}
-          </span>
-          <div className="flex flex-col items-stretch gap-2 w-full sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-2">
-            {hasPaymentRecord(booking) && (
-              <Button
-                variant="outline"
-                onClick={() => onView(booking)}
-                className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
-              >
-                View Details
-              </Button>
-            )}
-            <PaymentActionButtons booking={booking} onPay={onPay} onSettle={onSettle} compact paymentCount={paymentCount} latestPaymentStatus={latestPaymentStatus} records={records} />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+    </>
+  )
 }
 
-function HistoryRow({
+function TransactionTableRow({
   booking,
+  records,
+  mode,
+  onPay,
+  onSettle,
+  onView,
   expanded,
   onToggle,
-  onView,
-  onPay,
-  records,
+  isHighlighted,
 }: {
-  booking: Booking;
-  expanded: boolean;
-  onToggle: () => void;
-  onView: (b: Booking) => void;
-  onPay: (b: Booking) => void;
-  records?: PaymentRecordLike[] | null;
+  booking: Booking
+  records: PaymentRecordLike[]
+  mode: TransactionTableMode
+  onPay: (booking: Booking) => void
+  onSettle: (booking: Booking) => void
+  onView: (booking: Booking) => void
+  expanded: boolean
+  onToggle?: (booking: Booking) => void
+  isHighlighted: boolean
 }) {
-  const isOfficeRental = isOfficeRentalBooking(booking);
-  const isCancelled =
-    String(booking.status).toLowerCase() === "cancelled" ||
-    String(booking.status).toLowerCase() === "declined";
-  const paymentRecords = getRecordsForBooking(records, booking);
-  const paymentSummary = calculatePaymentSummary(booking, paymentRecords);
-  const paymentStatus = paymentRecords.length > 0
-    ? paymentSummary.overallStatus
-    : String(booking.paymentStatus || "").toLowerCase();
-  const displayTotal = isCancelled ? 0 : paymentSummary.bookingTotal;
-  const isUnpaid = paymentRecords.length === 0 && paymentStatus === "unpaid";
-  const amountPaid = paymentSummary.moneyReceivedTotal;
-  const remainingBalance = paymentSummary.remainingBalance;
+  const rowRef = useRef<HTMLTableRowElement>(null)
+  const handledRef = useRef(false)
+  const data = getTransactionRowData(booking, records)
+  const resource = getTransactionResourceParts(booking)
+  const schedule = getTransactionScheduleParts(booking)
+  const remainingMs = getRemainingMs(booking)
+  const isExpired = booking.status === "pending" && remainingMs <= 0
+  const isCashPending = booking.paymentMethod === "cash" && String(booking.paymentStatus || "").toLowerCase() === "cash_pending"
+
+  useEffect(() => {
+    if (!isHighlighted || !rowRef.current || handledRef.current) return
+    handledRef.current = true
+    rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
+    sessionStorage.removeItem("client_payment_highlight")
+    const timer = setTimeout(() => { handledRef.current = false }, 3000)
+    return () => clearTimeout(timer)
+  }, [isHighlighted])
+
+  const action = mode === "history" ? (
+    data.isUnpaid ? (
+      <Button onClick={() => onPay(booking)} className="h-8 whitespace-nowrap rounded-lg bg-orange-600 px-3 text-xs font-bold text-white hover:bg-orange-700"><CreditCard className="mr-1 h-3.5 w-3.5" />Pay Now</Button>
+    ) : (
+      <Button variant="outline" onClick={() => onView(booking)} className="h-8 whitespace-nowrap rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">View Details</Button>
+    )
+  ) : (
+    <div className="flex flex-wrap justify-end gap-1.5">
+      <Button variant="outline" onClick={() => onView(booking)} className="h-8 whitespace-nowrap rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">View Details</Button>
+      <PaymentActionButtons booking={booking} onPay={onPay} onSettle={onSettle} compact paymentCount={data.records.length} latestPaymentStatus={getLatestPaymentStatus(records as PaymentRecord[], booking)} records={data.records} />
+    </div>
+  )
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="grid w-full min-w-0 grid-cols-[1fr_auto] items-center gap-3 p-3 text-left transition hover:bg-slate-50 md:grid-cols-[2.5fr_1.2fr_1fr_auto] md:gap-4"
-      >
-        <div className="min-w-0">
-          {/* Tablet: Event Name • BK (sm to md) */}
-          <p className="mt-0.5 hidden items-center gap-1.5 text-sm font-black text-slate-900 sm:flex md:hidden">
-            <span className="break-words whitespace-normal min-w-0">{booking.eventName || "Untitled"}</span>
-            <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-slate-500">• {booking.id}</span>
-          </p>
-          {/* Desktop: Event Name only */}
-          <p className="hidden break-words whitespace-normal text-sm font-black leading-snug text-slate-900 min-w-0 md:block">
-            {booking.eventName || "Untitled"}
-          </p>
-          {/* Tablet grouped + labeled (sm to md) */}
-          <div className="mt-0.5 hidden flex-col gap-1 sm:flex md:hidden">
-            <div className="min-w-0">
-              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Venue</p>
-              <p className="truncate text-[11px] font-semibold text-slate-700">{booking.venue || "N/A"}</p>
+    <>
+      <tr ref={rowRef} data-transaction-target={booking.id} className={cn("border-b border-slate-100 transition-colors hover:bg-slate-50/70", isHighlighted && "notification-target-highlight")}>
+        <TableCell className="min-w-0 px-3 py-2.5 align-top">
+          <div className="flex items-start gap-2">
+            {mode === "history" && onToggle && <button type="button" onClick={() => onToggle(booking)} aria-expanded={expanded} aria-label={expanded ? `Hide transaction summary for ${booking.id}` : `Show transaction summary for ${booking.id}`} className="mt-0.5 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"><ChevronDown className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")} /></button>}
+            <div className="min-w-0"><p className="truncate text-[11px] font-bold text-orange-600">{booking.id}</p><p className="mt-0.5 line-clamp-2 text-xs font-semibold leading-4 text-slate-800">{booking.eventName || booking.companyName || "Untitled booking"}</p><p className="mt-0.5 truncate text-[10px] font-medium text-slate-500">{getPaymentMethodLabel(booking.paymentMethod)}</p></div>
+          </div>
+        </TableCell>
+        <TableCell className="min-w-0 px-3 py-2.5 align-top"><p className="line-clamp-2 whitespace-normal text-xs font-semibold leading-4 text-slate-800">{resource.primary}</p>{resource.room && <p className="mt-0.5 truncate text-[10px] font-medium text-slate-500">Room: {resource.room}</p>}</TableCell>
+        <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 align-top"><p className="max-w-full whitespace-normal break-words text-xs font-semibold leading-4 text-slate-800">{schedule.primary}</p><p className="mt-0.5 max-w-full whitespace-normal break-words text-[10px] font-medium leading-4 text-slate-500">{schedule.secondary}</p>{booking.status === "pending" && !isCashPending && !isExpired && <p className="mt-1 max-w-full whitespace-normal break-words text-[10px] font-semibold leading-4 text-orange-700">Time left: {formatCountdown(remainingMs)}</p>}</TableCell>
+        <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 align-top"><div className="min-w-0 space-y-1 text-xs leading-4"><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">Total</span><span className="min-w-0 break-words text-right font-semibold tabular-nums text-slate-800">{formatMoney(data.displayTotal)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">Paid</span><span className="min-w-0 break-words text-right font-semibold tabular-nums text-emerald-700">{formatMoney(data.amountPaid)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">Balance</span><span className={cn("min-w-0 break-words text-right font-semibold tabular-nums", data.remaining > 0 ? "text-amber-700" : "text-emerald-700")}>{formatMoney(data.remaining)}</span></p></div></TableCell>
+        <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 align-top"><span className={cn("inline-flex max-w-full whitespace-normal break-words items-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase leading-4", data.statusClass)}>{data.statusLabel}</span></TableCell>
+        <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 text-right align-top"><div className="flex min-w-0 flex-wrap justify-end gap-1.5">{action}</div></TableCell>
+      </tr>
+      {mode === "history" && expanded && (
+        <tr className="border-b border-slate-100 bg-slate-50/60">
+          <TableCell colSpan={6} className="px-4 py-3">
+            <div className="grid gap-3 sm:grid-cols-4">
+              <TransactionDetailItem label="Booking Status" value={getBookingStatusLabel(booking.status)} />
+              <TransactionDetailItem label="Payment Type" value={isOfficeRentalBooking(booking) ? "Slot Reservation" : (booking as any).paymentType === "downpayment" ? "Down Payment" : "Full Payment"} />
+              <TransactionDetailItem label="Confirmed Paid" value={formatMoney(data.amountPaid)} />
+              <TransactionDetailItem label="Remaining Balance" value={formatMoney(data.remaining)} />
             </div>
-            <div className="flex items-center gap-4">
-              <div className="min-w-0">
-                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Method</p>
-                <p className="whitespace-nowrap text-[11px] font-bold text-slate-700">
-                  {getPaymentMethodLabel(booking.paymentMethod)}
-                </p>
-              </div>
-              <div className="min-w-0">
-                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Amount</p>
-                <p className="whitespace-nowrap text-[11px] font-black text-slate-900">
-                  {formatMoney(displayTotal)}
-                </p>
-              </div>
+            <div className="mt-3 flex justify-end">
+              {data.isUnpaid ? <Button onClick={() => onPay(booking)} className="h-8 rounded-lg bg-orange-600 px-3 text-xs font-bold text-white hover:bg-orange-700"><CreditCard className="mr-1.5 h-3.5 w-3.5" />Pay Now</Button> : <Button variant="outline" onClick={() => onView(booking)} className="h-8 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-white"><Receipt className="mr-1.5 h-3.5 w-3.5" />Open Full Details</Button>}
             </div>
-          </div>
-          {/* Desktop inline: ID · venue (md+) */}
-          <p className="mt-0.5 hidden truncate text-[11px] font-bold text-slate-500 md:inline-block">
-            <span className="inline-block whitespace-nowrap align-bottom">{booking.id}</span>
-            <span className="hidden md:inline">
-              {" · "}
-              <span className="inline-block max-w-[200px] align-bottom truncate">{booking.venue || "N/A"}</span>
-            </span>
-          </p>
-        </div>
-        <div className="hidden text-left md:block min-w-0">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Method</p>
-          <p className="whitespace-nowrap text-[11px] font-bold text-slate-700">
-            {getPaymentMethodLabel(booking.paymentMethod)}
-          </p>
-        </div>
-        <div className="hidden text-left md:block min-w-0">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Amount</p>
-          <p className="whitespace-nowrap text-[11px] font-black text-slate-900">
-            {formatMoney(displayTotal)}
-          </p>
-        </div>
-        <div className="flex flex-col items-stretch gap-2.5 w-full sm:mt-0 sm:w-auto sm:shrink-0 sm:ml-auto sm:flex-col sm:items-end sm:gap-2.5">
-          <span
-            className={cn(
-              "inline-flex w-full items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap sm:w-auto",
-              getStatusBadgeClass(paymentStatus, booking.status, (booking as any).paymentStage, remainingBalance, booking),
-            )}
-          >
-            {getStatusLabel(paymentStatus, booking.status, (booking as any).paymentStage, remainingBalance, booking)}
-          </span>
-          {isUnpaid ? (
-            <Button
-              onClick={(e) => {
-                e.stopPropagation();
-                onPay(booking);
-              }}
-              className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg bg-orange-600 px-4 text-xs font-bold text-white shadow-sm hover:bg-orange-700 sm:w-auto"
-            >
-              <CreditCard className="mr-1 h-3.5 w-3.5" />
-              Pay Now
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              onClick={(e) => {
-                e.stopPropagation();
-                onView(booking);
-              }}
-              className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
-            >
-                View Details
-            </Button>
-          )}
-          </div>
-          {expanded ? (
-            <ChevronDown className="h-4 w-4 -rotate-180 text-slate-400 transition" />
-          ) : (
-            <ChevronDown className="h-4 w-4 text-slate-400 transition" />
-          )}
-      </button>
-      {expanded && (
-        <div className="grid gap-3 border-t border-slate-100 bg-slate-50/60 p-3 sm:grid-cols-3">
-          <DetailItem label="Booking Status" value={
-            <span
-              className={cn(
-                "inline-block rounded-md border px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.2em]",
-                getBookingStatusBadgeClass(booking.status),
-              )}
-            >
-              {getBookingStatusLabel(booking.status)}
-            </span>
-          } />
-          <DetailItem label="Type" value={isOfficeRental ? "Slot Reservation" : (booking as any).paymentType === "downpayment" ? "Down Payment" : "Full Payment"} />
-            <DetailItem label="Total Credited Payments" value={formatMoney(amountPaid)} />
-            <DetailItem label="Total Unpaid Balance" value={formatMoney(remainingBalance)} />
-          <div className="sm:col-span-3 flex justify-end mt-1">
-            {isUnpaid ? (
-              <Button
-                onClick={() => onPay(booking)}
-                className="h-9 shrink-0 whitespace-nowrap rounded-lg bg-orange-600 px-4 text-[11px] font-bold text-white shadow-sm hover:bg-orange-700 w-auto"
-              >
-                <CreditCard className="mr-1.5 h-3.5 w-3.5" />
-                Pay Now
-              </Button>
-            ) : (
-              <Button
-                variant="outline"
-                onClick={() => onView(booking)}
-                className="h-9 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-[11px] font-bold text-slate-700 hover:bg-white w-auto"
-              >
-                <Receipt className="mr-1.5 h-3.5 w-3.5" />
-                Open Full Details
-              </Button>
-            )}
-          </div>
-        </div>
+          </TableCell>
+        </tr>
       )}
-    </div>
-  );
+    </>
+  )
 }
 
-function DetailItem({ label, value }: { label: string; value: React.ReactNode }) {
+function TransactionCompactRow({
+  booking,
+  records,
+  mode,
+  onPay,
+  onSettle,
+  onView,
+  expanded,
+  onToggle,
+  isHighlighted,
+}: {
+  booking: Booking
+  records: PaymentRecordLike[]
+  mode: TransactionTableMode
+  onPay: (booking: Booking) => void
+  onSettle: (booking: Booking) => void
+  onView: (booking: Booking) => void
+  expanded: boolean
+  onToggle?: (booking: Booking) => void
+  isHighlighted: boolean
+}) {
+  const rowRef = useRef<HTMLDivElement>(null)
+  const handledRef = useRef(false)
+  const data = getTransactionRowData(booking, records)
+  const resource = getTransactionResourceParts(booking)
+  const schedule = getTransactionScheduleParts(booking)
+
+  useEffect(() => {
+    if (!isHighlighted || !rowRef.current || handledRef.current) return
+    handledRef.current = true
+    rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
+    sessionStorage.removeItem("client_payment_highlight")
+    const timer = setTimeout(() => { handledRef.current = false }, 3000)
+    return () => clearTimeout(timer)
+  }, [isHighlighted])
+
   return (
-    <div className="min-w-0 max-w-full">
-      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
-        {label}
-      </p>
-      <div className="mt-0.5 whitespace-normal text-xs font-bold text-slate-800">{value}</div>
+    <div ref={rowRef} data-transaction-target={booking.id} className={cn("rounded-xl border border-slate-200 bg-white p-3 shadow-sm", isHighlighted && "notification-target-highlight")}>
+      <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-2">{mode === "history" && onToggle && <button type="button" onClick={() => onToggle(booking)} aria-expanded={expanded} aria-label={expanded ? `Hide transaction summary for ${booking.id}` : `Show transaction summary for ${booking.id}`} className="mt-0.5 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"><ChevronDown className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")} /></button>}<div className="min-w-0"><p className="truncate text-[10px] font-black uppercase tracking-[0.14em] text-orange-600">{booking.id}</p><p className="mt-0.5 line-clamp-2 text-sm font-black leading-4 text-slate-900">{booking.eventName || booking.companyName || "Untitled booking"}</p></div></div><span className={cn("inline-flex max-w-[142px] min-w-0 whitespace-normal break-words text-right leading-4 items-center rounded-md border px-2 py-1 text-[10px] font-black uppercase tracking-[0.08em]", data.statusClass)}>{data.statusLabel}</span></div>
+      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
+        <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Reserved space</p><p className="line-clamp-2 text-xs font-bold text-slate-700">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>
+        <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Date / period</p><p className="whitespace-normal break-words text-xs font-bold leading-4 text-slate-700">{schedule.primary}</p><p className="whitespace-normal break-words text-[10px] font-semibold leading-4 text-slate-500">{schedule.secondary}</p></div>
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3"><div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.1em] text-slate-400">Total</p><p className="mt-0.5 break-words text-xs font-black tabular-nums text-slate-800">{formatMoney(data.displayTotal)}</p></div><div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.1em] text-slate-400">Paid</p><p className="mt-0.5 break-words text-xs font-black tabular-nums text-emerald-700">{formatMoney(data.amountPaid)}</p></div><div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.1em] text-slate-400">Balance</p><p className={cn("mt-0.5 break-words text-xs font-black tabular-nums", data.remaining > 0 ? "text-amber-700" : "text-emerald-700")}>{formatMoney(data.remaining)}</p></div></div>
+      <div className="mt-3 flex flex-wrap justify-end gap-1.5 border-t border-slate-100 pt-3">
+        {mode === "history" ? (data.isUnpaid ? <Button onClick={() => onPay(booking)} className="h-8 rounded-lg bg-orange-600 px-3 text-xs font-bold text-white hover:bg-orange-700"><CreditCard className="mr-1 h-3.5 w-3.5" />Pay Now</Button> : <Button variant="outline" onClick={() => onView(booking)} className="h-8 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">View Details</Button>) : <><Button variant="outline" onClick={() => onView(booking)} className="h-8 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">View Details</Button><PaymentActionButtons booking={booking} onPay={onPay} onSettle={onSettle} compact paymentCount={data.records.length} latestPaymentStatus={getLatestPaymentStatus(records as PaymentRecord[], booking)} records={data.records} /></>}
+      </div>
+      {mode === "history" && expanded && <div className="mt-3 grid gap-3 border-t border-slate-100 bg-slate-50/60 pt-3 sm:grid-cols-2"><TransactionDetailItem label="Booking Status" value={getBookingStatusLabel(booking.status)} /><TransactionDetailItem label="Payment Type" value={isOfficeRentalBooking(booking) ? "Slot Reservation" : (booking as any).paymentType === "downpayment" ? "Down Payment" : "Full Payment"} /><TransactionDetailItem label="Confirmed Paid" value={formatMoney(data.amountPaid)} /><TransactionDetailItem label="Remaining Balance" value={formatMoney(data.remaining)} /></div>}
     </div>
-  );
+  )
+}
+
+function TransactionDetailItem({ label, value }: { label: string; value: string }) {
+  return <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">{label}</p><p className="mt-0.5 text-xs font-bold text-slate-800">{value}</p></div>
 }
 
 function Pagination({
@@ -2487,21 +2386,15 @@ function TransactionsContent() {
             </div>
             {currentTransaction ? (
               <div className="mt-3">
-                <NotificationTargetWrapper
-                  transactionTarget={currentTransaction.id}
-                  isHighlighted={highlightedBookingId === currentTransaction.id}
-                  storageKey="client_payment_highlight"
-                >
-                  <CurrentTransactionCard
-                    booking={currentTransaction}
-                    onPay={handlePay}
-                    onSettle={handleSettle}
-                    onView={handleView}
-                    records={getRecordsForBooking(paymentRecords, currentTransaction)}
-                    paymentCount={getRecordsForBooking(paymentRecords, currentTransaction).length}
-                    latestPaymentStatus={getLatestPaymentStatus(paymentRecords, currentTransaction)}
-                  />
-                </NotificationTargetWrapper>
+                <TransactionTable
+                  bookings={[currentTransaction]}
+                  records={paymentRecords}
+                  mode="active"
+                  onPay={handlePay}
+                  onSettle={handleSettle}
+                  onView={handleView}
+                  highlightedBookingId={highlightedBookingId}
+                />
               </div>
             ) : (
               <div className="mt-3 flex flex-col items-center rounded-2xl border border-dashed border-slate-300 bg-white p-6 sm:p-8 text-center">
@@ -2523,84 +2416,15 @@ function TransactionsContent() {
                 icon={<Receipt className="h-4 w-4" />}
               />
               <div className="mt-3 space-y-2">
-                {paginatedOtherActive.map((booking) => {
-                  const isOfficeRental = isOfficeRentalBooking(booking);
-                  const otherPaymentRecords = getRecordsForBooking(paymentRecords, booking);
-                  const otherPaymentSummary = calculatePaymentSummary(booking, otherPaymentRecords);
-                  const otherPaymentStatus = otherPaymentRecords.length > 0
-                    ? otherPaymentSummary.overallStatus
-                    : String(booking.paymentStatus || "").toLowerCase();
-                  return (
-                    <NotificationTargetWrapper
-                      key={booking.id}
-                      transactionTarget={booking.id}
-                      isHighlighted={highlightedBookingId === booking.id}
-                      storageKey="client_payment_highlight"
-                    >
-                      <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 transition hover:border-orange-200 sm:flex-row sm:items-center sm:gap-3">
-                        {/* ---- Mobile: event name + ID ---- */}
-                        <div className="sm:hidden">
-                           <p className="break-words whitespace-normal text-sm font-black text-slate-900">
-                             {booking.eventName || "Untitled"}
-                           </p>
-                          <p className="mt-0.5 break-all text-[10px] font-semibold text-slate-500">
-                            {booking.id}
-                          </p>
-                        </div>
-
-                        {/* ---- Desktop: icon + event name + ID ---- */}
-                        <div className="hidden items-center gap-3 min-w-0 flex-1 sm:flex">
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
-                            {isOfficeRental ? <Banknote className="h-4 w-4" /> : <CreditCard className="h-4 w-4" />}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-black text-slate-900">
-                              {booking.eventName || "Untitled"}
-                            </p>
-                            <p className="truncate text-[10px] font-semibold text-slate-500 sm:text-[11px]">
-                              {booking.id}
-                              <span className="hidden sm:inline">
-                                {" · "}{getPaymentMethodLabel(booking.paymentMethod)}{" · "}{booking.venue || "N/A"}
-                              </span>
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* ---- Status badge + actions ---- */}
-                        <div className="flex flex-col items-stretch gap-2.5 w-full sm:mt-0 sm:w-auto sm:shrink-0 sm:ml-auto sm:flex-col sm:items-end sm:gap-2.5">
-                          <span
-                            className={cn(
-                              "inline-flex w-full items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap sm:w-auto",
-                              getStatusBadgeClass(otherPaymentStatus, booking.status, (booking as any).paymentStage, otherPaymentSummary.remainingBalance, booking),
-                            )}
-                          >
-                            {getStatusLabel(otherPaymentStatus, booking.status, (booking as any).paymentStage, otherPaymentSummary.remainingBalance, booking)}
-                          </span>
-                          <div className="flex flex-col items-stretch gap-2 w-full sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-2">
-                            {hasPaymentRecord(booking) && otherPaymentStatus !== "unpaid" && (
-                              <Button
-                                variant="outline"
-                                onClick={() => handleView(booking)}
-                                className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:w-auto"
-                              >
-                                View Details
-                              </Button>
-                            )}
-                            <PaymentActionButtons
-                              booking={booking}
-                              onPay={handlePay}
-                              onSettle={handleSettle}
-                              compact
-                              records={otherPaymentRecords}
-                              paymentCount={otherPaymentRecords.length}
-                              latestPaymentStatus={getLatestPaymentStatus(paymentRecords, booking)}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </NotificationTargetWrapper>
-                  );
-                })}
+                <TransactionTable
+                  bookings={paginatedOtherActive}
+                  records={paymentRecords}
+                  mode="active"
+                  onPay={handlePay}
+                  onSettle={handleSettle}
+                  onView={handleView}
+                  highlightedBookingId={highlightedBookingId}
+                />
                 <Pagination
                   page={safeCurrentPage}
                   totalPages={totalOtherActivePages}
@@ -2847,27 +2671,17 @@ function TransactionsContent() {
               </div>
             ) : (
               <div className="mt-3 space-y-2">
-                {paginatedHistory.map((booking) => (
-                  <NotificationTargetWrapper
-                    key={booking.id}
-                    transactionTarget={booking.id}
-                    isHighlighted={highlightedBookingId === booking.id}
-                    storageKey="client_payment_highlight"
-                  >
-                    <HistoryRow
-                      booking={booking}
-                      expanded={expandedBookingId === booking.id}
-                      onToggle={() =>
-                        setExpandedBookingId(
-                          expandedBookingId === booking.id ? null : booking.id,
-                        )
-                      }
-                      onView={handleView}
-                      onPay={handlePay}
-                      records={paymentRecords}
-                    />
-                  </NotificationTargetWrapper>
-                ))}
+                <TransactionTable
+                  bookings={paginatedHistory}
+                  records={paymentRecords}
+                  mode="history"
+                  onPay={handlePay}
+                  onSettle={handleSettle}
+                  onView={handleView}
+                  expandedBookingId={expandedBookingId}
+                  onToggle={(booking) => setExpandedBookingId(expandedBookingId === booking.id ? null : booking.id)}
+                  highlightedBookingId={highlightedBookingId}
+                />
                 <Pagination
                   page={safeHistoryPage}
                   totalPages={totalHistoryPages}

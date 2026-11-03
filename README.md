@@ -2,7 +2,7 @@
 
 Booking and rental management system for **One Estela Place**: event venue reservations, office room rentals, payment verification, customer support, and website content management.
 
-Source reviewed: **2026-10-19** baseline; resource identity, scheduling, maintenance, and CMS persistence rechecked **2026-10-25**; exclusive office occupancy and customer/admin Booking Details rechecked **2026-10-26**; session initialization, read recovery, and availability performance rechecked **2026-10-27**. This documentation describes the checked-in implementation; live catalog values and provider configuration come from the connected services.
+Source reviewed: **2026-10-19** baseline; resource identity, scheduling, maintenance, and CMS persistence rechecked **2026-10-25**; exclusive office occupancy and customer/admin Booking Details rechecked **2026-10-26**; session initialization, read recovery, and availability performance rechecked **2026-10-27**; compact booking/payment tables rechecked **2026-11-03**. This documentation describes the checked-in implementation; live catalog values and provider configuration come from the connected services.
 
 ## Start here for future prompts
 
@@ -27,6 +27,7 @@ Read these project references first, then open the source files relevant to the 
 - **Client portal:** create venue/office reservations, track bookings, submit bank-transfer proof or select onsite payment, view transactions/receipts/contracts, request changes or cancellation, and chat with support.
 - **Admin dashboard:** booking management, payment review, onsite payment recording, reports and Excel export, staff administration, CMS, and user information.
 - **Staff access:** dashboard features are controlled by per-module permissions.
+- **Responsive records:** booking and payment lists use compact semantic tables on desktop/tablet and labeled condensed rows on mobile, while retaining the existing filters, pagination, grouping, ownership checks, calculations, and actions.
 
 The application roles are `admin`, `staff`, and `client`. An owner uses the admin role; `owner` is not a separate supported account role in the auth model.
 
@@ -105,16 +106,20 @@ Next.js route-group names such as `(client)` and `(admin)` are filesystem organi
 | --- | --- |
 | `/` | Public landing page: `app/(client)/page.tsx` |
 | `/portal` | Client dashboard |
-| `/portal/bookings` | Client booking list and reservation actions |
-| `/portal/payments` | My Transactions, payment submissions, and receipts |
+| `/portal/bookings` | Client booking list, responsive booking overview, and reservation actions |
+| `/portal/payments` | My Transactions, responsive financial summaries, payment submissions, and receipts |
 | `/portal/status` | Detailed booking/payment/contract status |
 | `/portal/chat`, `/portal/profile` | Client support and profile |
 | `/dashboard` | Admin/staff dashboard |
-| `/dashboard/bookings`, `/dashboard/payments` | Booking management and payment verification |
+| `/dashboard/bookings`, `/dashboard/payments` | Responsive booking management and grouped payment verification |
 | `/dashboard/chat`, `/dashboard/reports` | Support and reporting |
 | `/dashboard/staff`, `/dashboard/cms` | Staff management and content settings |
 | `/users` | Users Information, inside the admin route group |
 | `/api/*` | Authenticated server endpoints; see [the API map](ARCHITECTURE.md#api-map) |
+
+### Booking and payment list convention
+
+The four booking/payment list surfaces—Admin Booking Management, Admin Payment Verification, Client My Bookings, and Client My Transactions—reuse `src/modules/shared/components/ui/table.tsx`. Booking tables show only the booking lifecycle status; payment tables show only the canonical payment/review status. Desktop/tablet views expose labeled columns inside a contained horizontal-scroll region when needed; booking tables fit the available laptop/desktop content area, explicitly wrap schedule/status content, and reserve a full action-button column; mobile views switch to labeled compact rows. Admin payment rows remain grouped by booking, with submission history and exact review identity preserved in the existing modal. Client transaction rows keep Total, Paid, and Balance inside a constrained financial-summary cell and remain one canonical financial summary per owned booking, derived from `calculatePaymentSummary()`; full submission and receipt history remains available through the existing details workflow.
 
 ## Development commands
 
@@ -139,7 +144,7 @@ Next.js route-group names such as `(client)` and `(admin)` are filesystem organi
 
 There is no `npm test` script. Tests live in `src/modules/shared/lib/__tests__/`.
 
-The payment-review browser harness renders the actual admin/client pages and reservation dialog with in-memory provider/service fixtures, using the installed Playwright and Vitest's Vite dependency. It checks immutable historical summaries, paged/reordered ID-stable selection, note isolation, fresh review drafts, proof controls, and desktop/mobile layout. Reservation checks cover the single reviews close control, keyboard/focus/scroll behavior, parent state preservation, buffered start options, invalidated selections, and disabled Proceed. It uses a local sans-serif font fallback and writes screenshots/cache to a temporary directory (override with `PAYMENT_REVIEW_TEMP_DIR`). Install Playwright Chromium with `npx playwright install chromium` if needed, or set `PAYMENT_REVIEW_BROWSER_CHANNEL=chrome` / `msedge` to use an installed browser. It does not exercise live Firebase/API persistence or remote panorama loading.
+The payment-review browser harness renders the actual admin/client pages and reservation dialog with in-memory provider/service fixtures, using the installed Playwright and Vitest's Vite dependency. It checks immutable historical summaries, paged/reordered ID-stable selection, note isolation, fresh review drafts, proof controls, responsive table/row entry points, and desktop/mobile layout. Reservation checks cover the single reviews close control, keyboard/focus/scroll behavior, parent state preservation, buffered start options, invalidated selections, and disabled Proceed. It uses a local sans-serif font fallback and writes screenshots/cache to a temporary directory (override with `PAYMENT_REVIEW_TEMP_DIR`). Install Playwright Chromium with `npx playwright install chromium` if needed, or set `PAYMENT_REVIEW_BROWSER_CHANNEL=chrome` / `msedge` to use an installed browser. It does not exercise live Firebase/API persistence or remote panorama loading.
 
 The payment-verification harness keeps the actual `BookingProvider` and customer/admin payment pages, replacing only service boundaries. It loads no environment files and blocks live traffic. Synthetic saved-state/response fixtures cover a successful commit followed by a failing UI refresh, authoritative reconciliation after lost/truncated responses, duplicate clicks, exact submission selection, and full-proof receipts with compact booking projections. Screenshots and diagnostic evidence default to a temporary directory (override with `PAYMENT_VERIFICATION_TEMP_DIR`); it uses the same browser-channel override. Actual review-handler tests with real permission checks, optimistic transaction retries, SDK write validation, and a synthetic 1 MiB size boundary live in `src/modules/shared/lib/__tests__/payment-review-api.test.ts`; these do not replace emulator/live commit validation.
 

@@ -1,6 +1,6 @@
 # Architecture Design
 
-Source reviewed: **2026-10-19** baseline; resource identity, scheduling, maintenance, and CMS persistence rechecked **2026-10-25**; exclusive office occupancy and customer/admin Booking Details rechecked **2026-10-26**; payment verification/persistence/recovery rechecked **2026-10-27**; Phase 1 authorization, cent-level payment validation, refund ledger checks, lifecycle idempotency, and password reauthentication rechecked **2026-10-28**. Start with [README.md](README.md) for setup and routes, and [DESIGN_PALETTE.md](DESIGN_PALETTE.md) for UI conventions.
+Source reviewed: **2026-10-19** baseline; resource identity, scheduling, maintenance, and CMS persistence rechecked **2026-10-25**; exclusive office occupancy and customer/admin Booking Details rechecked **2026-10-26**; payment verification/persistence/recovery rechecked **2026-10-27**; Phase 1 authorization, cent-level payment validation, refund ledger checks, lifecycle idempotency, and password reauthentication rechecked **2026-10-28**; compact booking/payment tables rechecked **2026-11-03**. Start with [README.md](README.md) for setup and routes, and [DESIGN_PALETTE.md](DESIGN_PALETTE.md) for UI conventions.
 
 ## System shape
 
@@ -236,6 +236,12 @@ Payment-review presentation (reviewed **2026-10-22**):
 - Legacy finalized records expose only historical values actually stored on their own finalized receipt; missing amounts/DP values explicitly show **Unavailable**. Current payment statuses and current booking prices are never used to fabricate a legacy historical ledger. Later receipt issuance preserves an existing snapshot and does not backfill an invented one.
 - `calculateReceiptPaymentSummary()` remains a live booking-wide **credited** ledger, including incomplete received money and the original DP requirement. Pending selections explicitly label those live totals **Current Booking Summary**. Finalized selections use **Historical Payment Summary**. `calculateBookingVerifiedPaymentSummary()` remains a verified-only diagnostic.
 - `receipt-paper.tsx` shows the selected transaction's submitted/credited amounts, historical booking/DP summary, and emphasized Total Unpaid Balance. `payment-review-details.tsx` supplies the same proof/note cards to both views; finalized notes/proof come from that snapshot. Submission status is separate from current overall booking payment status.
+
+### Compact record tables (reviewed **2026-11-03**)
+
+Admin Booking Management, Admin Payment Verification, Client My Bookings, and Client My Transactions use the shared table primitives in `src/modules/shared/components/ui/table.tsx` for compact semantic desktop/tablet rows. Booking rows expose only booking lifecycle status, while payment rows expose only canonical payment/review status; the omitted status context remains in the existing detail/review views. Related values are grouped into approximately five to seven meaningful columns, with wider cells for booking/event/customer and reserved-space content, wrapping schedule/status cells, a constrained vertical Total/Paid/Balance summary, a full-width action-button allowance, contained horizontal scrolling only at narrower table widths, and condensed labeled rows on mobile. The four renderers remain presentation-only: existing filters, activity ordering, pagination, notification highlighting, ownership filtering, booking grouping, and detail/action dialogs are unchanged.
+
+Admin payment rows remain grouped by canonical booking ID/code. The latest submission amount/date and stable submission identifier are display context only; review actions still open the booking-level history modal and require the exact selected `paymentRecordId`/submission for Verify, Reject, Incomplete, or onsite workflows. Client transaction rows remain one financial summary per owned booking and derive paid/balance/status values from `calculatePaymentSummary()`; pending and rejected submissions are not counted as received money, and full submission/receipt history remains in the existing details dialog.
 
 **Canonical ledger rules** in `payment-calculations.ts`:
 
