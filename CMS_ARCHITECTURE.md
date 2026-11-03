@@ -1,6 +1,6 @@
 # CMS Architecture
 
-Source reviewed: **2026-10-30**. The active CMS uses **Cloud Firestore**, with one shared **`cms/data`** document plus a protected predefined-question configuration. See [ARCHITECTURE.md](ARCHITECTURE.md) for the overall system and scheduling invariants.
+Source reviewed: **2026-11-03**. The active CMS uses **Cloud Firestore**, with one shared **`cms/data`** document plus a protected predefined-question configuration. See [ARCHITECTURE.md](ARCHITECTURE.md) for the overall system and scheduling invariants.
 
 ## Implementation map
 
@@ -43,6 +43,8 @@ The `CMSData` interface lives in `cms-context.tsx`. Main sections:
 The CMS section immediately after FAQs manages `chatSuggestionQuestions/config` through `/api/chat-suggestions/config`. Each record contains `questionId`, `question`, `answer`, `statusGroup`, `enabled`, `autoReplyEnabled`, `priority`, `isPublished`, `createdAt`, `updatedAt`, `updatedBy`, and optional archive metadata. IDs are immutable; archive keeps the record and its history. Active exact duplicate questions within one supported status group are rejected, and automatic replies require a nonempty answer.
 
 The protected config is not customer-readable. The server maintains `chatSuggestionQuestions/published`, a question-only projection containing stable ID, text, status group, and priority, and `chatSuggestionQuestions/publishedVersion`, a revision-only customer signal. The projection excludes answers and disabled, unpublished, or archived records, but is not directly readable by customer browsers. On a version change, `/api/chat-suggestions/published` authenticates the customer, evaluates that customer's current bookings/payments, and returns only the current status category's top three question metadata. A revision number is written with the config, projection, and version marker so stale CMS saves return a conflict instead of overwriting another editor. Starter records preserve the Phase 6 wording and safe portal-directed answer guidance but remain unpublished until an administrator reviews and explicitly publishes them; no production migration is performed on mount.
+
+The admin editor presents the configuration as a compact responsive question list. Search can be combined with status-group/category and publication-status filters; answers expand inline, display order is shown relative to the question's category, and the customer-chat preview is non-interactive. Its compact toolbar retains the CMS section dropdown and actions without duplicating a visible section heading; the management section remains accessible by name. These are presentation concerns only: starter initialization, revision-safe saves, stable-ID archiving, validation, and the published projection remain unchanged.
 
 `CMSCatalogSpace` types the optional description fields while retaining existing catalog properties through an open index signature. Follow the editor, catalog normalization, availability helpers, and server validation together when changing the shape. In-code prices and contact/payment details are defaults, not confirmed live configuration.
 

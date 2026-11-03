@@ -20,10 +20,10 @@ const SECTIONS = [
 ]
 
 export function CMSSectionHeader({
-  title, description, currentSection, onNavigate, action,
+  title, description, currentSection, onNavigate, action, compact = false,
 }: {
   title: string; description?: string; currentSection: string
-  onNavigate: (key: string) => void; action?: ReactNode
+  onNavigate: (key: string) => void; action?: ReactNode; compact?: boolean
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -41,14 +41,16 @@ export function CMSSectionHeader({
   const currentLabel = SECTIONS.find((s) => s.key === currentSection)?.label || title
 
   return (
-    <div className="mb-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          {title && <h2 className="text-xl font-black tracking-tight text-slate-950">{title}</h2>}
-          {description && (
-            <p className="mt-0.5 max-w-xl text-sm font-semibold leading-5 text-slate-500">{description}</p>
-          )}
-        </div>
+    <div className={compact ? "mb-0" : "mb-5"}>
+      <div className={`flex flex-col gap-3 sm:flex-row sm:items-center ${compact ? "sm:justify-end" : "sm:justify-between"}`}>
+        {!compact && (
+          <div className="min-w-0">
+            {title && <h2 className="text-xl font-black tracking-tight text-slate-950">{title}</h2>}
+            {description && (
+              <p className="mt-0.5 max-w-xl text-sm font-semibold leading-5 text-slate-500">{description}</p>
+            )}
+          </div>
+        )}
         <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 sm:w-auto">
           <div className="relative" ref={menuRef}>
             <button

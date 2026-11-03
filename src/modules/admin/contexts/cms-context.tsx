@@ -783,8 +783,8 @@ export const CMSProvider = ({ children }: { children: React.ReactNode }) => {
       setPredefinedQuestionsRevision(typeof payload.revision === "number" ? payload.revision : predefinedQuestionsRevision + 1)
       setPredefinedQuestionsConfigured(true)
       toast({
-        title: "Content Saved",
-        description: "Predefined questions have been saved and published entries are now available to customers.",
+        title: "Questions Saved",
+        description: "Predefined questions were saved. Only enabled entries marked Published are available to customers.",
         className: "bg-emerald-500 text-white border-none",
       })
       return true
