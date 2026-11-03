@@ -86,7 +86,7 @@ function GalleryModal({
 
   return (
     <div
-      className="fixed inset-0 z-[10000] flex flex-col bg-black/95 animate-in fade-in duration-200"
+      className="oe-dark-surface fixed inset-0 z-[10000] flex flex-col bg-black/95 text-white animate-in fade-in duration-200"
       onClick={onClose}
     >
       <header className="shrink-0 flex items-center justify-between border-b border-white/10 px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -290,7 +290,7 @@ function LandingPageContent() {
     <PublicLayout>
       <section
         id="home"
-        className="relative flex w-full max-w-full min-h-[620px] items-center overflow-hidden overflow-x-hidden bg-slate-950 text-white"
+        className="oe-dark-surface relative flex w-full max-w-full min-h-[620px] items-center overflow-hidden overflow-x-hidden bg-slate-950 text-white"
       >
         <div
           className="absolute inset-0 bg-cover bg-center bg-no-repeat"
@@ -560,7 +560,7 @@ function LandingPageContent() {
         </div>
       </section>
 
-      <section id="booking" className="w-full bg-slate-950 py-20 text-white overflow-x-hidden">
+      <section id="booking" className="oe-dark-surface w-full bg-slate-950 py-20 text-white overflow-x-hidden">
         <div className="container mx-auto px-4 text-center">
           <Camera className="mx-auto mb-5 h-12 w-12 text-orange-500" />
 

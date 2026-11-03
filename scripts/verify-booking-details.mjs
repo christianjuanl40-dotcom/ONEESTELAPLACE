@@ -197,7 +197,7 @@ try {
     assert.equal(scrollRegions, 1, "one scroll region")
     for (const value of await dialog.locator("dd").all()) {
       assert.equal(await value.evaluate(el => getComputedStyle(el).color), "rgb(0, 0, 0)")
-      assert.equal(await value.evaluate(el => Number(getComputedStyle(el).fontWeight) >= 700), true)
+      assert.equal(await value.evaluate(el => Number(getComputedStyle(el).fontWeight)), 400)
       assert.equal(await value.evaluate(el => el.scrollWidth > el.clientWidth + 1), false)
     }
     for (const action of await dialog.locator("footer button").all()) {

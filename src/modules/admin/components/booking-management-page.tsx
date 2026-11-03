@@ -932,12 +932,12 @@ function AdminBookingTable({
           </colgroup>
           <TableHeader className="bg-slate-50/80">
             <tr>
-              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Booking / Customer</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Event / Business</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Reserved Space</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Schedule</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Status</TableHead>
-              <TableHead className="px-3 py-2.5 text-right text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Actions</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Booking / Customer</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Event / Business</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Reserved Space</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Schedule</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Status</TableHead>
+              <TableHead className="px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-[0.12em] text-black">Actions</TableHead>
             </tr>
           </TableHeader>
           <TableBody>
@@ -993,21 +993,21 @@ function AdminBookingTableRow({
   return (
     <tr ref={rowRef} className={cn("border-b border-slate-100 transition-colors hover:bg-slate-50/70", isHighlighted && "notification-target-highlight")}>
       <TableCell className="min-w-0 px-3 py-2.5 align-top whitespace-normal">
-        <p className="truncate text-[11px] font-bold text-orange-600">{booking.id}</p>
-        <p className="mt-0.5 line-clamp-2 whitespace-normal break-words text-xs font-semibold leading-4 text-slate-800">{booking.userInfo?.name || "Customer not listed"}</p>
-        <p className="truncate text-[10px] font-medium text-slate-500">{booking.userInfo?.email || "—"}</p>
+        <p className="truncate text-[11px] font-normal text-black">{booking.id}</p>
+        <p className="mt-0.5 line-clamp-2 whitespace-normal break-words text-xs font-normal leading-4 text-black">{booking.userInfo?.name || "Customer not listed"}</p>
+        <p className="truncate text-[10px] font-normal text-black">{booking.userInfo?.email || "—"}</p>
       </TableCell>
       <TableCell className="min-w-0 px-3 py-2.5 align-top whitespace-normal">
-        <p className="line-clamp-2 whitespace-normal text-xs font-semibold leading-4 text-slate-900">{booking.eventName || booking.companyName || booking.natureOfBusiness || "—"}</p>
-        <p className="mt-0.5 truncate text-[10px] font-medium text-orange-600">{isOfficeBooking(booking) ? "Office rental" : booking.eventType || "Event venue"}</p>
+        <p className="line-clamp-2 whitespace-normal text-xs font-normal leading-4 text-black">{booking.eventName || booking.companyName || booking.natureOfBusiness || "—"}</p>
+        <p className="mt-0.5 truncate text-[10px] font-normal text-black">{isOfficeBooking(booking) ? "Office rental" : booking.eventType || "Event venue"}</p>
       </TableCell>
       <TableCell className="min-w-0 px-3 py-2.5 align-top whitespace-normal">
-        <p className="line-clamp-2 whitespace-normal text-xs font-semibold leading-4 text-slate-800">{resource.primary}</p>
-        {resource.room && <p className="mt-0.5 line-clamp-2 whitespace-normal break-words text-[10px] font-medium leading-4 text-slate-500">Room: {resource.room}</p>}
+        <p className="line-clamp-2 whitespace-normal text-xs font-normal leading-4 text-black">{resource.primary}</p>
+        {resource.room && <p className="mt-0.5 line-clamp-2 whitespace-normal break-words text-[10px] font-normal leading-4 text-black">Room: {resource.room}</p>}
       </TableCell>
       <TableCell className="min-w-0 max-w-0 px-3 py-2.5 align-top whitespace-normal">
-        <p className="max-w-full whitespace-normal break-words text-xs font-semibold leading-4 text-slate-800">{schedule.primary}</p>
-        <p className="mt-0.5 max-w-full whitespace-normal break-words text-[10px] font-medium leading-4 text-slate-500">{schedule.secondary}</p>
+        <p className="max-w-full whitespace-normal break-words text-xs font-normal leading-4 text-black">{schedule.primary}</p>
+        <p className="mt-0.5 max-w-full whitespace-normal break-words text-[10px] font-normal text-black">{schedule.secondary}</p>
       </TableCell>
       <TableCell className="min-w-0 max-w-0 px-3 py-2.5 align-top whitespace-normal"><AdminBookingStatusBadges booking={booking} /></TableCell>
       <TableCell className="px-3 py-2.5 align-top whitespace-nowrap">
@@ -1052,9 +1052,9 @@ function AdminBookingCompactRow({
       <div ref={rowRef} className={cn("rounded-xl border border-slate-200 bg-white p-3 shadow-sm", isHighlighted && "notification-target-highlight")}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-[10px] font-black uppercase tracking-[0.14em] text-orange-600">{booking.id}</p>
-          <p className="mt-0.5 line-clamp-2 text-sm font-black leading-4 text-slate-900">{booking.eventName || booking.companyName || booking.natureOfBusiness || "—"}</p>
-          <p className="mt-0.5 text-[10px] font-semibold text-slate-500">{booking.userInfo?.name || "Customer not listed"}</p>
+          <p className="truncate text-[10px] font-normal uppercase tracking-[0.14em] text-black">{booking.id}</p>
+          <p className="mt-0.5 line-clamp-2 text-sm font-normal leading-4 text-black">{booking.eventName || booking.companyName || booking.natureOfBusiness || "—"}</p>
+          <p className="mt-0.5 text-[10px] font-normal text-black">{booking.userInfo?.name || "Customer not listed"}</p>
         </div>
         <div className="min-w-0 max-w-[44%] shrink-0">
           <AdminBookingStatusBadges booking={booking} />
@@ -1062,17 +1062,17 @@ function AdminBookingCompactRow({
       </div>
       <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
         <div className="min-w-0">
-          <p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Category</p>
-          <p className="truncate text-xs font-bold text-slate-700">{isOfficeBooking(booking) ? "Office rental" : booking.eventType || "Event venue"}</p>
+          <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Category</p>
+          <p className="truncate text-xs font-normal text-black">{isOfficeBooking(booking) ? "Office rental" : booking.eventType || "Event venue"}</p>
         </div>
         <div className="min-w-0">
-          <p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Reserved space</p>
-          <p className="line-clamp-2 text-xs font-bold text-slate-700">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p>
+          <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Reserved space</p>
+          <p className="line-clamp-2 text-xs font-normal text-black">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p>
         </div>
         <div className="min-w-0">
-          <p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Date / period</p>
-          <p className="text-xs font-bold text-slate-700">{schedule.primary}</p>
-          <p className="text-[10px] font-semibold text-slate-500">{schedule.secondary}</p>
+          <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Date / period</p>
+          <p className="text-xs font-normal text-black">{schedule.primary}</p>
+          <p className="text-[10px] font-normal text-black">{schedule.secondary}</p>
         </div>
       </div>
       <div className="mt-3 flex justify-end border-t border-slate-100 pt-3">

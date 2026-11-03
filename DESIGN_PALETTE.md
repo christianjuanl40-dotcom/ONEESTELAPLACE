@@ -6,7 +6,7 @@ Office occupancy badges and scheduling notices rechecked **2026-10-26**; custome
 
 ## Visual direction
 
-**Warm orange branding, white/slate workspaces, strong Montserrat headings, and rounded surfaces.** Public marketing sections add dark photography overlays; the client and admin areas share an orange header and light navigation/content surfaces.
+**Warm orange branding, white/slate workspaces, strong Inter headings, and rounded surfaces.** Public marketing sections add dark photography overlays; the client and admin areas share an orange header and light navigation/content surfaces.
 
 - Use orange for brand emphasis, primary actions, selected navigation, and focus accents.
 - Use slate/white for content hierarchy, forms, tables, and page structure.
@@ -98,12 +98,12 @@ Axes use slate 500; grid lines use slate 200. Keep chart legends and status labe
 | Light token | Current value | Approximate hex / purpose |
 | --- | --- | --- |
 | `--background`, `--card`, `--popover`, `--sidebar` | `0 0% 100%` | `#FFFFFF` surfaces |
-| `--foreground`, card/popover/sidebar foreground, `--ring` | `0 0% 3.9%` | `#0A0A0A` |
+| `--foreground`, card/popover/sidebar foreground, `--ring` | `0 0% 0%` | `#000000` |
 | `--primary`, `--sidebar-primary` | `0 0% 9%` | `#171717` |
 | `--primary-foreground` | `0 0% 100%` | `#FFFFFF` |
 | `--secondary`, `--muted`, `--accent` | `0 0% 96.1%` | `#F5F5F5` |
 | `--secondary-foreground`, `--accent-foreground` | `0 0% 9%` | `#171717` |
-| `--muted-foreground` | `0 0% 45.1%` | `#737373` |
+| `--muted-foreground` | `0 0% 0%` | `#000000` for ordinary light-surface copy |
 | `--border`, `--input`, `--sidebar-border` | `0 0% 89.8%` | `#E5E5E5` |
 | `--destructive` | `0 84.2% 60.2%` | `#EF4444` |
 | `--radius` | `0.625rem` | 10px at the default root size |
@@ -115,11 +115,12 @@ For a global color change, inspect both the semantic variables and explicit bran
 
 ## Typography
 
-- **Font:** Montserrat via `next/font/google` in `app/layout.tsx`, assigned to `--font-sans` and Tailwind `font-sans`.
-- **Loaded weights:** 300, 400, 500, 600, 700, 800, 900. Geist is a dependency, but Montserrat is the active root font.
-- **Headings:** `font-black` or `font-bold`, slate 900 on light surfaces; white on hero/dark panels.
-- **Body:** usually `text-sm`/`text-base` with medium/semibold weight and slate 600/700.
-- **Small labels:** existing UI uses 10–12px uppercase, bold/black, with `tracking-[0.16em]` to `tracking-[0.2em]`. Keep these for compact labels/metadata rather than long instructions.
+- **Font:** Inter via `next/font/google` in `app/layout.tsx`, assigned to `--font-sans` and Tailwind `font-sans`/`font-heading`.
+- **Loaded weights:** 400, 500, 600, and 700. Inter is the active root UI font across public, client, admin, CMS, authentication, dialogs, chat, tables, and reports.
+- **Headings and headers:** 700 weight and solid black on light surfaces; white remains intentional on orange headers, hero/photo overlays, tours, chat bubbles, and the footer.
+- **Body and information:** 400 weight and solid black on light surfaces, including descriptions, names, references, dates, times, financial values, table rows, form values, helper text, chat copy, and CMS content.
+- **Interactive labels and statuses:** 600 weight by default for buttons, form labels, compact navigation labels, and badges. Semantic orange/blue/green/amber/rose colors and white text on dark/colored surfaces remain unchanged.
+- **Small labels:** use concise 10–12px uppercase text sparingly for compact labels/metadata; avoid applying extended tracking to ordinary instructions or content.
 - **Hero:** current heading scales from `text-2xl` to `sm:text-4xl md:text-6xl`.
 - **Money and counts:** use Philippine peso formatting (`₱`, `en-PH`) and `tabular-nums` where numeric alignment matters.
 
@@ -153,8 +154,8 @@ Import primitives from `src/modules/shared/components/ui/` and compose classes w
 </Button>
 
 <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-  <h2 className="text-lg font-black text-slate-900">Booking Details</h2>
-  <p className="mt-2 text-sm font-medium text-slate-600">Reservation summary</p>
+  <h2 className="text-lg font-bold text-black">Booking Details</h2>
+  <p className="mt-2 text-sm font-normal text-black">Reservation summary</p>
 </section>
 
 <span className="inline-flex items-center rounded-md border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">

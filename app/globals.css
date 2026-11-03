@@ -1,23 +1,30 @@
 :root {
+  --font-ui: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --type-body-weight: 400;
+  --type-heading-weight: 700;
+  --type-label-weight: 600;
+  --type-body-color: #000000;
+  --type-heading-color: #000000;
   --background: 0 0% 100%;
-  --foreground: 0 0% 3.9%;
+  --foreground: 0 0% 0%;
   --card: 0 0% 100%;
-  --card-foreground: 0 0% 3.9%;
+  --card-foreground: 0 0% 0%;
   --popover: 0 0% 100%;
-  --popover-foreground: 0 0% 3.9%;
+  --popover-foreground: 0 0% 0%;
   --primary: 0 0% 9%;
   --primary-foreground: 0 0% 100%;
   --secondary: 0 0% 96.1%;
   --secondary-foreground: 0 0% 9%;
   --muted: 0 0% 96.1%;
-  --muted-foreground: 0 0% 45.1%;
+  --muted-foreground: 0 0% 0%;
   --accent: 0 0% 96.1%;
   --accent-foreground: 0 0% 9%;
   --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 0 0% 100%;
   --border: 0 0% 89.8%;
   --input: 0 0% 89.8%;
-  --ring: 0 0% 3.9%;
+  --ring: 0 0% 0%;
   --chart-1: 12 76% 61%;
   --chart-2: 173 58% 39%;
   --chart-3: 197 37% 24%;
@@ -25,13 +32,13 @@
   --chart-5: 27 87% 67%;
   --radius: 0.625rem;
   --sidebar: 0 0% 100%;
-  --sidebar-foreground: 0 0% 3.9%;
+  --sidebar-foreground: 0 0% 0%;
   --sidebar-primary: 0 0% 9%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 0 0% 96.1%;
   --sidebar-accent-foreground: 0 0% 9%;
   --sidebar-border: 0 0% 89.8%;
-  --sidebar-ring: 0 0% 3.9%;
+  --sidebar-ring: 0 0% 0%;
   --sidebar-width: 16rem;
   --sidebar-width-icon: 3rem;
 }
@@ -90,6 +97,9 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans), var(--font-ui);
+    font-weight: var(--type-body-weight);
+    color: var(--type-body-color);
     overflow-x: hidden;
     width: 100%;
     max-width: 100%;
@@ -100,11 +110,34 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-sans), var(--font-heading);
+    font-weight: var(--type-heading-weight);
+    color: inherit;
+  }
+  p,
+  li,
+  dt,
+  dd,
+  td {
+    font-weight: var(--type-body-weight);
+  }
   button,
   input,
   select,
   textarea {
     font: inherit;
+  }
+  input,
+  select,
+  textarea {
+    font-weight: var(--type-body-weight);
+    color: var(--type-body-color);
   }
   img,
   video,
@@ -120,6 +153,143 @@
 
 @tailwind components;
 @tailwind utilities;
+
+/* Phase 7.3 typography system. Light workspaces opt into solid-black body
+   copy and 700-weight headings without changing dark or semantic surfaces. */
+.oe-light-surface {
+  color: var(--type-body-color);
+}
+
+/* Existing screens use a mixture of legacy weight utilities. Normalize
+   ordinary copy at the surface boundary, then add back the semantic weights
+   for headings, controls, labels, and badges. */
+.oe-light-surface :where(
+    .font-black,
+    .font-extrabold,
+    .font-bold,
+    .font-semibold,
+    .font-medium
+  ) {
+  font-weight: var(--type-body-weight);
+}
+
+.oe-light-surface :where(
+    label,
+    button,
+    [role="button"],
+    [role="status"],
+    [data-slot="badge"],
+    [class*="uppercase"]
+  ) {
+  font-weight: var(--type-label-weight);
+}
+
+.oe-light-surface :where(h1, h2, h3, h4, h5, h6, th, [data-slot="card-title"], [data-slot="dialog-title"], [data-slot="alert-dialog-title"]) {
+  font-family: var(--font-sans), var(--font-heading);
+  font-weight: var(--type-heading-weight);
+}
+
+.oe-light-surface :where(strong, b) {
+  font-weight: var(--type-heading-weight);
+}
+
+.oe-light-surface :where(input, select, textarea) {
+  color: var(--type-body-color);
+  font-weight: var(--type-body-weight);
+}
+
+.oe-light-surface :where(input, textarea)::placeholder {
+  color: var(--type-body-color) !important;
+  opacity: 1;
+}
+
+/* Existing slate/gray utilities represented supporting copy in light
+   workspaces. Semantic orange, blue, green, amber, rose, and white utilities
+   remain untouched so actions, statuses, and dark surfaces retain contrast. */
+.oe-light-surface :where(h1, h2, h3, h4, h5, h6, p, li, dt, dd, td, th, span, div, a, button, label):where(
+    .text-slate-400,
+    .text-slate-500,
+    .text-slate-600,
+    .text-slate-700,
+    .text-slate-800,
+    .text-slate-900,
+    .text-slate-950,
+    .text-gray-400,
+    .text-gray-500,
+    .text-gray-600,
+    .text-gray-700,
+    .text-gray-800,
+    .text-gray-900
+  ):not([class*="bg-"]):not([data-slot="badge"]):not([role="status"]) {
+  color: var(--type-body-color);
+}
+
+.oe-light-surface :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    li,
+    dt,
+    dd,
+    td,
+    th,
+    span,
+    div,
+    a,
+    button,
+    label
+  ) {
+  font-family: var(--font-sans), var(--font-ui);
+}
+
+.oe-light-surface .oe-dark-surface :where(
+    .text-slate-400,
+    .text-slate-500,
+    .text-slate-600,
+    .text-slate-700,
+    .text-slate-800,
+    .text-slate-900,
+    .text-slate-950,
+    .text-gray-400,
+    .text-gray-500,
+    .text-gray-600,
+    .text-gray-700,
+    .text-gray-800,
+    .text-gray-900
+  ) {
+  color: revert-layer;
+}
+
+.oe-light-surface [data-slot="dialog-surface"] {
+  font-family: var(--font-sans), var(--font-ui);
+}
+
+.oe-light-surface [data-slot="dialog-title"]:not(.text-white),
+.oe-light-surface [data-slot="alert-dialog-title"]:not(.text-white),
+.oe-light-surface [data-slot="card-title"]:not(.text-white) {
+  color: var(--type-heading-color);
+  font-weight: var(--type-heading-weight);
+}
+
+.oe-light-surface [data-slot="dialog-description"]:not(.text-white),
+.oe-light-surface [data-slot="alert-dialog-description"]:not(.text-white),
+.oe-light-surface [data-slot="card-description"]:not(.text-white) {
+  color: var(--type-body-color);
+  font-weight: var(--type-body-weight);
+}
+
+.oe-light-surface [data-slot="table-head"]:not(.text-white) {
+  color: var(--type-heading-color);
+  font-weight: var(--type-heading-weight);
+}
+
+.oe-light-surface [data-slot="table-cell"] {
+  font-weight: var(--type-body-weight);
+}
 
 /* dvh fallback */
 @supports not (height: 100dvh) {

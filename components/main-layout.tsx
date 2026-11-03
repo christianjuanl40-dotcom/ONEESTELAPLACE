@@ -72,7 +72,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   const userInitial = userName.charAt(0).toUpperCase()
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50 font-sans text-slate-900">
+    <div className="oe-light-surface flex min-h-screen flex-col bg-slate-50 font-sans text-black">
       <header className="sticky top-0 z-40 w-full border-b border-slate-200 bg-white shadow-sm">
         <div className="flex h-16 items-center justify-between px-3 sm:px-4 lg:px-0">
           <div className="flex items-center gap-3">

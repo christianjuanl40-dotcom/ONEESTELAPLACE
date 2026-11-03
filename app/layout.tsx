@@ -1,14 +1,13 @@
 // app/layout.tsx
 import type { Metadata } from "next"
-import { Montserrat } from "next/font/google"
+import { Inter } from "next/font/google"
 import "./globals.css"
 import { GlobalProvider } from "@/src/modules/shared/components/global-provider"
 
-// ✨ GINAMIT NATIN ANG MONTSERRAT PARA KUHANG-KUHA YUNG NASA PICTURE ✨
-const montserrat = Montserrat({ 
-  weight: ["300", "400", "500", "600", "700", "800", "900"],
+const inter = Inter({
+  weight: ["400", "500", "600", "700"],
   subsets: ["latin"],
-  variable: "--font-sans", 
+  variable: "--font-sans",
 })
 
 export const metadata: Metadata = {
@@ -27,7 +26,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="scroll-smooth" data-scroll-behavior="smooth">
-      <body className={`${montserrat.variable} font-sans antialiased`}>
+      <body className={`${inter.variable} font-sans antialiased`}>
         <GlobalProvider>
           {children}
         </GlobalProvider>

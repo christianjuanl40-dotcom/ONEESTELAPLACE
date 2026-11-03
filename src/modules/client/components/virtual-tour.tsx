@@ -148,7 +148,7 @@ export function VirtualTour({ open, onOpenChange }: VirtualTourProps) {
         <DialogTitle className="sr-only">Virtual Tour</DialogTitle>
         
         {/* ✨ THE 360 VIEWPORT CONTAINER ✨ */}
-        <div className="absolute inset-0 w-full h-full bg-black relative">
+        <div className="oe-dark-surface absolute inset-0 w-full h-full bg-black text-white relative">
           <div id="panorama-viewer" className="w-full h-full"></div>
           
           {/* Loader habang naglo-load ang library o image */}

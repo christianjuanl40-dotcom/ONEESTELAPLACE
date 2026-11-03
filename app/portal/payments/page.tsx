@@ -232,8 +232,8 @@ function getTransactionDisplayAmount(
 function SummaryLine({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-2">
-      <span className="font-semibold text-slate-500 shrink-0">{label}</span>
-      <span className="max-w-[180px] sm:max-w-[230px] break-all text-right text-xs font-black text-slate-900">
+       <span className="font-normal text-black shrink-0">{label}</span>
+       <span className="max-w-[180px] sm:max-w-[230px] break-all text-right text-xs font-normal text-black">
         {value}
       </span>
     </div>
@@ -594,12 +594,12 @@ function TransactionTable({
           </colgroup>
           <TableHeader className="bg-slate-50/80">
             <tr>
-              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Booking</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Reserved Space</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Schedule</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Financial Summary</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Payment Status</TableHead>
-              <TableHead className="px-3 py-2.5 text-right text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Actions</TableHead>
+               <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Booking</TableHead>
+               <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Reserved Space</TableHead>
+               <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Schedule</TableHead>
+               <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Financial Summary</TableHead>
+               <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Payment Status</TableHead>
+               <TableHead className="px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-[0.12em] text-black">Actions</TableHead>
             </tr>
           </TableHeader>
           <TableBody>
@@ -698,12 +698,12 @@ function TransactionTableRow({
         <TableCell className="min-w-0 px-3 py-2.5 align-top">
           <div className="flex items-start gap-2">
             {mode === "history" && onToggle && <button type="button" onClick={() => onToggle(booking)} aria-expanded={expanded} aria-label={expanded ? `Hide transaction summary for ${booking.id}` : `Show transaction summary for ${booking.id}`} className="mt-0.5 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"><ChevronDown className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")} /></button>}
-            <div className="min-w-0"><p className="truncate text-[11px] font-bold text-orange-600">{booking.id}</p><p className="mt-0.5 line-clamp-2 text-xs font-semibold leading-4 text-slate-800">{booking.eventName || booking.companyName || "Untitled booking"}</p><p className="mt-0.5 truncate text-[10px] font-medium text-slate-500">{getPaymentMethodLabel(booking.paymentMethod)}</p></div>
+            <div className="min-w-0"><p className="truncate text-[11px] font-normal text-black">{booking.id}</p><p className="mt-0.5 line-clamp-2 text-xs font-normal leading-4 text-black">{booking.eventName || booking.companyName || "Untitled booking"}</p><p className="mt-0.5 truncate text-[10px] font-normal text-black">{getPaymentMethodLabel(booking.paymentMethod)}</p></div>
           </div>
         </TableCell>
-        <TableCell className="min-w-0 px-3 py-2.5 align-top"><p className="line-clamp-2 whitespace-normal text-xs font-semibold leading-4 text-slate-800">{resource.primary}</p>{resource.room && <p className="mt-0.5 truncate text-[10px] font-medium text-slate-500">Room: {resource.room}</p>}</TableCell>
-        <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 align-top"><p className="max-w-full whitespace-normal break-words text-xs font-semibold leading-4 text-slate-800">{schedule.primary}</p><p className="mt-0.5 max-w-full whitespace-normal break-words text-[10px] font-medium leading-4 text-slate-500">{schedule.secondary}</p>{booking.status === "pending" && !isCashPending && !isExpired && <p className="mt-1 max-w-full whitespace-normal break-words text-[10px] font-semibold leading-4 text-orange-700">Time left: {formatCountdown(remainingMs)}</p>}</TableCell>
-        <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 align-top"><div className="min-w-0 space-y-1 text-xs leading-4"><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">Total</span><span className="min-w-0 break-words text-right font-semibold tabular-nums text-slate-800">{formatMoney(data.displayTotal)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">Paid</span><span className="min-w-0 break-words text-right font-semibold tabular-nums text-emerald-700">{formatMoney(data.amountPaid)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">Balance</span><span className={cn("min-w-0 break-words text-right font-semibold tabular-nums", data.remaining > 0 ? "text-amber-700" : "text-emerald-700")}>{formatMoney(data.remaining)}</span></p></div></TableCell>
+         <TableCell className="min-w-0 px-3 py-2.5 align-top"><p className="line-clamp-2 whitespace-normal text-xs font-normal leading-4 text-black">{resource.primary}</p>{resource.room && <p className="mt-0.5 truncate text-[10px] font-normal text-black">Room: {resource.room}</p>}</TableCell>
+         <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 align-top"><p className="max-w-full whitespace-normal break-words text-xs font-normal leading-4 text-black">{schedule.primary}</p><p className="mt-0.5 max-w-full whitespace-normal break-words text-[10px] font-normal text-black">{schedule.secondary}</p>{booking.status === "pending" && !isCashPending && !isExpired && <p className="mt-1 max-w-full whitespace-normal break-words text-[10px] font-normal leading-4 text-orange-700">Time left: {formatCountdown(remainingMs)}</p>}</TableCell>
+         <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 align-top"><div className="min-w-0 space-y-1 text-xs leading-4"><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="text-[9px] font-normal uppercase tracking-[0.08em] text-black">Total</span><span className="min-w-0 break-words text-right font-normal tabular-nums text-black">{formatMoney(data.displayTotal)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="text-[9px] font-normal uppercase tracking-[0.08em] text-black">Paid</span><span className="min-w-0 break-words text-right font-normal tabular-nums text-black">{formatMoney(data.amountPaid)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="text-[9px] font-normal uppercase tracking-[0.08em] text-black">Balance</span><span className="min-w-0 break-words text-right font-normal tabular-nums text-black">{formatMoney(data.remaining)}</span></p></div></TableCell>
         <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 align-top"><span className={cn("inline-flex max-w-full whitespace-normal break-words items-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase leading-4", data.statusClass)}>{data.statusLabel}</span></TableCell>
         <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 text-right align-top"><div className="flex min-w-0 flex-wrap justify-end gap-1.5">{action}</div></TableCell>
       </tr>
@@ -764,12 +764,12 @@ function TransactionCompactRow({
 
   return (
     <div ref={rowRef} data-transaction-target={booking.id} className={cn("rounded-xl border border-slate-200 bg-white p-3 shadow-sm", isHighlighted && "notification-target-highlight")}>
-      <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-2">{mode === "history" && onToggle && <button type="button" onClick={() => onToggle(booking)} aria-expanded={expanded} aria-label={expanded ? `Hide transaction summary for ${booking.id}` : `Show transaction summary for ${booking.id}`} className="mt-0.5 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"><ChevronDown className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")} /></button>}<div className="min-w-0"><p className="truncate text-[10px] font-black uppercase tracking-[0.14em] text-orange-600">{booking.id}</p><p className="mt-0.5 line-clamp-2 text-sm font-black leading-4 text-slate-900">{booking.eventName || booking.companyName || "Untitled booking"}</p></div></div><span className={cn("inline-flex max-w-[142px] min-w-0 whitespace-normal break-words text-right leading-4 items-center rounded-md border px-2 py-1 text-[10px] font-black uppercase tracking-[0.08em]", data.statusClass)}>{data.statusLabel}</span></div>
+       <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-2">{mode === "history" && onToggle && <button type="button" onClick={() => onToggle(booking)} aria-expanded={expanded} aria-label={expanded ? `Hide transaction summary for ${booking.id}` : `Show transaction summary for ${booking.id}`} className="mt-0.5 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"><ChevronDown className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")} /></button>}<div className="min-w-0"><p className="truncate text-[10px] font-normal uppercase tracking-[0.14em] text-black">{booking.id}</p><p className="mt-0.5 line-clamp-2 text-sm font-normal leading-4 text-black">{booking.eventName || booking.companyName || "Untitled booking"}</p></div></div><span className={cn("inline-flex max-w-[142px] min-w-0 whitespace-normal break-words text-right leading-4 items-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em]", data.statusClass)}>{data.statusLabel}</span></div>
       <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
-        <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Reserved space</p><p className="line-clamp-2 text-xs font-bold text-slate-700">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>
-        <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Date / period</p><p className="whitespace-normal break-words text-xs font-bold leading-4 text-slate-700">{schedule.primary}</p><p className="whitespace-normal break-words text-[10px] font-semibold leading-4 text-slate-500">{schedule.secondary}</p></div>
+       <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Reserved space</p><p className="line-clamp-2 text-xs font-normal text-black">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>
+       <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Date / period</p><p className="whitespace-normal break-words text-xs font-normal text-black">{schedule.primary}</p><p className="whitespace-normal break-words text-[10px] font-normal text-black">{schedule.secondary}</p></div>
       </div>
-      <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3"><div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.1em] text-slate-400">Total</p><p className="mt-0.5 break-words text-xs font-black tabular-nums text-slate-800">{formatMoney(data.displayTotal)}</p></div><div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.1em] text-slate-400">Paid</p><p className="mt-0.5 break-words text-xs font-black tabular-nums text-emerald-700">{formatMoney(data.amountPaid)}</p></div><div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.1em] text-slate-400">Balance</p><p className={cn("mt-0.5 break-words text-xs font-black tabular-nums", data.remaining > 0 ? "text-amber-700" : "text-emerald-700")}>{formatMoney(data.remaining)}</p></div></div>
+       <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3"><div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.1em] text-black">Total</p><p className="mt-0.5 break-words text-xs font-normal tabular-nums text-black">{formatMoney(data.displayTotal)}</p></div><div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.1em] text-black">Paid</p><p className="mt-0.5 break-words text-xs font-normal tabular-nums text-black">{formatMoney(data.amountPaid)}</p></div><div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.1em] text-black">Balance</p><p className="mt-0.5 break-words text-xs font-normal tabular-nums text-black">{formatMoney(data.remaining)}</p></div></div>
       <div className="mt-3 flex flex-wrap justify-end gap-1.5 border-t border-slate-100 pt-3">
         {mode === "history" ? (data.isUnpaid ? <Button onClick={() => onPay(booking)} className="h-8 rounded-lg bg-orange-600 px-3 text-xs font-bold text-white hover:bg-orange-700"><CreditCard className="mr-1 h-3.5 w-3.5" />Pay Now</Button> : <Button variant="outline" onClick={() => onView(booking)} className="h-8 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">View Details</Button>) : <><Button variant="outline" onClick={() => onView(booking)} className="h-8 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">View Details</Button><PaymentActionButtons booking={booking} onPay={onPay} onSettle={onSettle} compact paymentCount={data.records.length} latestPaymentStatus={getLatestPaymentStatus(records as PaymentRecord[], booking)} records={data.records} /></>}
       </div>
@@ -779,7 +779,7 @@ function TransactionCompactRow({
 }
 
 function TransactionDetailItem({ label, value }: { label: string; value: string }) {
-  return <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">{label}</p><p className="mt-0.5 text-xs font-bold text-slate-800">{value}</p></div>
+   return <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">{label}</p><p className="mt-0.5 text-xs font-normal text-black">{value}</p></div>
 }
 
 function Pagination({
@@ -794,9 +794,9 @@ function Pagination({
   if (totalPages <= 1) return null;
   return (
     <div className="mt-4 flex items-center justify-between gap-2 flex-wrap">
-      <p className="text-[11px] font-bold text-slate-500">
-        Page <span className="font-black text-slate-900">{page}</span> of{" "}
-        <span className="font-black text-slate-900">{totalPages}</span>
+       <p className="text-[11px] font-normal text-black">
+         Page <span className="font-normal text-black">{page}</span> of{" "}
+         <span className="font-normal text-black">{totalPages}</span>
       </p>
       <div className="flex items-center gap-1">
         <Button
@@ -2266,7 +2266,7 @@ function TransactionsContent() {
           </div>
 
           <aside aria-label="Payment summary" className="min-w-0 self-start xl:sticky xl:top-6">
-            <div className="rounded-2xl bg-slate-900 p-4 shadow-lg">
+            <div className="oe-dark-surface rounded-2xl bg-slate-900 p-4 text-white shadow-lg">
               <h3 className="mb-4 text-lg font-black text-white">Summary</h3>
 
               <div className="mb-4 rounded-xl border border-slate-700 bg-slate-800 p-4">

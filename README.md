@@ -41,7 +41,7 @@ Versions below are declared in [package.json](package.json).
 | --- | --- |
 | Runtime | Node.js **22+**, npm and `package-lock.json` |
 | Application | Next.js **16.3.5**, App Router, React **18**, TypeScript **5.7.3** |
-| UI | Tailwind CSS **3.4**, shadcn-style/Radix primitives, Lucide icons, Montserrat |
+| UI | Tailwind CSS **3.4**, shadcn-style/Radix primitives, Lucide icons, Inter |
 | Identity | Firebase Authentication, email/password |
 | Database | Cloud Firestore; realtime browser subscriptions and server-side Admin SDK transactions |
 | Uploads | Cloudinary through authenticated Next.js API routes |
@@ -141,6 +141,7 @@ The four booking/payment list surfaces—Admin Booking Management, Admin Payment
 | `node scripts/verify-booking-maintenance.mjs` | Local-only Chromium maintenance regressions using the actual admin bookings page/provider at 1366×768, 1280×720, 390×844, and 320×568; override temporary artifacts with `BOOKING_MAINTENANCE_TEMP_DIR` |
 | `node scripts/verify-office-availability.mjs` | Chromium occupied/reserved room disabling, Rooms 2–8 selection, lease transitions, full-term maintenance, refresh/error, bounded-search, and nested-dialog checks at the same four sizes; override temporary artifacts with `OFFICE_AVAILABILITY_TEMP_DIR` |
 | `node scripts/verify-booking-details.mjs` | Real customer/admin Booking Details office/event, document grouping, cancellation/refund, one-region scrolling, action handlers, and conditional footer checks at 1366×768, 1280×720, 768×1024, 640×960, 390×844, and 320×568; use `--no-screenshots` for DOM/layout checks only; override artifacts with `BOOKING_DETAILS_TEMP_DIR` |
+| `node scripts/verify-report-print.mjs` | Local Chromium print-media checks for the reports page's Inter font, black/regular values, bold headers, print-only report, and generated PDF |
 
 There is no `npm test` script. Tests live in `src/modules/shared/lib/__tests__/`.
 
@@ -159,6 +160,8 @@ The maintenance harness keeps the real booking-context async boundary, with defe
 The office harness uses the real reservation component, availability hooks/client, shared rules, and Radix dialogs with synthetic local service responses. It covers disabled occupied/reserved Room 1, independent Rooms 2–8, dated active legacy leases and booking-to-lease hand-off, pending cancellation, all three rental terms, building/full-term maintenance, cancellations/hold expiry, focus/30-second refresh, failed/malformed responses, finite maintenance searches with explicit later periods, and reachable final/nested-dialog controls. It loads no `.env` files and makes no live Firebase writes. Browser fixtures do not replace the actual-route transaction tests in `office-booking-api.test.ts` or the optional Firestore emulator suite.
 
 The Booking Details harness renders the actual customer/admin bookings pages with local provider fixtures. It covers pending cancellation, approved cancellation with eligible/requested/completed refunds, ordinary office/event bookings, readable rental terms, long multiline/unbroken values, consolidated document rows and availability, client 44px responsive action rows with 12px gaps, admin 56px full-width stacked actions with 10px gaps at every breakpoint, management-only footers (omitted without actions), admin Mark as Refunded, single close/scroll region, keyboard order, document/modify/payment handlers, and scroll-lock restoration including the existing receipt-to-details return behavior. It uses a local Arial font fallback and the same browser-channel override, loads no environment files, and blocks live service traffic. `--no-screenshots` skips image capture while retaining the DOM/layout/action checks and result report. It records existing shared React 18 ref-forwarding warnings separately from runtime errors; it does not validate deployed data or live refund processing.
+
+The report-print harness renders the actual reports page with local booking/CMS fixtures, switches Chromium to print media, checks the print-only report typography and dashboard exclusion, and generates an in-memory A4 landscape PDF. It loads no `.env` files or live services; use the same Chromium installation/browser-channel override as the other browser harnesses.
 
 Vitest includes route-level scheduling/payment regression checks using an in-memory transaction boundary (document-version retries and read-before-write enforcement). These exercise the actual route handlers but do not replace emulator/live Firestore transaction validation. `vitest.config.mts` resolves the application's import aliases for those tests.
 

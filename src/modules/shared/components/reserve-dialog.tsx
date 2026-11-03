@@ -313,7 +313,7 @@ export function ReserveDialog({ open, onOpenChange, selectedVenueId, onBackToVen
           {step === 1 ? (
             <>
               {/* --- LEFT ORANGE PANEL --- */}
-              <div className="w-full md:w-[280px] bg-[#f97316] p-8 md:p-10 text-white shrink-0 flex flex-col justify-center relative overflow-hidden rounded-t-[2rem] md:rounded-l-[2rem] md:rounded-tr-none">
+              <div className="oe-dark-surface w-full md:w-[280px] bg-[#f97316] p-8 md:p-10 text-white shrink-0 flex flex-col justify-center relative overflow-hidden rounded-t-[2rem] md:rounded-l-[2rem] md:rounded-tr-none">
                 <div className="relative z-10 flex flex-col h-full">
                   {onBackToVenues && (
                     <button onClick={onBackToVenues} className="text-white hover:text-orange-200 text-sm font-bold flex items-center mb-8 transition-colors w-fit">
@@ -462,7 +462,7 @@ export function ReserveDialog({ open, onOpenChange, selectedVenueId, onBackToVen
           /* ============================================================== */
             <>
               {/* LEFT: LIGHT ORANGE BOOKING SUMMARY */}
-              <div className="w-full md:w-[280px] bg-[#f97316] p-8 md:p-10 text-white shrink-0 flex flex-col justify-center relative overflow-hidden rounded-t-[2rem] md:rounded-l-[2rem] md:rounded-tr-none">
+              <div className="oe-dark-surface w-full md:w-[280px] bg-[#f97316] p-8 md:p-10 text-white shrink-0 flex flex-col justify-center relative overflow-hidden rounded-t-[2rem] md:rounded-l-[2rem] md:rounded-tr-none">
                 <div className="relative z-10 flex flex-col h-full">
                   <button onClick={() => setStep(1)} className="text-white hover:text-orange-200 text-sm font-bold flex items-center mb-8 transition-colors w-fit">
                     <ChevronLeft className="w-4 h-4 mr-1" /> Back

@@ -1476,8 +1476,8 @@ export default function ReportsPage() {
         [data-report-print-report] {
           display: block !important;
           width: 100% !important;
-          color: #0f172a;
-          font-family: Arial, Helvetica, sans-serif;
+          color: #000;
+          font-family: Inter, ui-sans-serif, system-ui, sans-serif;
           font-size: 9pt;
         }
         [data-report-print-report] * { box-sizing: border-box; }
@@ -1512,13 +1512,13 @@ export default function ReportsPage() {
           margin: 0;
           color: #000;
           font-size: 14pt;
-          font-weight: 800;
+          font-weight: 700;
         }
         [data-report-print-title] p {
           margin: 1.5mm 0 0;
           color: #000;
           font-size: 9pt;
-          font-weight: 700;
+          font-weight: 400;
         }
         [data-report-print-meta] {
           display: grid;
@@ -1528,12 +1528,12 @@ export default function ReportsPage() {
           border-bottom: 0.3mm solid #cbd5e1;
           color: #000;
           font-size: 8pt;
-          font-weight: 700;
+          font-weight: 400;
           break-inside: avoid;
           page-break-inside: avoid;
         }
         [data-report-print-meta] span { min-width: 0; }
-        [data-report-print-meta] strong { color: #000; font-weight: 800; }
+        [data-report-print-meta] strong { color: #000; font-weight: 700; }
         [data-report-print-selection] {
           display: grid;
           grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1541,12 +1541,12 @@ export default function ReportsPage() {
           padding: 3mm 0 0;
           color: #000;
           font-size: 8pt;
-          font-weight: 700;
+          font-weight: 400;
           break-inside: avoid;
           page-break-inside: avoid;
         }
         [data-report-print-selection] span { min-width: 0; }
-        [data-report-print-selection] strong { color: #000; font-weight: 800; }
+        [data-report-print-selection] strong { color: #000; font-weight: 700; }
         [data-report-print-summary] {
           margin-top: 4mm;
           break-inside: avoid;
@@ -1577,11 +1577,11 @@ export default function ReportsPage() {
         [data-report-print-summary-row]:nth-child(even) { background: #f8fafc; }
         [data-report-print-summary-row] span:first-child {
           color: #000;
-          font-weight: 700;
+          font-weight: 400;
         }
         [data-report-print-summary-row] span:last-child {
           color: #000;
-          font-weight: 700;
+          font-weight: 400;
           text-align: right;
           font-variant-numeric: tabular-nums;
         }
@@ -1619,13 +1619,13 @@ export default function ReportsPage() {
           margin: 0;
           color: #000;
           font-size: 10pt;
-          font-weight: 800;
+          font-weight: 700;
         }
         [data-report-print-chart-card] p {
           margin: 1mm 0 2mm;
-          color: #475569;
+          color: #000;
           font-size: 7.5pt;
-          font-weight: 700;
+          font-weight: 400;
         }
         [data-report-print-chart-canvas] {
           width: 100%;
@@ -1640,10 +1640,10 @@ export default function ReportsPage() {
         }
         [data-report-print-chart-canvas] .recharts-legend-wrapper {
           overflow: visible !important;
-          font-family: Arial, Helvetica, sans-serif !important;
+          font-family: Inter, ui-sans-serif, system-ui, sans-serif !important;
         }
         [data-report-print-chart-canvas] .recharts-text {
-          font-family: Arial, Helvetica, sans-serif !important;
+          font-family: Inter, ui-sans-serif, system-ui, sans-serif !important;
         }
         [data-report-print-status-layout] {
           display: grid;
@@ -1666,9 +1666,9 @@ export default function ReportsPage() {
           align-items: center;
           gap: 2mm;
           min-width: 0;
-          color: #334155;
+          color: #000;
           font-size: 8pt;
-          font-weight: 700;
+          font-weight: 400;
         }
         [data-report-print-status-legend] i {
           width: 3mm;
@@ -1687,9 +1687,9 @@ export default function ReportsPage() {
           justify-content: center;
           height: 43mm;
           border: 0.3mm dashed #cbd5e1;
-          color: #64748b;
+          color: #000;
           font-size: 8pt;
-          font-weight: 700;
+          font-weight: 400;
           text-align: center;
         }
         [data-report-print-table] {
@@ -1701,7 +1701,7 @@ export default function ReportsPage() {
           margin: 0 0 2mm;
           color: #000;
           font-size: 9pt;
-          font-weight: 800;
+          font-weight: 700;
           letter-spacing: 0.08em;
           break-after: avoid;
           page-break-after: avoid;
@@ -1734,7 +1734,8 @@ export default function ReportsPage() {
           text-align: center;
         }
         [data-report-print-table] td {
-          color: #1f2937;
+          color: #000;
+          font-weight: 400;
           line-height: 1.25;
         }
         [data-report-print-table] tbody tr:nth-child(even) { background: #f8fafc; }
@@ -1746,7 +1747,8 @@ export default function ReportsPage() {
         }
         [data-report-print-table] .report-print-empty {
           padding: 8mm;
-          color: #64748b;
+          color: #000;
+          font-weight: 400;
           text-align: center;
         }
       `}</style>
@@ -2302,13 +2304,13 @@ export default function ReportsPage() {
 
       <div data-report-print-table className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
         <div data-report-print-heading className="flex items-center border-b border-slate-100 bg-slate-50 px-6 py-5">
-          <h3 className="text-lg font-black text-slate-950">Booking Records</h3>
-          <p className="ml-2 text-xs font-semibold text-slate-500">({filteredData.length} record{filteredData.length === 1 ? "" : "s"})</p>
+           <h3 className="text-lg font-bold text-black">Booking Records</h3>
+           <p className="ml-2 text-xs font-normal text-black">({filteredData.length} record{filteredData.length === 1 ? "" : "s"})</p>
         </div>
 
         <div className="overflow-x-auto print:overflow-visible">
           <table className="w-full min-w-[950px] text-left text-sm print:min-w-0">
-            <thead className="border-b border-slate-100 bg-white text-[10px] font-black uppercase tracking-[0.2em] text-slate-950">
+           <thead className="border-b border-slate-100 bg-white text-[10px] font-bold uppercase tracking-[0.2em] text-black">
               <tr>
                 <th className="p-5 pl-8">Booking ID</th>
                 <th className="p-5">Event Details</th>
@@ -2327,22 +2329,22 @@ export default function ReportsPage() {
                 return (
                   <tr key={`${booking.id || "booking"}-${index}`} className="transition-colors hover:bg-slate-50">
                     <td className="p-5 pl-8">
-                      <p className="font-black text-slate-500">{booking.id || "N/A"}</p>
+                       <p className="font-normal text-black">{booking.id || "N/A"}</p>
                     </td>
 
                     <td className="p-5">
-                      <p className="font-black text-slate-950">
+                       <p className="font-normal text-black">
                         {booking.eventName || booking.eventType || "Untitled Event"}
                       </p>
-                      <p className="mt-1 text-xs font-bold text-slate-500">{booking.venue || "No venue selected"}</p>
+                       <p className="mt-1 text-xs font-normal text-black">{booking.venue || "No venue selected"}</p>
                     </td>
 
                     <td className="p-5">
-                      <p className="font-bold text-slate-700">{clientName}</p>
+                       <p className="font-normal text-black">{clientName}</p>
                     </td>
 
                     <td className="p-5">
-                      <p className="font-bold text-slate-700">{formatDate(booking)}</p>
+                       <p className="font-normal text-black">{formatDate(booking)}</p>
                     </td>
 
                     <td className="p-5">
@@ -2356,7 +2358,7 @@ export default function ReportsPage() {
                     </td>
 
                     <td className="p-5 pr-8 text-right">
-                      <p className="text-lg font-black text-orange-600">{formatMoney(getBookingAmount(booking))}</p>
+                       <p className="text-lg font-normal text-black">{formatMoney(getBookingAmount(booking))}</p>
                     </td>
                   </tr>
                 )
@@ -2366,8 +2368,8 @@ export default function ReportsPage() {
                 <tr>
                   <td colSpan={6} className="p-12 text-center">
                     <div className="mx-auto max-w-sm">
-                      <p className="text-base font-black text-slate-600">No booking records found for the selected filters.</p>
-                      <p className="mt-1 text-sm font-semibold text-slate-400">
+                       <p className="text-base font-normal text-black">No booking records found for the selected filters.</p>
+                       <p className="mt-1 text-sm font-normal text-black">
                         Try adjusting the category, venue, room, date, status, or search filter.
                       </p>
                     </div>
@@ -2387,9 +2389,9 @@ export default function ReportsPage() {
             >
               Previous
             </button>
-            <p className="text-xs font-bold text-slate-500">
-              Page <span className="font-black text-slate-900">{safePage}</span> of{" "}
-              <span className="font-black text-slate-900">{totalPages}</span>
+             <p className="text-xs font-normal text-black">
+               Page <span className="font-normal text-black">{safePage}</span> of{" "}
+               <span className="font-normal text-black">{totalPages}</span>
             </p>
             <button
               disabled={safePage >= totalPages}

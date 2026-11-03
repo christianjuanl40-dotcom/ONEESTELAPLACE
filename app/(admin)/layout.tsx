@@ -312,7 +312,7 @@ export default function AdminLayout({
             </div>
           </aside>
 
-          <main className="min-w-0 flex-1 overflow-y-auto bg-slate-50 print:overflow-visible print:bg-white">
+          <main className="oe-light-surface min-w-0 flex-1 overflow-y-auto bg-slate-50 print:overflow-visible print:bg-white">
             <StaffProvider>
               <DataLoadNotice />
               {children}

@@ -95,8 +95,8 @@ export function PublicLayout({ children }: PublicLayoutProps) {
             </Link>
           </div>
         </header>
-      <main className="flex-1 pt-16 w-full max-w-full">{children}</main>
-      <footer className="mt-auto w-full border-t border-slate-800 bg-slate-900 py-16 text-slate-300">
+      <main className="oe-light-surface flex-1 pt-16 w-full max-w-full">{children}</main>
+      <footer className="oe-dark-surface mt-auto w-full border-t border-slate-800 bg-slate-900 py-16 text-slate-300">
           <div className="container mx-auto max-w-7xl px-4 text-center text-sm text-slate-500">
             <Loader2 className="mx-auto h-5 w-5 animate-spin text-slate-400" />
           </div>
@@ -218,9 +218,9 @@ export function PublicLayout({ children }: PublicLayoutProps) {
         </div>
       </header>
 
-      <main className="flex-1 pt-16 w-full max-w-full">{initializationError && <SessionInitializationNotice />}{children}</main>
+      <main className="oe-light-surface flex-1 pt-16 w-full max-w-full">{initializationError && <SessionInitializationNotice />}{children}</main>
 
-      <footer className="mt-auto border-t border-slate-800 bg-slate-900 py-16 text-slate-300">
+      <footer className="oe-dark-surface mt-auto border-t border-slate-800 bg-slate-900 py-16 text-slate-300">
         <div className="container mx-auto grid max-w-7xl grid-cols-1 gap-10 px-4 md:grid-cols-4">
           <div className="space-y-4">
             <h3 className="text-xl font-bold tracking-tight text-white">

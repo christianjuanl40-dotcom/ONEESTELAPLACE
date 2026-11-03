@@ -934,11 +934,11 @@ function PaymentVerificationTable({
           </colgroup>
           <TableHeader className="bg-slate-50/80">
             <tr>
-              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Booking / Customer</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Reserved Space</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Payment Submission</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Review Status</TableHead>
-              <TableHead className="px-3 py-2.5 text-right text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Actions</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Booking / Customer</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Reserved Space</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Payment Submission</TableHead>
+              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Review Status</TableHead>
+              <TableHead className="px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-[0.12em] text-black">Actions</TableHead>
             </tr>
           </TableHeader>
           <TableBody>
@@ -994,23 +994,23 @@ function PaymentVerificationTableRow({
   return (
     <tr ref={rowRef} className={cn("border-b border-slate-100 transition-colors hover:bg-slate-50/70", isHighlighted && "notification-target-highlight")}>
       <TableCell className="min-w-0 px-3 py-2.5 align-top">
-        <p className="truncate text-[11px] font-bold text-orange-600">{payment.id || "—"}</p>
-        <p className="mt-0.5 line-clamp-2 text-xs font-semibold leading-4 text-slate-800">{payment.eventName || "Untitled booking"}</p>
-        <p className="truncate text-[10px] font-medium text-slate-500">
+        <p className="truncate text-[11px] font-normal text-black">{payment.id || "—"}</p>
+        <p className="mt-0.5 line-clamp-2 text-xs font-normal leading-4 text-black">{payment.eventName || "Untitled booking"}</p>
+        <p className="truncate text-[10px] font-normal text-black">
           {payment.userInfo?.name || "Customer not listed"}
-          {payment.userInfo?.email ? <span className="text-slate-400"> · {payment.userInfo.email}</span> : null}
+          {payment.userInfo?.email ? <span className="text-black"> · {payment.userInfo.email}</span> : null}
         </p>
       </TableCell>
       <TableCell className="min-w-0 px-3 py-2.5 align-top">
-        <p className="line-clamp-2 whitespace-normal text-xs font-semibold leading-4 text-slate-800">{resource.primary}</p>
-        {resource.room && <p className="mt-0.5 truncate text-[10px] font-medium text-slate-500">Room: {resource.room}</p>}
+        <p className="line-clamp-2 whitespace-normal text-xs font-normal leading-4 text-black">{resource.primary}</p>
+        {resource.room && <p className="mt-0.5 truncate text-[10px] font-normal text-black">Room: {resource.room}</p>}
       </TableCell>
       <TableCell className="min-w-0 px-3 py-2.5 align-top">
-        <PaymentMethodLabel payment={payment} className="text-[11px] font-semibold" />
-        <p className="mt-0.5 text-xs font-bold tabular-nums text-slate-900">{formatCurrency(submittedAmount)}</p>
-        <p className="truncate text-[10px] font-medium leading-4 text-slate-500">
+        <PaymentMethodLabel payment={payment} className="text-[11px] font-normal text-black" />
+        <p className="mt-0.5 text-xs font-normal tabular-nums text-black">{formatCurrency(submittedAmount)}</p>
+        <p className="truncate text-[10px] font-normal leading-4 text-black">
           Submitted {formatSubmittedAt(submission?.submittedAt || payment.paymentSubmittedAt)}
-          <span className="text-slate-400"> · {submission?.referenceNo || submission?.id || "Record"}</span>
+          <span className="text-black"> · {submission?.referenceNo || submission?.id || "Record"}</span>
         </p>
       </TableCell>
       <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 align-top"><PaymentBadge payment={payment} /></TableCell>
@@ -1056,17 +1056,17 @@ function PaymentVerificationCompactRow({
     <div ref={rowRef} className={cn("rounded-xl border border-slate-200 bg-white p-3 shadow-sm", isHighlighted && "notification-target-highlight")}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-[10px] font-black uppercase tracking-[0.14em] text-orange-600">{payment.id || "—"}</p>
-          <p className="mt-0.5 line-clamp-2 text-sm font-black leading-4 text-slate-900">{payment.eventName || "Untitled booking"}</p>
-          <p className="mt-0.5 text-[10px] font-semibold text-slate-500">{payment.userInfo?.name || "Customer not listed"}</p>
+          <p className="truncate text-[10px] font-normal uppercase tracking-[0.14em] text-black">{payment.id || "—"}</p>
+          <p className="mt-0.5 line-clamp-2 text-sm font-normal leading-4 text-black">{payment.eventName || "Untitled booking"}</p>
+          <p className="mt-0.5 text-[10px] font-normal text-black">{payment.userInfo?.name || "Customer not listed"}</p>
         </div>
         <PaymentBadge payment={payment} />
       </div>
       <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
-        <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Reserved space</p><p className="line-clamp-2 text-xs font-bold text-slate-700">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>
-        <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Method</p><PaymentMethodLabel payment={payment} /></div>
-        <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Submitted</p><p className="text-xs font-black tabular-nums text-slate-800">{formatCurrency(submittedAmount)}</p><p className="truncate text-[10px] font-semibold text-slate-400">{formatSubmittedAt(submission?.submittedAt || payment.paymentSubmittedAt)}</p></div>
-        <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Submission</p><p className="truncate text-xs font-bold text-slate-700">{submission?.referenceNo || submission?.id || "Record available in review"}</p><p className="text-[10px] font-semibold text-slate-400">{payment.paymentCount ?? 1} total</p></div>
+         <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Reserved space</p><p className="line-clamp-2 text-xs font-normal text-black">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>
+         <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Method</p><PaymentMethodLabel payment={payment} className="text-xs font-normal text-black" /></div>
+         <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Submitted</p><p className="text-xs font-normal tabular-nums text-black">{formatCurrency(submittedAmount)}</p><p className="truncate text-[10px] font-normal text-black">{formatSubmittedAt(submission?.submittedAt || payment.paymentSubmittedAt)}</p></div>
+         <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Submission</p><p className="truncate text-xs font-normal text-black">{submission?.referenceNo || submission?.id || "Record available in review"}</p><p className="text-[10px] font-normal text-black">{payment.paymentCount ?? 1} total</p></div>
       </div>
       <div className="mt-3 flex justify-end border-t border-slate-100 pt-3">
         <Button

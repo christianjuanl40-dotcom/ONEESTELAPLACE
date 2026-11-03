@@ -317,7 +317,7 @@ export default function ClientLayout({
         </aside>
 
         <main
-          className={`min-w-0 flex-1 overflow-y-auto ${
+          className={`oe-light-surface min-w-0 flex-1 overflow-y-auto ${
             pathname === "/portal/chat" ? "p-0" : "p-3 pb-28 sm:p-4 sm:pb-8 md:p-6 md:pb-10 lg:p-8"
           }`}
         >

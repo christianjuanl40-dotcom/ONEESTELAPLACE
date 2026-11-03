@@ -104,7 +104,7 @@ export function PaymentProofPreview({
       >
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-5">
           <div className="min-w-0">
-            <DialogTitle className="text-base font-black text-white">Payment Proof</DialogTitle>
+            <DialogTitle className="text-base font-bold text-white">Payment Proof</DialogTitle>
             <DialogDescription className="sr-only">Preview of {label}</DialogDescription>
           </div>
           <DialogClose asChild>

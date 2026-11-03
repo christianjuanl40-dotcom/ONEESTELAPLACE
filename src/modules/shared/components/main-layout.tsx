@@ -172,7 +172,7 @@ export function MainLayout({ children }: MainLayoutProps) {
           </div>
         </div>
 
-        <main className={`flex-1 overflow-auto ${pathname === "/dashboard/chat" ? "p-0" : "p-3 sm:p-4 md:p-6 lg:p-8"}`}>
+        <main className={`oe-light-surface flex-1 overflow-auto ${pathname === "/dashboard/chat" ? "p-0" : "p-3 sm:p-4 md:p-6 lg:p-8"}`}>
           {children}
         </main>
       </div>

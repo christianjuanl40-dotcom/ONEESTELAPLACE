@@ -107,7 +107,7 @@ function DialogContent({
             {a11yFallback}
           </>
         ) : (
-          <div data-slot="dialog-surface" className="relative flex max-h-[inherit] min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden rounded-2xl bg-white shadow-lg">
+          <div data-slot="dialog-surface" className="oe-light-surface relative flex max-h-[inherit] min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden rounded-2xl bg-white shadow-lg">
             {children}
             {a11yFallback}
             {showCloseButton && (
@@ -156,7 +156,7 @@ function DialogTitle({
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn('text-lg leading-none font-semibold', className)}
+      className={cn('text-lg leading-none font-bold', className)}
       {...props}
     />
   )
@@ -169,7 +169,7 @@ function DialogDescription({
   return (
     <DialogPrimitive.Description
       data-slot="dialog-description"
-      className={cn('text-muted-foreground text-sm', className)}
+      className={cn('text-sm font-normal', className)}
       {...props}
     />
   )
