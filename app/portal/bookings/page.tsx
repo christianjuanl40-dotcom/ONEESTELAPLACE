@@ -312,25 +312,25 @@ function formatTextLabel(value?: string) {
 function getStatusBadgeClass(status?: string) {
   const normalized = String(status || "").toLowerCase()
   if (["confirmed", "reservation_secured", "slot_verified", "slot_secured", "active_rental"].includes(normalized)) {
-    return "border-emerald-100 bg-emerald-50 text-emerald-700"
+    return "border-emerald-200 bg-emerald-50 text-emerald-700"
   }
   if (["completed", "complete"].includes(normalized)) {
-    return "border-blue-100 bg-blue-50 text-blue-700"
+    return "border-blue-200 bg-blue-50 text-blue-700"
   }
   if (["pending", "verifying"].includes(normalized)) {
-    return "border-orange-100 bg-orange-50 text-orange-700"
+    return "border-orange-200 bg-orange-50 text-orange-700"
   }
   if (["contract_signing_required"].includes(normalized)) {
-    return "border-yellow-100 bg-yellow-50 text-yellow-700"
+    return "border-yellow-200 bg-yellow-50 text-yellow-700"
   }
   if (["cancellation_requested", "cancellation requested"].includes(normalized)) {
-    return "border-amber-100 bg-amber-50 text-amber-700"
+    return "border-amber-200 bg-amber-50 text-amber-700"
   }
   if (["cancelled", "declined"].includes(normalized)) {
-    return "border-rose-100 bg-rose-50 text-rose-700"
+    return "border-rose-200 bg-rose-50 text-rose-700"
   }
   if (["rental_expired"].includes(normalized)) {
-    return "border-red-100 bg-red-50 text-red-700"
+    return "border-red-200 bg-red-50 text-red-700"
   }
   return "border-slate-200 bg-slate-50 text-slate-600"
 }
@@ -439,11 +439,11 @@ function getClientBookingScheduleParts(booking: Booking) {
 function ClientBookingStatusBadges({ booking }: { booking: Booking }) {
   return (
     <div className="flex min-w-0 flex-col items-start gap-1.5">
-      <span className={cn("inline-flex max-w-full whitespace-normal break-words items-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase leading-4", getStatusBadgeClass(booking.status))}>
+      <span className={cn("oe-status-badge max-w-full whitespace-normal break-words", getStatusBadgeClass(booking.status))}>
         {getStatusLabel(booking.status)}
       </span>
       {hasPendingCancellationIndicator(booking) && (
-        <span className="inline-flex max-w-full whitespace-normal break-words items-center rounded-md border border-amber-100 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase leading-4 text-amber-700">
+        <span className="oe-status-badge max-w-full whitespace-normal break-words border border-amber-200 bg-amber-50 text-amber-700">
           Cancellation Requested
         </span>
       )}
@@ -477,12 +477,12 @@ function ClientBookingsTable({
           </colgroup>
           <TableHeader className="bg-slate-50/80">
             <tr>
-              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Booking Reference</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Event / Business</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Reserved Space</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Schedule</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Status</TableHead>
-              <TableHead className="px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-[0.12em] text-black">Actions</TableHead>
+              <TableHead className="oe-table-head">Booking Reference</TableHead>
+              <TableHead className="oe-table-head">Event / Business</TableHead>
+              <TableHead className="oe-table-head">Reserved Space</TableHead>
+              <TableHead className="oe-table-head">Schedule</TableHead>
+              <TableHead className="oe-table-head">Status</TableHead>
+              <TableHead className="oe-table-head text-right">Actions</TableHead>
             </tr>
           </TableHeader>
           <TableBody>
@@ -536,12 +536,12 @@ function ClientBookingTableRow({
 
   return (
     <tr ref={rowRef} data-booking-target={booking.id} className={cn("border-b border-slate-100 transition-colors hover:bg-slate-50/70", isHighlighted && "notification-target-highlight")}>
-      <TableCell className="min-w-0 px-3 py-2.5 align-top whitespace-normal"><p className="truncate text-[11px] font-normal text-black">{booking.id}</p><p className="mt-0.5 truncate text-[10px] font-normal text-black">{isOfficeResourceBooking(booking) ? "Office rental" : "Event booking"}</p></TableCell>
-      <TableCell className="min-w-0 px-3 py-2.5 align-top whitespace-normal"><p className="line-clamp-2 whitespace-normal break-words text-xs font-normal leading-4 text-black">{booking.eventName || booking.companyName || booking.natureOfBusiness || "—"}</p><p className="mt-0.5 truncate text-[10px] font-normal text-black">{isOfficeResourceBooking(booking) ? "Office space rental" : booking.eventType || "Event venue rental"}</p></TableCell>
-      <TableCell className="min-w-0 px-3 py-2.5 align-top whitespace-normal"><p className="line-clamp-2 whitespace-normal break-words text-xs font-normal leading-4 text-black">{resource.primary}</p>{resource.room && <p className="mt-0.5 line-clamp-2 whitespace-normal break-words text-[10px] font-normal text-black">Room: {resource.room}</p>}</TableCell>
-      <TableCell className="min-w-0 max-w-0 px-3 py-2.5 align-top whitespace-normal"><p className="max-w-full whitespace-normal break-words text-xs font-normal leading-4 text-black">{schedule.primary}</p><p className="mt-0.5 max-w-full whitespace-normal break-words text-[10px] font-normal text-black">{schedule.secondary}</p></TableCell>
-      <TableCell className="min-w-0 max-w-0 px-3 py-2.5 align-top whitespace-normal"><ClientBookingStatusBadges booking={booking} /></TableCell>
-      <TableCell className="px-3 py-2.5 align-top whitespace-nowrap"><div className="flex justify-end"><Button variant="outline" onClick={() => onView(booking)} className="h-8 min-w-[96px] whitespace-nowrap rounded-lg border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">View Details</Button></div></TableCell>
+      <TableCell className="min-w-0 align-top whitespace-normal"><p className="oe-table-label truncate">{booking.id}</p><p className="oe-table-secondary mt-0.5 line-clamp-1">{isOfficeResourceBooking(booking) ? "Office rental" : "Event booking"}</p></TableCell>
+      <TableCell className="min-w-0 align-top whitespace-normal"><p className="oe-table-primary line-clamp-2">{booking.eventName || booking.companyName || booking.natureOfBusiness || "—"}</p><p className="oe-table-secondary mt-0.5 line-clamp-1">{isOfficeResourceBooking(booking) ? "Office space rental" : booking.eventType || "Event venue rental"}</p></TableCell>
+      <TableCell className="min-w-0 align-top whitespace-normal"><p className="oe-table-primary line-clamp-2">{resource.primary}</p>{resource.room && <p className="oe-table-secondary mt-0.5 line-clamp-2">Room: {resource.room}</p>}</TableCell>
+      <TableCell className="min-w-0 max-w-0 align-top whitespace-normal"><p className="oe-table-primary max-w-full line-clamp-2">{schedule.primary}</p><p className="oe-table-secondary mt-0.5 max-w-full line-clamp-2">{schedule.secondary}</p></TableCell>
+      <TableCell className="min-w-0 max-w-0 align-top whitespace-normal"><ClientBookingStatusBadges booking={booking} /></TableCell>
+      <TableCell className="align-top whitespace-nowrap"><div className="oe-table-actions"><Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 min-w-[104px] whitespace-nowrap border-slate-300 text-slate-800 hover:border-slate-400 hover:bg-slate-50">View Details</Button></div></TableCell>
     </tr>
   )
 }
@@ -571,13 +571,13 @@ function ClientBookingCompactRow({
 
   return (
       <div ref={rowRef} data-booking-target={booking.id} className={cn("rounded-xl border border-slate-200 bg-white p-3 shadow-sm", isHighlighted && "notification-target-highlight")}>
-       <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-[10px] font-normal uppercase tracking-[0.14em] text-black">{booking.id}</p><p className="mt-0.5 line-clamp-2 text-sm font-normal leading-4 text-black">{booking.eventName || booking.companyName || booking.natureOfBusiness || "—"}</p></div><div className="min-w-0 max-w-[44%] shrink-0"><ClientBookingStatusBadges booking={booking} /></div></div>
+        <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="oe-table-label truncate">{booking.id}</p><p className="oe-table-primary mt-0.5 line-clamp-2">{booking.eventName || booking.companyName || booking.natureOfBusiness || "—"}</p></div><div className="min-w-0 max-w-[44%] shrink-0"><ClientBookingStatusBadges booking={booking} /></div></div>
       <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
-         <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Reserved space</p><p className="line-clamp-2 text-xs font-normal text-black">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>
-         <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Date / period</p><p className="text-xs font-normal text-black">{schedule.primary}</p><p className="text-[10px] font-normal text-black">{schedule.secondary}</p></div>
-         <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Category</p><p className="truncate text-xs font-normal text-black">{isOfficeResourceBooking(booking) ? "Office rental" : booking.eventType || "Event venue"}</p></div>
+          <div className="min-w-0"><p className="oe-table-label">Reserved space</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>
+          <div className="min-w-0"><p className="oe-table-label">Date / period</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{schedule.primary}</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{schedule.secondary}</p></div>
+          <div className="min-w-0"><p className="oe-table-label">Category</p><p className="oe-table-secondary mt-0.5 line-clamp-1">{isOfficeResourceBooking(booking) ? "Office rental" : booking.eventType || "Event venue"}</p></div>
       </div>
-      <div className="mt-3 flex justify-end border-t border-slate-100 pt-3"><Button variant="outline" onClick={() => onView(booking)} className="h-8 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">View Details</Button></div>
+       <div className="mt-3 flex justify-end border-t border-slate-100 pt-3"><Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 border-slate-300 text-slate-800 hover:border-slate-400 hover:bg-slate-50">View Details</Button></div>
     </div>
   )
 }
@@ -2715,25 +2715,34 @@ export default function MyBookingsPage() {
           receiptPresentation={receiptPresentation}
         />
 
-        <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-end">
-          <div className="relative w-full sm:max-w-xs">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by ID, event, venue, status..."
-              className="h-11 w-full rounded-xl border-slate-200 pl-9 pr-9 text-sm focus-visible:ring-2 focus-visible:ring-orange-500"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery("")}
-                aria-label="Clear search"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-600"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
+        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <p className="oe-page-kicker">Client Portal</p>
+            <h1 className="oe-page-title mt-1">My Bookings</h1>
+            <p className="oe-page-description mt-1 max-w-xl">
+              Keep track of active reservations, schedules, and booking history.
+            </p>
+          </div>
+          <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-center sm:justify-end lg:w-auto">
+            <div className="relative w-full sm:max-w-xs">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by ID, event, venue, status..."
+                className="h-11 w-full rounded-xl border-slate-200 pl-9 pr-9 text-sm focus-visible:ring-2 focus-visible:ring-orange-500"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  aria-label="Clear search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-600"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           </div>
           <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
             <TooltipProvider delayDuration={400}>
@@ -2820,7 +2829,7 @@ export default function MyBookingsPage() {
 
       {/* Other Current Bookings */}
       {!showHistory && (hasOtherActive || searchQuery) && (
-        <section>
+        <section className="mt-8">
           <SectionHeader
             title="Other Current Bookings"
             subtitle="Other active reservations that are still ongoing."
@@ -2925,7 +2934,7 @@ export default function MyBookingsPage() {
             </div>
           )}
 
-          <section>
+           <section className="mt-8">
             <SectionHeader
               title="Booking History"
               subtitle={`${filteredHistory.length} record${filteredHistory.length === 1 ? "" : "s"}`}
@@ -3004,18 +3013,18 @@ function SectionHeader({
   icon: React.ReactNode
 }) {
   return (
-    <div className="flex items-center gap-2.5">
+    <div className="flex items-center gap-3">
       {icon && (
-        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
+        <div className="oe-section-icon shrink-0">
           {icon}
         </div>
       )}
       <div className="min-w-0">
-        <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
+        <h2 className="oe-section-heading">
           {title}
         </h2>
         {subtitle && (
-          <p className="text-xs font-semibold text-slate-400">{subtitle}</p>
+          <p className="oe-section-description mt-0.5">{subtitle}</p>
         )}
       </div>
     </div>

@@ -7,6 +7,7 @@
 - Firestore rules and indexes were updated, but emulator behavior remains unverified because Java is unavailable.
 - Production build, typecheck, active tests, and quiet lint pass locally.
 - No OpenAI integration exists or was added.
+- Portal/admin presentation hardening keeps the viewport-bounded shell, flex ancestors, and main content pane shrinkable so long pages remain vertically scrollable without changing workflows or data behavior.
 
 ## SECURITY IMPROVEMENTS
 

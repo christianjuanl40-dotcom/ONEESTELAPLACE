@@ -24,6 +24,7 @@ After these references, use the architecture's task-to-file map and inspect the 
 - Preserve ownership and permission checks in APIs and Firestore rules when changing data workflows.
 - Use `DESIGN_PALETTE.md` for UI work. The orange brand is commonly applied with `orange-*` utilities; `bg-primary` is currently charcoal.
 - Use `.env.example` for configuration names; keep real credential values out of source, docs, and output.
+- When changing source code, update every root Markdown reference whose implementation claims are affected in the same task. Preserve the original date and scope of historical audit/investigation reports by adding a clearly labeled follow-up note instead of rewriting their findings.
 
 ## Verification
 

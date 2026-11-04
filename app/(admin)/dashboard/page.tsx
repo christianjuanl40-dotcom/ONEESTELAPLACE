@@ -485,6 +485,15 @@ export default function AdminDashboardPage() {
       />
 
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
+        <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <p className="oe-page-kicker">Operations</p>
+            <h1 className="oe-page-title mt-1">Dashboard</h1>
+            <p className="oe-page-description mt-1 max-w-xl">
+              Monitor reservations, payment review, and the latest customer activity.
+            </p>
+          </div>
+        </header>
         <section className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5 xl:gap-5 mb-6">
           <StatCard
             href={ROUTES.reports}

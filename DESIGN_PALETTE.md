@@ -1,6 +1,6 @@
 # Design and Color Palette
 
-Source reviewed: **2026-10-19** baseline; compact booking/payment tables rechecked **2026-11-03**. This is the project's visual reference for future UI work, based on the current public site, portal, dashboard, shared components, and CSS configuration.
+Source reviewed: **2026-10-19** baseline; compact booking/payment tables rechecked **2026-11-03**; Phase 7.4 presentation refinements and protected shell scrolling rechecked **2026-11-04**. This is the project's visual reference for future UI work, based on the current public site, portal, dashboard, shared components, and CSS configuration.
 
 Office occupancy badges and scheduling notices rechecked **2026-10-26**; customer/admin Booking Details button hierarchy refined **2026-10-27**. They reuse the existing compact orange/slate language.
 
@@ -142,7 +142,13 @@ For a global color change, inspect both the semantic variables and explicit bran
 
 Tailwind's configured `rounded-lg` is **10px**, `rounded-md` **8px**, and `rounded-sm` **6px** through `--radius`. Default `rounded-xl`/`rounded-2xl`/`rounded-3xl` remain 12px/16px/24px.
 
-Default responsive breakpoints are `sm: 640px`, `md: 768px`, `lg: 1024px`, `xl: 1280px`, and `2xl: 1536px`. Keep mobile content usable with stacked actions, `min-w-0`, and inner scrolling instead of page-wide overflow.
+Default responsive breakpoints are `sm: 640px`, `md: 768px`, `lg: 1024px`, `xl: 1280px`, and `2xl: 1536px`. Keep mobile content usable with stacked actions, `min-w-0`, `min-h-0` on constrained flex ancestors, and inner scrolling instead of page-wide overflow.
+
+### Phase 7.4 shared presentation classes
+
+`app/globals.css` provides the shared `oe-*` classes used by the refined portal/admin surfaces. Use `.oe-page-kicker`, `.oe-page-title`, `.oe-page-description`, `.oe-section-heading`, and `.oe-section-description` for consistent hierarchy; use `.oe-table-head`, `.oe-table-label`, `.oe-table-primary`, and `.oe-table-secondary` for readable record cells. Financial cells use `.oe-financial-label` and `.oe-financial-value`; semantic states use `.oe-status-badge`; table actions use `.oe-table-actions` and `.oe-table-action`.
+
+These classes are presentation-only and must not replace the canonical status, payment, booking, or permission helpers. The shared Button and Badge primitives provide the common orange keyboard-focus ring and disabled affordance, while the Table primitive provides readable cell spacing, wrapped content, row hover states, and contained horizontal scrolling. Preserve the mobile renderer's labeled compact-row layout rather than forcing page-wide table overflow.
 
 ### Reusable styling recipes
 
@@ -166,6 +172,7 @@ Import primitives from `src/modules/shared/components/ui/` and compose classes w
 ## Interaction, layering, and print
 
 - Reuse the shared dialog primitive for modal focus handling and consistent layering. Its overlay/content use `z-[10001]` / `z-[10002]`; the public header uses `z-[9999]`, and portal/admin headers use `z-50`.
+- Portal/admin shells are viewport-bounded flex layouts: keep `min-h-0` on the outer shell, content row, and scrollable main pane, with `overflow-y-auto` only on the main pane. Side navigation remains its own `overflow-y-auto` region, and table horizontal scrolling stays inside the shared table container rather than becoming page-wide overflow.
 - Dialogs with a custom header close control opt out locally with `showCloseButton={false}`. Venue Reviews retains one 36px, explicitly named close button with an orange keyboard-focus ring. Radix owns nested focus/dismissal and scroll locking; avoid independent body-overflow effects that can leave stale locks after closing a child.
 - Non-plain `DialogContent` defaults to a flex column capped at `calc(100dvh - 2rem)`; its internal surface inherits the caller's cap with `min-h-0 flex-1`. Keep header/footer `shrink-0` and one `min-h-0 flex-1 overflow-y-auto overscroll-contain` content region. Put fieldsets **inside** that region rather than making the fieldset the shrinking scroller. Schedule Maintenance keeps Block Date in the footer, reserves header room for Close, and paginates records within the single body. Keep native selectors or portaled dropdowns accessible without horizontal overflow.
 - Preserve clear keyboard focus, explicit form labels, icon-button accessible names, disabled states, and text descriptions of errors/statuses.

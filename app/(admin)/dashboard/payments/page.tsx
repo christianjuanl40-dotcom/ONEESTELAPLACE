@@ -625,7 +625,15 @@ export default function AdminPaymentsPage() {
             })
           }}
         />}
-        <div className="mb-3 flex w-full flex-col items-stretch gap-2 sm:ml-auto sm:w-fit sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+        <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <p className="oe-page-kicker">Operations</p>
+            <h1 className="oe-page-title mt-1">Payment Verification</h1>
+            <p className="oe-page-description mt-1 max-w-2xl">
+              Review customer submissions and keep payment decisions tied to the correct booking.
+            </p>
+          </div>
+          <div className="flex w-full flex-col items-stretch gap-2 sm:ml-auto sm:w-fit sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
               <Select value={venueFilter} onValueChange={setVenueFilter}>
                 <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[170px]">
                   <div className="flex items-center gap-2">
@@ -690,6 +698,7 @@ export default function AdminPaymentsPage() {
                   </button>
                 )}
               </div>
+          </div>
         </div>
 
         <section className="mt-2 space-y-2">
@@ -744,9 +753,9 @@ export default function AdminPaymentsPage() {
               />
             )}
           </DialogContent>
-        </Dialog>
+          </Dialog>
+        </div>
       </div>
-    </div>
   )
 }
 
@@ -934,11 +943,11 @@ function PaymentVerificationTable({
           </colgroup>
           <TableHeader className="bg-slate-50/80">
             <tr>
-              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Booking / Customer</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Reserved Space</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Payment Submission</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Review Status</TableHead>
-              <TableHead className="px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-[0.12em] text-black">Actions</TableHead>
+              <TableHead className="oe-table-head">Booking / Customer</TableHead>
+              <TableHead className="oe-table-head">Reserved Space</TableHead>
+              <TableHead className="oe-table-head">Payment Submission</TableHead>
+              <TableHead className="oe-table-head">Review Status</TableHead>
+              <TableHead className="oe-table-head text-right">Actions</TableHead>
             </tr>
           </TableHeader>
           <TableBody>
@@ -993,32 +1002,32 @@ function PaymentVerificationTableRow({
 
   return (
     <tr ref={rowRef} className={cn("border-b border-slate-100 transition-colors hover:bg-slate-50/70", isHighlighted && "notification-target-highlight")}>
-      <TableCell className="min-w-0 px-3 py-2.5 align-top">
-        <p className="truncate text-[11px] font-normal text-black">{payment.id || "—"}</p>
-        <p className="mt-0.5 line-clamp-2 text-xs font-normal leading-4 text-black">{payment.eventName || "Untitled booking"}</p>
-        <p className="truncate text-[10px] font-normal text-black">
+      <TableCell className="min-w-0 align-top whitespace-normal">
+        <p className="oe-table-label truncate">{payment.id || "—"}</p>
+        <p className="oe-table-primary mt-0.5 line-clamp-2">{payment.eventName || "Untitled booking"}</p>
+        <p className="oe-table-secondary mt-0.5 line-clamp-1">
           {payment.userInfo?.name || "Customer not listed"}
-          {payment.userInfo?.email ? <span className="text-black"> · {payment.userInfo.email}</span> : null}
+          {payment.userInfo?.email ? <span> · {payment.userInfo.email}</span> : null}
         </p>
       </TableCell>
-      <TableCell className="min-w-0 px-3 py-2.5 align-top">
-        <p className="line-clamp-2 whitespace-normal text-xs font-normal leading-4 text-black">{resource.primary}</p>
-        {resource.room && <p className="mt-0.5 truncate text-[10px] font-normal text-black">Room: {resource.room}</p>}
+      <TableCell className="min-w-0 align-top whitespace-normal">
+        <p className="oe-table-primary line-clamp-2">{resource.primary}</p>
+        {resource.room && <p className="oe-table-secondary mt-0.5 line-clamp-1">Room: {resource.room}</p>}
       </TableCell>
-      <TableCell className="min-w-0 px-3 py-2.5 align-top">
-        <PaymentMethodLabel payment={payment} className="text-[11px] font-normal text-black" />
-        <p className="mt-0.5 text-xs font-normal tabular-nums text-black">{formatCurrency(submittedAmount)}</p>
-        <p className="truncate text-[10px] font-normal leading-4 text-black">
+      <TableCell className="min-w-0 align-top whitespace-normal">
+        <PaymentMethodLabel payment={payment} className="oe-table-secondary" />
+        <p className="oe-table-primary mt-0.5 tabular-nums">{formatCurrency(submittedAmount)}</p>
+        <p className="oe-table-secondary mt-0.5 line-clamp-2">
           Submitted {formatSubmittedAt(submission?.submittedAt || payment.paymentSubmittedAt)}
-          <span className="text-black"> · {submission?.referenceNo || submission?.id || "Record"}</span>
+          <span> · {submission?.referenceNo || submission?.id || "Record"}</span>
         </p>
       </TableCell>
-      <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 align-top"><PaymentBadge payment={payment} /></TableCell>
-      <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 text-right align-top">
+      <TableCell className="min-w-0 max-w-0 whitespace-normal align-top"><PaymentBadge payment={payment} /></TableCell>
+      <TableCell className="min-w-0 max-w-0 whitespace-normal text-right align-top">
         <Button
           type="button"
           onClick={() => onView(payment)}
-          className="h-8 whitespace-nowrap rounded-lg border-orange-600 bg-orange-600 px-3 text-xs font-bold text-white hover:border-orange-700 hover:bg-orange-700 focus-visible:ring-orange-300"
+          className="oe-table-action h-9 whitespace-nowrap border-orange-600 bg-orange-600 text-white hover:border-orange-700 hover:bg-orange-700 focus-visible:ring-orange-300"
         >
           <Eye className="mr-1.5 size-3.5" aria-hidden="true" />
           Review
@@ -1056,23 +1065,23 @@ function PaymentVerificationCompactRow({
     <div ref={rowRef} className={cn("rounded-xl border border-slate-200 bg-white p-3 shadow-sm", isHighlighted && "notification-target-highlight")}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-[10px] font-normal uppercase tracking-[0.14em] text-black">{payment.id || "—"}</p>
-          <p className="mt-0.5 line-clamp-2 text-sm font-normal leading-4 text-black">{payment.eventName || "Untitled booking"}</p>
-          <p className="mt-0.5 text-[10px] font-normal text-black">{payment.userInfo?.name || "Customer not listed"}</p>
-        </div>
+           <p className="oe-table-label truncate">{payment.id || "—"}</p>
+           <p className="oe-table-primary mt-0.5 line-clamp-2">{payment.eventName || "Untitled booking"}</p>
+           <p className="oe-table-secondary mt-0.5 line-clamp-1">{payment.userInfo?.name || "Customer not listed"}</p>
+          </div>
         <PaymentBadge payment={payment} />
       </div>
       <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
-         <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Reserved space</p><p className="line-clamp-2 text-xs font-normal text-black">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>
-         <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Method</p><PaymentMethodLabel payment={payment} className="text-xs font-normal text-black" /></div>
-         <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Submitted</p><p className="text-xs font-normal tabular-nums text-black">{formatCurrency(submittedAmount)}</p><p className="truncate text-[10px] font-normal text-black">{formatSubmittedAt(submission?.submittedAt || payment.paymentSubmittedAt)}</p></div>
-         <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Submission</p><p className="truncate text-xs font-normal text-black">{submission?.referenceNo || submission?.id || "Record available in review"}</p><p className="text-[10px] font-normal text-black">{payment.paymentCount ?? 1} total</p></div>
+         <div className="min-w-0"><p className="oe-table-label">Reserved space</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>
+         <div className="min-w-0"><p className="oe-table-label">Method</p><PaymentMethodLabel payment={payment} className="oe-table-secondary mt-0.5" /></div>
+         <div className="min-w-0"><p className="oe-table-label">Submitted</p><p className="oe-table-primary mt-0.5 tabular-nums">{formatCurrency(submittedAmount)}</p><p className="oe-table-secondary mt-0.5 line-clamp-1">{formatSubmittedAt(submission?.submittedAt || payment.paymentSubmittedAt)}</p></div>
+         <div className="min-w-0"><p className="oe-table-label">Submission</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{submission?.referenceNo || submission?.id || "Record available in review"}</p><p className="oe-table-secondary mt-0.5">{payment.paymentCount ?? 1} total</p></div>
       </div>
       <div className="mt-3 flex justify-end border-t border-slate-100 pt-3">
         <Button
           type="button"
           onClick={() => onView(payment)}
-          className="h-8 rounded-lg border-orange-600 bg-orange-600 px-3 text-xs font-bold text-white hover:border-orange-700 hover:bg-orange-700 focus-visible:ring-orange-300"
+           className="oe-table-action h-9 border-orange-600 bg-orange-600 text-white hover:border-orange-700 hover:bg-orange-700 focus-visible:ring-orange-300"
         >
           <Eye className="mr-1.5 size-3.5" aria-hidden="true" />
           Review submissions
@@ -1531,7 +1540,7 @@ function PaymentMethodLabel({ payment, className }: { payment: BookingRecord; cl
   const isBank = payment.paymentMethod === "bank"
 
   return (
-    <span className={cn("inline-flex max-w-full items-center gap-1.5 text-xs font-black text-slate-800", className)}>
+    <span className={cn("inline-flex max-w-full items-center gap-1.5 text-sm font-normal text-black", className)}>
       {isBank ? (
         <FileImage className="h-3.5 w-3.5 shrink-0 text-blue-500" />
       ) : (
@@ -1554,7 +1563,7 @@ function PaymentBadge({ payment, className }: { payment: BookingRecord; classNam
   const totalAmount = paymentSummary.bookingTotal
   const amountPaid = paymentSummary.moneyReceivedTotal
   const remainingBalance = paymentSummary.remainingBalance
-  const baseClass = cn("inline-flex max-w-full items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-center text-[10px] font-black uppercase leading-4 tracking-[0.2em] whitespace-normal break-words", className)
+  const baseClass = cn("oe-status-badge max-w-full gap-1 whitespace-normal break-words", className)
 
   // Canonical: the badge renders EXACTLY the same overall status that the
   // status filter matches (payment.paymentStatus, set by getOverallPaymentStatus
@@ -1564,23 +1573,23 @@ function PaymentBadge({ payment, className }: { payment: BookingRecord; classNam
   // Order follows the canonical priority: completed → partial → for_review →
   // rejected → incomplete.
   if (paymentStatus === "completed") {
-    return <span className={`${baseClass} border-emerald-100 bg-emerald-50 text-emerald-700`}><CheckCircle2 className="h-3 w-3" />Fully Paid</span>
+    return <span className={`${baseClass} border-emerald-200 bg-emerald-50 text-emerald-700`}><CheckCircle2 className="h-3 w-3" />Fully Paid</span>
   }
 
   if (paymentStatus === "partial") {
-    return <span className={`${baseClass} border-amber-100 bg-amber-50 text-amber-700`}><AlertCircle className="h-3 w-3" />Partial Payment</span>
+    return <span className={`${baseClass} border-amber-200 bg-amber-50 text-amber-700`}><AlertCircle className="h-3 w-3" />Partial Payment</span>
   }
 
   if (paymentStatus === "for_review") {
-    return <span className={`${baseClass} border-amber-100 bg-amber-50 text-amber-700`}><ShieldCheck className="h-3 w-3" />For Review</span>
+    return <span className={`${baseClass} border-amber-200 bg-amber-50 text-amber-700`}><ShieldCheck className="h-3 w-3" />For Review</span>
   }
 
   if (paymentStatus === "rejected") {
-    return <span className={`${baseClass} border-rose-100 bg-rose-50 text-rose-700`}><XCircle className="h-3 w-3" />Rejected</span>
+    return <span className={`${baseClass} border-rose-200 bg-rose-50 text-rose-700`}><XCircle className="h-3 w-3" />Rejected</span>
   }
 
   if (paymentStatus === "incomplete") {
-    return <span className={`${baseClass} border-amber-100 bg-amber-50 text-amber-700`}><AlertCircle className="h-3 w-3" />Incomplete Payment</span>
+    return <span className={`${baseClass} border-amber-200 bg-amber-50 text-amber-700`}><AlertCircle className="h-3 w-3" />Incomplete Payment</span>
   }
 
   // Legacy-only fallbacks (bookings without payment records whose stored
@@ -1589,7 +1598,7 @@ function PaymentBadge({ payment, className }: { payment: BookingRecord; classNam
   const isAmountSufficient = totalAmount > 0 && amountPaid >= totalAmount
 
   if (paymentStatus === "paid" && isRemainingZero && isAmountSufficient) {
-    return <span className={`${baseClass} border-emerald-100 bg-emerald-50 text-emerald-700`}><CheckCircle2 className="h-3 w-3" />Fully Paid</span>
+    return <span className={`${baseClass} border-emerald-200 bg-emerald-50 text-emerald-700`}><CheckCircle2 className="h-3 w-3" />Fully Paid</span>
   }
 
   if (amountPaid === 0) {
@@ -1603,7 +1612,7 @@ function PaymentBadge({ payment, className }: { payment: BookingRecord; classNam
  *  record (Verified / Rejected / Incomplete / For Review), consistent with
  *  the status shown in the payment history list. */
 function PaymentRecordBadge({ record }: { record: PaymentRecord }) {
-  const baseClass = "inline-flex items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em] whitespace-nowrap"
+  const baseClass = "oe-status-badge gap-1 whitespace-nowrap"
   const label = getPaymentRecordStatusLabel(record)
 
   if (isRejectedPaymentRecord(record)) {

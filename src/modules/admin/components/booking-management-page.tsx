@@ -95,15 +95,15 @@ function formatDate(date?: string) {
 
 function getStatusBadgeClass(status?: string) {
   const v = String(status || "").toLowerCase()
-  if (["confirmed", "reservation_secured", "slot_secured", "slot_verified"].includes(v)) return "border-emerald-100 bg-emerald-50 text-emerald-700"
-  if (["completed", "complete"].includes(v)) return "border-blue-100 bg-blue-50 text-blue-700"
-  if (["pending", "verifying"].includes(v)) return "border-orange-100 bg-orange-50 text-orange-700"
-  if (["cancellation_requested", "cancellation requested"].includes(v)) return "border-amber-100 bg-amber-50 text-amber-700"
-  if (["modification_under_review"].includes(v)) return "border-purple-100 bg-purple-50 text-purple-700"
-  if (["cancelled", "declined"].includes(v)) return "border-rose-100 bg-rose-50 text-rose-700"
-  if (v === "contract_signing_required") return "border-yellow-100 bg-yellow-50 text-yellow-700"
-  if (v === "active_rental") return "border-sky-100 bg-sky-50 text-sky-700"
-  if (v === "rental_expired") return "border-rose-100 bg-rose-50 text-rose-700"
+  if (["confirmed", "reservation_secured", "slot_secured", "slot_verified"].includes(v)) return "border-emerald-200 bg-emerald-50 text-emerald-700"
+  if (["completed", "complete"].includes(v)) return "border-blue-200 bg-blue-50 text-blue-700"
+  if (["pending", "verifying"].includes(v)) return "border-orange-200 bg-orange-50 text-orange-700"
+  if (["cancellation_requested", "cancellation requested"].includes(v)) return "border-amber-200 bg-amber-50 text-amber-700"
+  if (["modification_under_review"].includes(v)) return "border-purple-200 bg-purple-50 text-purple-700"
+  if (["cancelled", "declined"].includes(v)) return "border-rose-200 bg-rose-50 text-rose-700"
+  if (v === "contract_signing_required") return "border-yellow-200 bg-yellow-50 text-yellow-700"
+  if (v === "active_rental") return "border-sky-200 bg-sky-50 text-sky-700"
+  if (v === "rental_expired") return "border-rose-200 bg-rose-50 text-rose-700"
   return "border-slate-200 bg-slate-50 text-slate-600"
 }
 
@@ -746,15 +746,23 @@ export default function AdminBookingsPage() {
           }}
         />
 
-        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-          <Button
-                onClick={() => setShowMaintenanceModal(true)}
-                variant="outline"
-                className="h-10 shrink-0 whitespace-nowrap rounded-xl border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-orange-600 gap-1.5 self-start sm:self-auto"
-              >
-                <Wrench className="h-3.5 w-3.5" />
-                Maintenance Calendar
-              </Button>
+        <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <p className="oe-page-kicker">Operations</p>
+            <h1 className="oe-page-title mt-1">Booking Management</h1>
+            <p className="oe-page-description mt-1 max-w-2xl">
+              Review reservations, schedules, customers, and booking lifecycle actions.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+            <Button
+              onClick={() => setShowMaintenanceModal(true)}
+              variant="outline"
+              className="h-10 shrink-0 whitespace-nowrap rounded-xl border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-orange-600 gap-1.5 self-start sm:self-auto"
+            >
+              <Wrench className="h-3.5 w-3.5" />
+              Maintenance Calendar
+            </Button>
 
               <Select value={venueFilter} onValueChange={setVenueFilter}>
                 <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[170px]">
@@ -805,6 +813,7 @@ export default function AdminBookingsPage() {
                   </button>
                 )}
               </div>
+            </div>
         </div>
 
         <section className="mt-4">
@@ -896,11 +905,11 @@ function getBookingScheduleParts(booking: Booking) {
 function AdminBookingStatusBadges({ booking }: { booking: Booking }) {
   return (
     <div className="flex min-w-0 flex-col items-start gap-1.5">
-      <span className={cn("inline-flex max-w-full whitespace-normal break-words items-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase leading-4", getStatusBadgeClass(booking.status))}>
+      <span className={cn("oe-status-badge max-w-full whitespace-normal break-words", getStatusBadgeClass(booking.status))}>
         {getStatusLabel(booking.status)}
       </span>
       {isCancellationRequestPending(booking) && (
-        <span className="inline-flex max-w-full whitespace-normal break-words items-center rounded-md border border-amber-100 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase leading-4 text-amber-700">
+        <span className="oe-status-badge max-w-full whitespace-normal break-words border border-amber-200 bg-amber-50 text-amber-700">
           Cancellation Requested
         </span>
       )}
@@ -920,7 +929,7 @@ function AdminBookingTable({
   return (
     <>
       <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm md:block">
-        <Table className="min-w-[1080px] table-fixed xl:min-w-0">
+          <Table className="min-w-[1080px] table-fixed xl:min-w-0">
           <caption className="sr-only">Admin booking management records</caption>
           <colgroup>
             <col style={{ width: "19%" }} />
@@ -932,12 +941,12 @@ function AdminBookingTable({
           </colgroup>
           <TableHeader className="bg-slate-50/80">
             <tr>
-              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Booking / Customer</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Event / Business</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Reserved Space</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Schedule</TableHead>
-              <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Status</TableHead>
-              <TableHead className="px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-[0.12em] text-black">Actions</TableHead>
+              <TableHead className="oe-table-head">Booking / Customer</TableHead>
+              <TableHead className="oe-table-head">Event / Business</TableHead>
+              <TableHead className="oe-table-head">Reserved Space</TableHead>
+              <TableHead className="oe-table-head">Schedule</TableHead>
+              <TableHead className="oe-table-head">Status</TableHead>
+              <TableHead className="oe-table-head text-right">Actions</TableHead>
             </tr>
           </TableHeader>
           <TableBody>
@@ -992,34 +1001,34 @@ function AdminBookingTableRow({
 
   return (
     <tr ref={rowRef} className={cn("border-b border-slate-100 transition-colors hover:bg-slate-50/70", isHighlighted && "notification-target-highlight")}>
-      <TableCell className="min-w-0 px-3 py-2.5 align-top whitespace-normal">
-        <p className="truncate text-[11px] font-normal text-black">{booking.id}</p>
-        <p className="mt-0.5 line-clamp-2 whitespace-normal break-words text-xs font-normal leading-4 text-black">{booking.userInfo?.name || "Customer not listed"}</p>
-        <p className="truncate text-[10px] font-normal text-black">{booking.userInfo?.email || "—"}</p>
+      <TableCell className="min-w-0 align-top whitespace-normal">
+        <p className="oe-table-label truncate">{booking.id}</p>
+        <p className="oe-table-primary mt-0.5 line-clamp-2">{booking.userInfo?.name || "Customer not listed"}</p>
+        <p className="oe-table-secondary mt-0.5 line-clamp-1">{booking.userInfo?.email || "—"}</p>
       </TableCell>
-      <TableCell className="min-w-0 px-3 py-2.5 align-top whitespace-normal">
-        <p className="line-clamp-2 whitespace-normal text-xs font-normal leading-4 text-black">{booking.eventName || booking.companyName || booking.natureOfBusiness || "—"}</p>
-        <p className="mt-0.5 truncate text-[10px] font-normal text-black">{isOfficeBooking(booking) ? "Office rental" : booking.eventType || "Event venue"}</p>
+      <TableCell className="min-w-0 align-top whitespace-normal">
+        <p className="oe-table-primary line-clamp-2">{booking.eventName || booking.companyName || booking.natureOfBusiness || "—"}</p>
+        <p className="oe-table-secondary mt-0.5 line-clamp-1">{isOfficeBooking(booking) ? "Office rental" : booking.eventType || "Event venue"}</p>
       </TableCell>
-      <TableCell className="min-w-0 px-3 py-2.5 align-top whitespace-normal">
-        <p className="line-clamp-2 whitespace-normal text-xs font-normal leading-4 text-black">{resource.primary}</p>
-        {resource.room && <p className="mt-0.5 line-clamp-2 whitespace-normal break-words text-[10px] font-normal leading-4 text-black">Room: {resource.room}</p>}
+      <TableCell className="min-w-0 align-top whitespace-normal">
+        <p className="oe-table-primary line-clamp-2">{resource.primary}</p>
+        {resource.room && <p className="oe-table-secondary mt-0.5 line-clamp-2">Room: {resource.room}</p>}
       </TableCell>
-      <TableCell className="min-w-0 max-w-0 px-3 py-2.5 align-top whitespace-normal">
-        <p className="max-w-full whitespace-normal break-words text-xs font-normal leading-4 text-black">{schedule.primary}</p>
-        <p className="mt-0.5 max-w-full whitespace-normal break-words text-[10px] font-normal text-black">{schedule.secondary}</p>
+      <TableCell className="min-w-0 max-w-0 align-top whitespace-normal">
+        <p className="oe-table-primary max-w-full line-clamp-2">{schedule.primary}</p>
+        <p className="oe-table-secondary mt-0.5 max-w-full line-clamp-2">{schedule.secondary}</p>
       </TableCell>
-      <TableCell className="min-w-0 max-w-0 px-3 py-2.5 align-top whitespace-normal"><AdminBookingStatusBadges booking={booking} /></TableCell>
-      <TableCell className="px-3 py-2.5 align-top whitespace-nowrap">
-        <div className="flex justify-end">
+      <TableCell className="min-w-0 max-w-0 align-top whitespace-normal"><AdminBookingStatusBadges booking={booking} /></TableCell>
+      <TableCell className="align-top whitespace-nowrap">
+        <div className="oe-table-actions">
         <Button
           variant="outline"
           onClick={() => onView(booking)}
-          className="h-8 min-w-[96px] whitespace-nowrap rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
+          className="oe-table-action h-9 min-w-[104px] whitespace-nowrap border-slate-300 text-slate-800 hover:border-slate-400 hover:bg-slate-50"
         >
           View Details
         </Button>
-        </div>
+          </div>
       </TableCell>
     </tr>
   )
@@ -1052,9 +1061,9 @@ function AdminBookingCompactRow({
       <div ref={rowRef} className={cn("rounded-xl border border-slate-200 bg-white p-3 shadow-sm", isHighlighted && "notification-target-highlight")}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-[10px] font-normal uppercase tracking-[0.14em] text-black">{booking.id}</p>
-          <p className="mt-0.5 line-clamp-2 text-sm font-normal leading-4 text-black">{booking.eventName || booking.companyName || booking.natureOfBusiness || "—"}</p>
-          <p className="mt-0.5 text-[10px] font-normal text-black">{booking.userInfo?.name || "Customer not listed"}</p>
+          <p className="oe-table-label truncate">{booking.id}</p>
+          <p className="oe-table-primary mt-0.5 line-clamp-2">{booking.eventName || booking.companyName || booking.natureOfBusiness || "—"}</p>
+          <p className="oe-table-secondary mt-0.5 line-clamp-1">{booking.userInfo?.name || "Customer not listed"}</p>
         </div>
         <div className="min-w-0 max-w-[44%] shrink-0">
           <AdminBookingStatusBadges booking={booking} />
@@ -1062,24 +1071,24 @@ function AdminBookingCompactRow({
       </div>
       <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
         <div className="min-w-0">
-          <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Category</p>
-          <p className="truncate text-xs font-normal text-black">{isOfficeBooking(booking) ? "Office rental" : booking.eventType || "Event venue"}</p>
+          <p className="oe-table-label">Category</p>
+          <p className="oe-table-secondary mt-0.5 line-clamp-1">{isOfficeBooking(booking) ? "Office rental" : booking.eventType || "Event venue"}</p>
         </div>
         <div className="min-w-0">
-          <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Reserved space</p>
-          <p className="line-clamp-2 text-xs font-normal text-black">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p>
+          <p className="oe-table-label">Reserved space</p>
+          <p className="oe-table-secondary mt-0.5 line-clamp-2">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p>
         </div>
         <div className="min-w-0">
-          <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Date / period</p>
-          <p className="text-xs font-normal text-black">{schedule.primary}</p>
-          <p className="text-[10px] font-normal text-black">{schedule.secondary}</p>
+          <p className="oe-table-label">Date / period</p>
+          <p className="oe-table-secondary mt-0.5 line-clamp-2">{schedule.primary}</p>
+          <p className="oe-table-secondary mt-0.5 line-clamp-2">{schedule.secondary}</p>
         </div>
       </div>
       <div className="mt-3 flex justify-end border-t border-slate-100 pt-3">
         <Button
           variant="outline"
           onClick={() => onView(booking)}
-          className="h-8 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
+          className="oe-table-action h-9 border-slate-300 text-slate-800 hover:border-slate-400 hover:bg-slate-50"
         >
           View Details
         </Button>

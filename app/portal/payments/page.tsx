@@ -304,10 +304,10 @@ function getStatusBadgeClass(paymentStatus?: string, booking?: any) {
   const refundStatus = normalizePaymentDisplayStatus(booking?.refundStatus);
 
   if (refundStatus === "refunded") return "border-slate-200 bg-slate-50 text-slate-700";
-  if (refundStatus === "requested" || refundStatus === "refund_requested") return "border-orange-100 bg-orange-50 text-orange-700";
-  if (["rejected", "declined", "cancelled"].includes(payStatus)) return "border-rose-100 bg-rose-50 text-rose-700";
-  if (["completed", "paid", "fully_paid", "verified", "slot_verified"].includes(payStatus)) return "border-emerald-100 bg-emerald-50 text-emerald-700";
-  if (["partial", "for_review", "pending_verification", "cash_pending", "slot_pending", "incomplete", "pending", "verifying"].includes(payStatus)) return "border-amber-100 bg-amber-50 text-amber-700";
+  if (refundStatus === "requested" || refundStatus === "refund_requested") return "border-orange-200 bg-orange-50 text-orange-700";
+  if (["rejected", "declined", "cancelled"].includes(payStatus)) return "border-rose-200 bg-rose-50 text-rose-700";
+  if (["completed", "paid", "fully_paid", "verified", "slot_verified"].includes(payStatus)) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (["partial", "for_review", "pending_verification", "cash_pending", "slot_pending", "incomplete", "pending", "verifying"].includes(payStatus)) return "border-amber-200 bg-amber-50 text-amber-700";
 
   return "border-slate-200 bg-slate-50 text-slate-700";
 }
@@ -461,8 +461,8 @@ function PaymentActionButtons({
         onClick={() => onSettle(booking)}
         className={cn(
           compact
-            ? "h-9 rounded-lg px-4 text-xs font-bold"
-            : "h-9 rounded-lg px-4 text-xs font-bold shadow-sm",
+            ? "oe-table-action h-9 px-4"
+            : "oe-table-action h-9 px-4 shadow-sm",
           "bg-emerald-600 text-white hover:bg-emerald-700 w-full whitespace-nowrap sm:w-auto"
         )}
       >
@@ -477,8 +477,8 @@ function PaymentActionButtons({
         onClick={() => onPay(booking)}
         className={cn(
           compact
-            ? "h-9 rounded-lg px-4 text-xs font-bold"
-            : "h-9 rounded-lg px-4 text-xs font-bold shadow-sm",
+            ? "oe-table-action h-9 px-4"
+            : "oe-table-action h-9 px-4 shadow-sm",
           "bg-orange-600 text-white hover:bg-orange-700 w-full whitespace-nowrap sm:w-auto"
         )}
       >
@@ -494,8 +494,8 @@ function PaymentActionButtons({
         onClick={() => onPay(booking)}
         className={cn(
           compact
-            ? "h-9 rounded-lg px-4 text-xs font-bold"
-            : "h-9 rounded-lg px-4 text-xs font-bold shadow-sm",
+            ? "oe-table-action h-9 px-4"
+            : "oe-table-action h-9 px-4 shadow-sm",
           "bg-orange-600 text-white hover:bg-orange-700 w-full whitespace-nowrap sm:w-auto"
         )}
       >
@@ -594,12 +594,12 @@ function TransactionTable({
           </colgroup>
           <TableHeader className="bg-slate-50/80">
             <tr>
-               <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Booking</TableHead>
-               <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Reserved Space</TableHead>
-               <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Schedule</TableHead>
-               <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Financial Summary</TableHead>
-               <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black">Payment Status</TableHead>
-               <TableHead className="px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-[0.12em] text-black">Actions</TableHead>
+               <TableHead className="oe-table-head">Booking</TableHead>
+               <TableHead className="oe-table-head">Reserved Space</TableHead>
+               <TableHead className="oe-table-head">Schedule</TableHead>
+               <TableHead className="oe-table-head">Financial Summary</TableHead>
+               <TableHead className="oe-table-head">Payment Status</TableHead>
+               <TableHead className="oe-table-head text-right">Actions</TableHead>
             </tr>
           </TableHeader>
           <TableBody>
@@ -681,13 +681,13 @@ function TransactionTableRow({
 
   const action = mode === "history" ? (
     data.isUnpaid ? (
-      <Button onClick={() => onPay(booking)} className="h-8 whitespace-nowrap rounded-lg bg-orange-600 px-3 text-xs font-bold text-white hover:bg-orange-700"><CreditCard className="mr-1 h-3.5 w-3.5" />Pay Now</Button>
+       <Button onClick={() => onPay(booking)} className="oe-table-action h-9 whitespace-nowrap bg-orange-600 text-white hover:bg-orange-700"><CreditCard className="mr-1 h-3.5 w-3.5" />Pay Now</Button>
     ) : (
-      <Button variant="outline" onClick={() => onView(booking)} className="h-8 whitespace-nowrap rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">View Details</Button>
+       <Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 whitespace-nowrap border-slate-300 text-slate-800 hover:border-slate-400 hover:bg-slate-50">View Details</Button>
     )
   ) : (
     <div className="flex flex-wrap justify-end gap-1.5">
-      <Button variant="outline" onClick={() => onView(booking)} className="h-8 whitespace-nowrap rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">View Details</Button>
+       <Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 whitespace-nowrap border-slate-300 text-slate-800 hover:border-slate-400 hover:bg-slate-50">View Details</Button>
       <PaymentActionButtons booking={booking} onPay={onPay} onSettle={onSettle} compact paymentCount={data.records.length} latestPaymentStatus={getLatestPaymentStatus(records as PaymentRecord[], booking)} records={data.records} />
     </div>
   )
@@ -695,17 +695,17 @@ function TransactionTableRow({
   return (
     <>
       <tr ref={rowRef} data-transaction-target={booking.id} className={cn("border-b border-slate-100 transition-colors hover:bg-slate-50/70", isHighlighted && "notification-target-highlight")}>
-        <TableCell className="min-w-0 px-3 py-2.5 align-top">
+        <TableCell className="min-w-0 align-top whitespace-normal">
           <div className="flex items-start gap-2">
             {mode === "history" && onToggle && <button type="button" onClick={() => onToggle(booking)} aria-expanded={expanded} aria-label={expanded ? `Hide transaction summary for ${booking.id}` : `Show transaction summary for ${booking.id}`} className="mt-0.5 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"><ChevronDown className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")} /></button>}
-            <div className="min-w-0"><p className="truncate text-[11px] font-normal text-black">{booking.id}</p><p className="mt-0.5 line-clamp-2 text-xs font-normal leading-4 text-black">{booking.eventName || booking.companyName || "Untitled booking"}</p><p className="mt-0.5 truncate text-[10px] font-normal text-black">{getPaymentMethodLabel(booking.paymentMethod)}</p></div>
+             <div className="min-w-0"><p className="oe-table-label truncate">{booking.id}</p><p className="oe-table-primary mt-0.5 line-clamp-2">{booking.eventName || booking.companyName || "Untitled booking"}</p><p className="oe-table-secondary mt-0.5 line-clamp-1">{getPaymentMethodLabel(booking.paymentMethod)}</p></div>
           </div>
         </TableCell>
-         <TableCell className="min-w-0 px-3 py-2.5 align-top"><p className="line-clamp-2 whitespace-normal text-xs font-normal leading-4 text-black">{resource.primary}</p>{resource.room && <p className="mt-0.5 truncate text-[10px] font-normal text-black">Room: {resource.room}</p>}</TableCell>
-         <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 align-top"><p className="max-w-full whitespace-normal break-words text-xs font-normal leading-4 text-black">{schedule.primary}</p><p className="mt-0.5 max-w-full whitespace-normal break-words text-[10px] font-normal text-black">{schedule.secondary}</p>{booking.status === "pending" && !isCashPending && !isExpired && <p className="mt-1 max-w-full whitespace-normal break-words text-[10px] font-normal leading-4 text-orange-700">Time left: {formatCountdown(remainingMs)}</p>}</TableCell>
-         <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 align-top"><div className="min-w-0 space-y-1 text-xs leading-4"><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="text-[9px] font-normal uppercase tracking-[0.08em] text-black">Total</span><span className="min-w-0 break-words text-right font-normal tabular-nums text-black">{formatMoney(data.displayTotal)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="text-[9px] font-normal uppercase tracking-[0.08em] text-black">Paid</span><span className="min-w-0 break-words text-right font-normal tabular-nums text-black">{formatMoney(data.amountPaid)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="text-[9px] font-normal uppercase tracking-[0.08em] text-black">Balance</span><span className="min-w-0 break-words text-right font-normal tabular-nums text-black">{formatMoney(data.remaining)}</span></p></div></TableCell>
-        <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 align-top"><span className={cn("inline-flex max-w-full whitespace-normal break-words items-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase leading-4", data.statusClass)}>{data.statusLabel}</span></TableCell>
-        <TableCell className="min-w-0 max-w-0 whitespace-normal px-3 py-2.5 text-right align-top"><div className="flex min-w-0 flex-wrap justify-end gap-1.5">{action}</div></TableCell>
+         <TableCell className="min-w-0 align-top whitespace-normal"><p className="oe-table-primary line-clamp-2">{resource.primary}</p>{resource.room && <p className="oe-table-secondary mt-0.5 line-clamp-1">Room: {resource.room}</p>}</TableCell>
+         <TableCell className="min-w-0 max-w-0 align-top whitespace-normal"><p className="oe-table-primary max-w-full line-clamp-2">{schedule.primary}</p><p className="oe-table-secondary mt-0.5 max-w-full line-clamp-2">{schedule.secondary}</p>{booking.status === "pending" && !isCashPending && !isExpired && <p className="mt-1 max-w-full break-words text-xs font-semibold leading-4 text-orange-700">Time left: {formatCountdown(remainingMs)}</p>}</TableCell>
+          <TableCell className="min-w-0 max-w-0 align-top whitespace-normal"><div className="min-w-0 space-y-1.5"><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3"><span className="oe-financial-label">Total</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.displayTotal)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3"><span className="oe-financial-label">Paid</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.amountPaid)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3"><span className="oe-financial-label">Balance</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.remaining)}</span></p></div></TableCell>
+         <TableCell className="min-w-0 max-w-0 align-top whitespace-normal"><span className={cn("oe-status-badge max-w-full whitespace-normal break-words", data.statusClass)}>{data.statusLabel}</span></TableCell>
+         <TableCell className="min-w-0 max-w-0 align-top whitespace-normal text-right"><div className="oe-table-actions">{action}</div></TableCell>
       </tr>
       {mode === "history" && expanded && (
         <tr className="border-b border-slate-100 bg-slate-50/60">
@@ -717,7 +717,7 @@ function TransactionTableRow({
               <TransactionDetailItem label="Remaining Balance" value={formatMoney(data.remaining)} />
             </div>
             <div className="mt-3 flex justify-end">
-              {data.isUnpaid ? <Button onClick={() => onPay(booking)} className="h-8 rounded-lg bg-orange-600 px-3 text-xs font-bold text-white hover:bg-orange-700"><CreditCard className="mr-1.5 h-3.5 w-3.5" />Pay Now</Button> : <Button variant="outline" onClick={() => onView(booking)} className="h-8 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-white"><Receipt className="mr-1.5 h-3.5 w-3.5" />Open Full Details</Button>}
+               {data.isUnpaid ? <Button onClick={() => onPay(booking)} className="oe-table-action h-9 bg-orange-600 text-white hover:bg-orange-700"><CreditCard className="mr-1.5 h-3.5 w-3.5" />Pay Now</Button> : <Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 border-slate-300 text-slate-800 hover:bg-white"><Receipt className="mr-1.5 h-3.5 w-3.5" />Open Full Details</Button>}
             </div>
           </TableCell>
         </tr>
@@ -764,14 +764,14 @@ function TransactionCompactRow({
 
   return (
     <div ref={rowRef} data-transaction-target={booking.id} className={cn("rounded-xl border border-slate-200 bg-white p-3 shadow-sm", isHighlighted && "notification-target-highlight")}>
-       <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-2">{mode === "history" && onToggle && <button type="button" onClick={() => onToggle(booking)} aria-expanded={expanded} aria-label={expanded ? `Hide transaction summary for ${booking.id}` : `Show transaction summary for ${booking.id}`} className="mt-0.5 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"><ChevronDown className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")} /></button>}<div className="min-w-0"><p className="truncate text-[10px] font-normal uppercase tracking-[0.14em] text-black">{booking.id}</p><p className="mt-0.5 line-clamp-2 text-sm font-normal leading-4 text-black">{booking.eventName || booking.companyName || "Untitled booking"}</p></div></div><span className={cn("inline-flex max-w-[142px] min-w-0 whitespace-normal break-words text-right leading-4 items-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em]", data.statusClass)}>{data.statusLabel}</span></div>
+       <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-2">{mode === "history" && onToggle && <button type="button" onClick={() => onToggle(booking)} aria-expanded={expanded} aria-label={expanded ? `Hide transaction summary for ${booking.id}` : `Show transaction summary for ${booking.id}`} className="mt-0.5 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"><ChevronDown className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")} /></button>}<div className="min-w-0"><p className="oe-table-label truncate">{booking.id}</p><p className="oe-table-primary mt-0.5 line-clamp-2">{booking.eventName || booking.companyName || "Untitled booking"}</p></div></div><span className={cn("oe-status-badge max-w-[142px] min-w-0 whitespace-normal break-words text-right", data.statusClass)}>{data.statusLabel}</span></div>
       <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
-       <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Reserved space</p><p className="line-clamp-2 text-xs font-normal text-black">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>
-       <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">Date / period</p><p className="whitespace-normal break-words text-xs font-normal text-black">{schedule.primary}</p><p className="whitespace-normal break-words text-[10px] font-normal text-black">{schedule.secondary}</p></div>
+        <div className="min-w-0"><p className="oe-table-label">Reserved space</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>
+        <div className="min-w-0"><p className="oe-table-label">Date / period</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{schedule.primary}</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{schedule.secondary}</p></div>
       </div>
-       <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3"><div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.1em] text-black">Total</p><p className="mt-0.5 break-words text-xs font-normal tabular-nums text-black">{formatMoney(data.displayTotal)}</p></div><div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.1em] text-black">Paid</p><p className="mt-0.5 break-words text-xs font-normal tabular-nums text-black">{formatMoney(data.amountPaid)}</p></div><div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.1em] text-black">Balance</p><p className="mt-0.5 break-words text-xs font-normal tabular-nums text-black">{formatMoney(data.remaining)}</p></div></div>
+       <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3"><div className="min-w-0"><p className="oe-financial-label">Total</p><p className="oe-financial-value mt-0.5">{formatMoney(data.displayTotal)}</p></div><div className="min-w-0"><p className="oe-financial-label">Paid</p><p className="oe-financial-value mt-0.5">{formatMoney(data.amountPaid)}</p></div><div className="min-w-0"><p className="oe-financial-label">Balance</p><p className="oe-financial-value mt-0.5">{formatMoney(data.remaining)}</p></div></div>
       <div className="mt-3 flex flex-wrap justify-end gap-1.5 border-t border-slate-100 pt-3">
-        {mode === "history" ? (data.isUnpaid ? <Button onClick={() => onPay(booking)} className="h-8 rounded-lg bg-orange-600 px-3 text-xs font-bold text-white hover:bg-orange-700"><CreditCard className="mr-1 h-3.5 w-3.5" />Pay Now</Button> : <Button variant="outline" onClick={() => onView(booking)} className="h-8 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">View Details</Button>) : <><Button variant="outline" onClick={() => onView(booking)} className="h-8 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">View Details</Button><PaymentActionButtons booking={booking} onPay={onPay} onSettle={onSettle} compact paymentCount={data.records.length} latestPaymentStatus={getLatestPaymentStatus(records as PaymentRecord[], booking)} records={data.records} /></>}
+         {mode === "history" ? (data.isUnpaid ? <Button onClick={() => onPay(booking)} className="oe-table-action h-9 bg-orange-600 text-white hover:bg-orange-700"><CreditCard className="mr-1 h-3.5 w-3.5" />Pay Now</Button> : <Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 border-slate-300 text-slate-800 hover:bg-slate-50">View Details</Button>) : <><Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 border-slate-300 text-slate-800 hover:bg-slate-50">View Details</Button><PaymentActionButtons booking={booking} onPay={onPay} onSettle={onSettle} compact paymentCount={data.records.length} latestPaymentStatus={getLatestPaymentStatus(records as PaymentRecord[], booking)} records={data.records} /></>}
       </div>
       {mode === "history" && expanded && <div className="mt-3 grid gap-3 border-t border-slate-100 bg-slate-50/60 pt-3 sm:grid-cols-2"><TransactionDetailItem label="Booking Status" value={getBookingStatusLabel(booking.status)} /><TransactionDetailItem label="Payment Type" value={isOfficeRentalBooking(booking) ? "Slot Reservation" : (booking as any).paymentType === "downpayment" ? "Down Payment" : "Full Payment"} /><TransactionDetailItem label="Confirmed Paid" value={formatMoney(data.amountPaid)} /><TransactionDetailItem label="Remaining Balance" value={formatMoney(data.remaining)} /></div>}
     </div>
@@ -779,7 +779,7 @@ function TransactionCompactRow({
 }
 
 function TransactionDetailItem({ label, value }: { label: string; value: string }) {
-   return <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-black">{label}</p><p className="mt-0.5 text-xs font-normal text-black">{value}</p></div>
+    return <div className="min-w-0"><p className="oe-table-label">{label}</p><p className="oe-table-secondary mt-0.5">{value}</p></div>
 }
 
 function Pagination({
@@ -2341,17 +2341,26 @@ function TransactionsContent() {
   return (
     <div className="w-full min-w-0 max-w-full overflow-x-hidden">
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 animate-in fade-in duration-500">
-        <div className="mb-4 flex items-center justify-end">
-          {hasHistoryRecords && (
-            <Button
-              variant="outline"
-              onClick={() => setShowHistory((v) => !v)}
-              className="h-11 whitespace-nowrap rounded-xl border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50"
-            >
-              <Receipt className="mr-1.5 h-3.5 w-3.5" />
-              {showHistory ? "Hide Transaction History" : "View Transaction History"}
-            </Button>
-          )}
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <p className="oe-page-kicker">Client Portal</p>
+            <h1 className="oe-page-title mt-1">My Transactions</h1>
+            <p className="oe-page-description mt-1 max-w-xl">
+              Review payment summaries, balances, and submission history by booking.
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center justify-end">
+            {hasHistoryRecords && (
+              <Button
+                variant="outline"
+                onClick={() => setShowHistory((v) => !v)}
+                className="h-11 whitespace-nowrap rounded-xl border-slate-200 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50"
+              >
+                <Receipt className="mr-1.5 h-3.5 w-3.5" />
+                {showHistory ? "Hide Transaction History" : "View Transaction History"}
+              </Button>
+            )}
+          </div>
         </div>
 
       {/* Current Transactions (hidden when viewing history) */}
@@ -2408,8 +2417,8 @@ function TransactionsContent() {
             )}
           </section>
 
-          {otherActiveTransactions.length > 0 && (
-            <section>
+           {otherActiveTransactions.length > 0 && (
+            <section className="mt-8">
               <SectionHeader
                 title="Other Current Transactions"
                 subtitle="Other active payment records."
@@ -2655,7 +2664,7 @@ function TransactionsContent() {
             </div>
           )}
 
-          <section>
+           <section className="mt-8">
             <SectionHeader
               title="Transaction History"
               subtitle={`${filteredHistory.length} record${filteredHistory.length === 1 ? "" : "s"}`}
@@ -2707,18 +2716,18 @@ function SectionHeader({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2.5">
+    <div className="flex items-center gap-3">
       {icon && (
-        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
+        <div className="oe-section-icon shrink-0">
           {icon}
         </div>
       )}
       <div className="min-w-0">
-        <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
+        <h2 className="oe-section-heading">
           {title}
         </h2>
         {subtitle && (
-          <p className="text-xs font-semibold text-slate-400">{subtitle}</p>
+          <p className="oe-section-description mt-0.5">{subtitle}</p>
         )}
       </div>
     </div>

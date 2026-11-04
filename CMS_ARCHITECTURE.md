@@ -1,6 +1,6 @@
 # CMS Architecture
 
-Source reviewed: **2026-11-03**. The active CMS uses **Cloud Firestore**, with one shared **`cms/data`** document plus a protected predefined-question configuration. See [ARCHITECTURE.md](ARCHITECTURE.md) for the overall system and scheduling invariants.
+Source reviewed: **2026-11-03**; admin-shell scrolling rechecked **2026-11-04**. The active CMS uses **Cloud Firestore**, with one shared **`cms/data`** document plus a protected predefined-question configuration. See [ARCHITECTURE.md](ARCHITECTURE.md) for the overall system and scheduling invariants. CMS screens remain inside the admin layout's independently scrollable main pane; this presentation behavior does not change CMS persistence or authorization.
 
 ## Implementation map
 

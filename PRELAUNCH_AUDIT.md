@@ -8,6 +8,8 @@
 
 This task audited and reproduced behavior; it did not apply application fixes, change financial policies, upgrade dependencies, deploy rules, or edit production data. Findings concern the checked-in/local implementation, not an inspection of deployed Firebase/Cloudinary settings.
 
+**Follow-up note (2026-11-04):** A later presentation-only change added explicit `min-h-0` sizing to the protected client/admin flex shells so their existing main-pane scroll regions cannot be clipped by flex sizing. This does not revise the dated audit scope, release verdict, authorization findings, or workflow/ledger behavior above.
+
 ## Evidence and severity
 
 - **P0 / critical:** an authorization boundary permits privilege escalation. Fix before release.

@@ -9,19 +9,19 @@ type StatusType =
   | "needs-review" | "complete" | "missing" | "live" | "empty"
 
 const STATUS_STYLES: Record<StatusType, string> = {
-  published: "bg-emerald-100 text-emerald-700",
-  under_renovation: "bg-amber-100 text-amber-700",
-  hidden: "bg-slate-100 text-slate-500",
-  draft: "bg-amber-100 text-amber-700",
-  "needs-photo": "bg-rose-100 text-rose-700",
-  "consent-missing": "bg-rose-100 text-rose-700",
-  "consent-confirmed": "bg-emerald-100 text-emerald-700",
-  featured: "bg-orange-100 text-orange-700",
-  "needs-review": "bg-amber-100 text-amber-700",
-  complete: "bg-emerald-100 text-emerald-700",
-  missing: "bg-rose-100 text-rose-700",
-  live: "bg-emerald-100 text-emerald-700",
-  empty: "bg-slate-100 text-slate-500",
+  published: "border border-emerald-200 bg-emerald-50 text-emerald-700",
+  under_renovation: "border border-amber-200 bg-amber-50 text-amber-700",
+  hidden: "border border-slate-200 bg-slate-50 text-slate-600",
+  draft: "border border-amber-200 bg-amber-50 text-amber-700",
+  "needs-photo": "border border-rose-200 bg-rose-50 text-rose-700",
+  "consent-missing": "border border-rose-200 bg-rose-50 text-rose-700",
+  "consent-confirmed": "border border-emerald-200 bg-emerald-50 text-emerald-700",
+  featured: "border border-orange-200 bg-orange-50 text-orange-700",
+  "needs-review": "border border-amber-200 bg-amber-50 text-amber-700",
+  complete: "border border-emerald-200 bg-emerald-50 text-emerald-700",
+  missing: "border border-rose-200 bg-rose-50 text-rose-700",
+  live: "border border-emerald-200 bg-emerald-50 text-emerald-700",
+  empty: "border border-slate-200 bg-slate-50 text-slate-600",
 }
 
 const STATUS_LABELS: Record<StatusType, string> = {
@@ -35,7 +35,7 @@ const STATUS_LABELS: Record<StatusType, string> = {
 export function CMSStatusBadge({ status }: { status: StatusType }) {
   return (
     <span
-      className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold leading-tight ${STATUS_STYLES[status] || STATUS_STYLES.draft}`}
+      className={`oe-status-badge ${STATUS_STYLES[status] || STATUS_STYLES.draft}`}
     >
       {STATUS_LABELS[status] || status}
     </span>

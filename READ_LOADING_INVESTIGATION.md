@@ -2,6 +2,8 @@
 
 **2026-10-27 investigation snapshot.** Measurements below are observations from read-only service requests and controlled browser replays, not a production latency guarantee. No live booking/payment was replayed or mutated.
 
+**Follow-up note (2026-11-04):** Protected portal/admin page scrolling was corrected independently of the loading and availability paths by preserving shrinkable flex ancestors around the existing scroll panes. The investigation measurements and service-boundary conclusions below are unchanged.
+
 ## Evidence and causes
 
 | Finding | Evidence | Resolution |

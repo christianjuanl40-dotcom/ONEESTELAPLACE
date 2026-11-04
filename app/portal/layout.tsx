@@ -131,7 +131,7 @@ export default function ClientLayout({
   const profilePicture = user.profilePicture
 
   return (
-    <div className="relative flex h-screen w-full flex-col overflow-hidden bg-slate-50">
+    <div className="relative flex h-screen min-h-0 w-full flex-col overflow-hidden bg-slate-50">
       <header className="z-50 flex h-16 shrink-0 items-center justify-between bg-gradient-to-r from-orange-600 via-orange-600 to-orange-700 text-white shadow-lg">
         <div className="flex h-full shrink-0 items-center gap-3 px-3 sm:px-4 lg:w-64 lg:px-6">
           <Button
@@ -202,7 +202,7 @@ export default function ClientLayout({
         </div>
       </header>
 
-      <div className="relative flex min-w-0 flex-1 overflow-hidden">
+      <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {isMobileMenuOpen && (
           <div
             className="absolute inset-0 z-40 bg-slate-900/50 backdrop-blur-sm lg:hidden"
@@ -236,10 +236,10 @@ export default function ClientLayout({
                   key={item.name}
                   href={item.href}
                   className={cn(
-                    "group relative flex items-center justify-between rounded-lg px-3 py-2.5 text-[14px] font-bold transition-all",
+                    "group relative flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-2",
                     isActive
                       ? "bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-md shadow-orange-500/20"
-                      : "text-slate-600 hover:bg-orange-50/60 hover:text-orange-700",
+                       : "text-slate-700 hover:bg-orange-50/60 hover:text-orange-700",
                   )}
                 >
                   {isActive && (
@@ -285,10 +285,10 @@ export default function ClientLayout({
                   key={item.name}
                   href={item.href}
                   className={cn(
-                    "group relative flex items-center rounded-lg px-3 py-2.5 text-[14px] font-bold transition-all",
+                     "group relative flex items-center rounded-lg px-3 py-2.5 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-2",
                     isActive
                       ? "bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-md shadow-orange-500/20"
-                      : "text-slate-600 hover:bg-orange-50/60 hover:text-orange-700",
+                       : "text-slate-700 hover:bg-orange-50/60 hover:text-orange-700",
                   )}
                 >
                   {isActive && (
@@ -307,7 +307,7 @@ export default function ClientLayout({
 
             <button
               type="button"
-              className="group relative flex w-full items-center rounded-lg px-3 py-2.5 text-[14px] font-bold text-rose-600 transition-all hover:bg-rose-50 hover:text-rose-700"
+               className="group relative flex w-full items-center rounded-lg px-3 py-2.5 text-sm font-semibold text-rose-600 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 focus-visible:ring-offset-2 hover:bg-rose-50 hover:text-rose-700"
               onClick={() => setShowLogoutConfirm(true)}
             >
               <LogOut className="mr-3 h-4 w-4 shrink-0 overflow-hidden" />
@@ -317,7 +317,7 @@ export default function ClientLayout({
         </aside>
 
         <main
-          className={`oe-light-surface min-w-0 flex-1 overflow-y-auto ${
+          className={`oe-light-surface min-h-0 min-w-0 flex-1 overflow-y-auto ${
             pathname === "/portal/chat" ? "p-0" : "p-3 pb-28 sm:p-4 sm:pb-8 md:p-6 md:pb-10 lg:p-8"
           }`}
         >

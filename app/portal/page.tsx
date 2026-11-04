@@ -314,16 +314,23 @@ export default function ClientDashboardPage() {
     <TooltipProvider delayDuration={400}>
     <div className="w-full min-w-0 max-w-full overflow-x-hidden">
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 animate-in fade-in duration-500">
-        <div className="mb-6 flex justify-end">
-          <Button className="h-11 rounded-xl bg-orange-600 px-5 text-sm font-black text-white shadow-sm hover:bg-orange-700 shrink-0 active:scale-[0.97] transition-transform" asChild>
-            <Link href="/portal/bookings"><Plus className="w-4 h-4 mr-1.5" /> New Booking</Link>
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <p className="oe-page-kicker">Client Portal</p>
+            <h1 className="oe-page-title mt-1">Dashboard</h1>
+            <p className="oe-page-description mt-1 max-w-xl">
+              A clear view of your current reservations and payment activity.
+            </p>
+          </div>
+          <Button className="h-11 shrink-0 rounded-xl bg-orange-600 px-5 text-sm font-semibold text-white shadow-sm transition-transform hover:bg-orange-700 active:scale-[0.97]" asChild>
+            <Link href="/portal/bookings"><Plus className="mr-1.5 h-4 w-4" /> New Booking</Link>
           </Button>
         </div>
 
         <div className="space-y-6">
           {activeRental && (
             <div>
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black mb-3">
+              <h2 className="oe-section-heading mb-3">
                 Active Office Rental
               </h2>
               <Card className="rounded-2xl border-emerald-200 bg-white shadow-sm overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -358,7 +365,7 @@ export default function ClientDashboardPage() {
 
           {contractSigning && (
             <div>
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black mb-3">
+              <h2 className="oe-section-heading mb-3">
                 Action Required
               </h2>
               <Card className="rounded-2xl border-yellow-200 bg-white shadow-sm overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -384,7 +391,7 @@ export default function ClientDashboardPage() {
 
           {expiredRental && (
             <div>
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black mb-3">
+              <h2 className="oe-section-heading mb-3">
                 Past Rental
               </h2>
               <Card className="rounded-2xl border-red-200 bg-white shadow-sm overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -445,7 +452,7 @@ export default function ClientDashboardPage() {
 
           {activeEventBooking && (
             <div>
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black mb-3">
+              <h2 className="oe-section-heading mb-3">
                 Active Event Booking
               </h2>
               <Card className="rounded-2xl border-slate-200 shadow-sm overflow-hidden bg-white">
@@ -481,7 +488,7 @@ export default function ClientDashboardPage() {
 
           {!activeRental && !contractSigning && !expiredRental && !earlyStageRental && !activeEventBooking && (
             <div>
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black mb-3">Your Next Event</h2>
+                <h2 className="oe-section-heading mb-3">Your Next Event</h2>
               <Card className="rounded-2xl border-slate-200 shadow-sm overflow-hidden bg-white">
                 <CardContent className="p-4 sm:p-5 flex flex-col items-center text-center py-8">
                   <Calendar className="mb-3 h-10 w-10 text-slate-300" />
@@ -506,7 +513,7 @@ export default function ClientDashboardPage() {
 
           <div>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black">Other Bookings</h2>
+              <h2 className="oe-section-heading">Other Bookings</h2>
               <Button variant="link" className="text-orange-600 text-xs font-bold h-auto p-0" asChild>
                 <Link href="/portal/bookings">View All <ArrowRight className="w-3 h-3 ml-1" /></Link>
               </Button>
@@ -560,7 +567,7 @@ export default function ClientDashboardPage() {
 
           <div>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-black">Recent Payments</h2>
+              <h2 className="oe-section-heading">Recent Payments</h2>
               <Button variant="link" className="text-orange-600 text-xs font-bold h-auto p-0" asChild>
                 <Link href="/portal/payments">Manage <ArrowRight className="w-3 h-3 ml-1" /></Link>
               </Button>

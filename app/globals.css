@@ -6,6 +6,12 @@
   --type-label-weight: 600;
   --type-body-color: #000000;
   --type-heading-color: #000000;
+  --oe-brand: #ea580c;
+  --oe-brand-hover: #c2410c;
+  --oe-surface-muted: #f8fafc;
+  --oe-border: #e2e8f0;
+  --oe-control-radius: 0.625rem;
+  --oe-control-height: 2.75rem;
   --background: 0 0% 100%;
   --foreground: 0 0% 0%;
   --card: 0 0% 100%;
@@ -289,6 +295,152 @@
 
 .oe-light-surface [data-slot="table-cell"] {
   font-weight: var(--type-body-weight);
+}
+
+/* Shared Phase 7.4 presentation primitives. Keep the four record tables
+   information-dense while giving their labels, values, statuses, and actions
+   a consistent readable scale. These classes are intentionally scoped to
+   presentation; they do not encode status or business meaning. */
+.oe-page-kicker {
+  color: var(--oe-brand);
+  font-size: 0.75rem;
+  font-weight: var(--type-label-weight);
+  letter-spacing: 0.08em;
+  line-height: 1rem;
+  text-transform: uppercase;
+}
+
+.oe-page-title {
+  color: var(--type-heading-color);
+  font-size: clamp(1.625rem, 1.45rem + 0.45vw, 1.875rem);
+  font-weight: var(--type-heading-weight);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.oe-page-description {
+  color: var(--type-body-color);
+  font-size: 0.9375rem;
+  font-weight: var(--type-body-weight);
+  line-height: 1.45;
+}
+
+.oe-section-heading {
+  color: var(--type-heading-color);
+  font-size: 1.125rem;
+  font-weight: var(--type-heading-weight);
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+}
+
+.oe-section-description {
+  color: var(--type-body-color);
+  font-size: 0.875rem;
+  font-weight: var(--type-body-weight);
+  line-height: 1.4;
+}
+
+.oe-section-icon {
+  align-items: center;
+  background: #fff7ed;
+  border: 1px solid #ffedd5;
+  border-radius: 0.625rem;
+  color: var(--oe-brand);
+  display: inline-flex;
+  height: 2rem;
+  justify-content: center;
+  width: 2rem;
+}
+
+.oe-table-head {
+  color: var(--type-heading-color);
+  font-size: 0.75rem;
+  font-weight: var(--type-heading-weight);
+  letter-spacing: 0.08em;
+  line-height: 1rem;
+  text-transform: uppercase;
+}
+
+.oe-table-label {
+  color: var(--type-body-color);
+  font-size: 0.75rem;
+  font-weight: var(--type-label-weight);
+  letter-spacing: 0.02em;
+  line-height: 1rem;
+}
+
+.oe-table-primary {
+  color: var(--type-body-color);
+  font-size: 0.875rem;
+  font-weight: var(--type-body-weight);
+  line-height: 1.3rem;
+  overflow-wrap: anywhere;
+}
+
+.oe-table-secondary {
+  color: var(--type-body-color);
+  font-size: 0.8125rem;
+  font-weight: var(--type-body-weight);
+  line-height: 1.15rem;
+  overflow-wrap: anywhere;
+}
+
+.oe-financial-label {
+  color: var(--type-body-color);
+  font-size: 0.75rem;
+  font-weight: var(--type-label-weight);
+  letter-spacing: 0.02em;
+  line-height: 1rem;
+}
+
+.oe-financial-value {
+  color: var(--type-body-color);
+  font-size: 0.875rem;
+  font-weight: var(--type-body-weight);
+  line-height: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+.oe-status-badge {
+  align-items: center;
+  border-radius: 0.5rem;
+  display: inline-flex;
+  font-size: 0.75rem;
+  font-weight: var(--type-label-weight);
+  justify-content: center;
+  letter-spacing: 0.01em;
+  line-height: 1rem;
+  min-height: 1.75rem;
+  padding: 0.25rem 0.625rem;
+  text-align: center;
+}
+
+.oe-table-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.oe-table-action {
+  border-radius: var(--oe-control-radius);
+  font-size: 0.875rem;
+  font-weight: var(--type-label-weight);
+  line-height: 1.25rem;
+  min-height: 2.25rem;
+  padding-inline: 0.875rem;
+}
+
+@media (max-width: 767px) {
+  .oe-page-description {
+    font-size: 0.875rem;
+  }
+
+  .oe-table-action {
+    min-height: 2.5rem;
+  }
 }
 
 /* dvh fallback */

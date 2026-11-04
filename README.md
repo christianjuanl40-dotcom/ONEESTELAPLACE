@@ -2,7 +2,7 @@
 
 Booking and rental management system for **One Estela Place**: event venue reservations, office room rentals, payment verification, customer support, and website content management.
 
-Source reviewed: **2026-10-19** baseline; resource identity, scheduling, maintenance, and CMS persistence rechecked **2026-10-25**; exclusive office occupancy and customer/admin Booking Details rechecked **2026-10-26**; session initialization, read recovery, and availability performance rechecked **2026-10-27**; compact booking/payment tables rechecked **2026-11-03**. This documentation describes the checked-in implementation; live catalog values and provider configuration come from the connected services.
+Source reviewed: **2026-10-19** baseline; resource identity, scheduling, maintenance, and CMS persistence rechecked **2026-10-25**; exclusive office occupancy and customer/admin Booking Details rechecked **2026-10-26**; session initialization, read recovery, and availability performance rechecked **2026-10-27**; compact booking/payment tables rechecked **2026-11-03**; protected portal/admin shell scrolling rechecked **2026-11-04**. This documentation describes the checked-in implementation; live catalog values and provider configuration come from the connected services.
 
 ## Start here for future prompts
 
@@ -28,6 +28,7 @@ Read these project references first, then open the source files relevant to the 
 - **Admin dashboard:** booking management, payment review, onsite payment recording, reports and Excel export, staff administration, CMS, and user information.
 - **Staff access:** dashboard features are controlled by per-module permissions.
 - **Responsive records:** booking and payment lists use compact semantic tables on desktop/tablet and labeled condensed rows on mobile, while retaining the existing filters, pagination, grouping, ownership checks, calculations, and actions.
+- **Protected workspace scrolling:** the client and admin shells are viewport-bounded flex layouts whose content panes own vertical scrolling; side navigation scrolls independently and record tables keep horizontal scrolling contained to their table region.
 
 The application roles are `admin`, `staff`, and `client`. An owner uses the admin role; `owner` is not a separate supported account role in the auth model.
 
@@ -119,7 +120,7 @@ Next.js route-group names such as `(client)` and `(admin)` are filesystem organi
 
 ### Booking and payment list convention
 
-The four booking/payment list surfaces—Admin Booking Management, Admin Payment Verification, Client My Bookings, and Client My Transactions—reuse `src/modules/shared/components/ui/table.tsx`. Booking tables show only the booking lifecycle status; payment tables show only the canonical payment/review status. Desktop/tablet views expose labeled columns inside a contained horizontal-scroll region when needed; booking tables fit the available laptop/desktop content area, explicitly wrap schedule/status content, and reserve a full action-button column; mobile views switch to labeled compact rows. Admin payment rows remain grouped by booking, with submission history and exact review identity preserved in the existing modal. Client transaction rows keep Total, Paid, and Balance inside a constrained financial-summary cell and remain one canonical financial summary per owned booking, derived from `calculatePaymentSummary()`; full submission and receipt history remains available through the existing details workflow.
+The four booking/payment list surfaces—Admin Booking Management, Admin Payment Verification, Client My Bookings, and Client My Transactions—reuse `src/modules/shared/components/ui/table.tsx`. Booking tables show only the booking lifecycle status; payment tables show only the canonical payment/review status. Desktop/tablet views expose labeled columns inside a contained horizontal-scroll region when needed; booking tables fit the available laptop/desktop content area, explicitly wrap schedule/status content, and reserve a full action-button column; mobile views switch to labeled compact rows. Admin payment rows remain grouped by booking, with submission history and exact review identity preserved in the existing modal. Client transaction rows keep Total, Paid, and Balance inside a constrained financial-summary cell and remain one canonical financial summary per owned booking, derived from `calculatePaymentSummary()`; full submission and receipt history remains available through the existing details workflow. The protected layouts keep `min-h-0` on the viewport shell, content row, and scrollable main pane so flex sizing cannot clip page scrolling.
 
 ## Development commands
 
