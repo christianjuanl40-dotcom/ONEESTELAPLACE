@@ -7,7 +7,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from "@firebase/rules-unit-testing"
-import { Timestamp } from "firebase/firestore"
+import { deleteField, Timestamp } from "firebase/firestore"
 
 const rulesSuite = process.env.FIRESTORE_EMULATOR_HOST ? describe : describe.skip
 const officeBooking = {
@@ -165,13 +165,22 @@ rulesSuite("Firestore security rules", () => {
     })
 
     it.each(Object.entries({
+      userId: "another-client",
+      bookingCode: "FORGED-CODE",
       venueId: "OTHER-OFFICE", officeId: "OTHER-OFFICE", spaceId: "ROOM-2", venue: "Another Office - Room 2",
       date: "2099-04-01", startDate: "2099-04-01", endDate: "2100-03-31",
       startTime: "08:00", endTime: "14:00", time: "08:00 - 14:00",
       bookingCategory: "venue", bookingType: "venue", isOfficeRental: false,
-      officeRentalTerm: "1_year", rentalTerm: "1_year", contractTerm: "1_year",
+      officeRentalTerm: "1_year", rentalTerm: "1_year", contractTerm: "1_year", paymentType: "full",
       status: "cancelled", bookingStatus: "Cancelled", isSlotSecured: false,
-      amountPaid: 10000, totalPrice: 20000, paymentStatus: "paid",
+      amountPaid: 10000, totalAmount: 20000, totalPrice: 20000, paymentStatus: "paid", paymentMethod: "cash",
+      refundStatus: "refunded", refundAmount: 10000, refundLedgerAmount: 10000,
+      customerName: "Forged Customer", customerEmail: "forged@example.test", customerPhone: "+63 900 000 0000",
+      userInfo: { name: "Forged Customer", email: "forged@example.test", phone: "+63 900 000 0000" },
+      paymentMetadata: { verifiedAmount: 100000 }, refundMetadata: { approvedBy: "attacker" },
+      createdAt: "2100-01-01T00:00:00Z", updatedAt: "2100-01-01T00:00:00Z", lastActivityAt: "2100-01-01T00:00:00Z",
+      adminLogs: [{ action: "FORGED", message: "Forged audit entry", createdAt: "2100-01-01T00:00:00Z" }],
+      unknownMetadata: "unexpected",
     }))("denies direct changes to %s", async (field, value) => {
       await seedProfilesAndRecords()
       const booking = testEnv.authenticatedContext(uid).firestore().collection("bookings").doc("OFFICE-BOOKING")
@@ -183,6 +192,10 @@ rulesSuite("Firestore security rules", () => {
       await seedProfilesAndRecords()
       const booking = testEnv.authenticatedContext(uid).firestore().collection("bookings").doc("OFFICE-BOOKING")
       await assertFails(booking.set({ date: "2099-04-01", specialRequests: "A harmless note" }, { merge: true }))
+      await assertFails(booking.update({ eventName: "Allowed label", totalPrice: 1 }))
+      await assertFails(booking.update({ "userInfo.name": "Forged Customer" }))
+      await assertFails(booking.update({ "metadata.internal": "unexpected" }))
+      await assertFails(booking.update({ userId: deleteField() }))
       const replacement = { ...officeBooking } as Record<string, unknown>
       delete replacement.spaceId
       await assertFails(booking.set(replacement))
@@ -194,14 +207,33 @@ rulesSuite("Firestore security rules", () => {
       const firestore = testEnv.authenticatedContext(uid).firestore()
       const booking = firestore.collection("bookings").doc("OFFICE-BOOKING")
       await assertSucceeds(booking.update({
-        eventName: "Updated customer label", specialRequests: "Staff note", updatedAt: "2099-01-01T12:00:00Z",
+        eventName: "Updated booking label", eventType: "Updated event type", specialRequests: "Staff note",
       }))
       expect((await booking.get()).data()).toMatchObject({ ...officeBooking, specialRequests: "Staff note" })
+      await assertFails(booking.update({ updatedAt: "2099-01-01T12:00:00Z" }))
+      await assertFails(booking.update({ lastActivityAt: "2099-01-01T12:00:00Z" }))
       await assertFails(booking.update({
         adminLogs: [{ action: "NOTE", message: "Forged audit edit", createdAt: "2099-01-01T12:00:00Z" }],
       }))
       await assertSucceeds(firestore.collection("bookings").get())
       await assertSucceeds(firestore.collection("officeRentals").get())
+    })
+
+    it("enforces metadata value types and inclusive length limits", async () => {
+      await seedProfilesAndRecords()
+      const booking = testEnv.authenticatedContext(uid).firestore().collection("bookings").doc("OFFICE-BOOKING")
+
+      await assertFails(booking.update({ eventName: 42 }))
+      await assertFails(booking.update({ eventType: { label: "Not a string" } }))
+      await assertFails(booking.update({ specialRequests: ["Not a string"] }))
+      await assertSucceeds(booking.update({
+        eventName: "e".repeat(160),
+        eventType: "t".repeat(120),
+        specialRequests: "s".repeat(2000),
+      }))
+      await assertFails(booking.update({ eventName: "e".repeat(161) }))
+      await assertFails(booking.update({ eventType: "t".repeat(121) }))
+      await assertFails(booking.update({ specialRequests: "s".repeat(2001) }))
     })
 
     it("denies direct legacy office rental creation, updates, and deletion", async () => {
@@ -214,10 +246,20 @@ rulesSuite("Firestore security rules", () => {
     })
   })
 
-  it("retains client metadata writes and owner-scoped booking and rental queries", async () => {
+  it.each(["reports-staff", "payment-staff", "users-staff", "cms-staff", "client"])(
+    "denies direct booking metadata writes without booking permission for %s",
+    async (uid) => {
+      await seedProfilesAndRecords()
+      const booking = testEnv.authenticatedContext(uid).firestore().collection("bookings").doc("OFFICE-BOOKING")
+      await assertFails(booking.update({ eventName: "Unauthorized edit" }))
+    },
+  )
+
+  it("keeps client booking reads owner-scoped and denies direct booking mutations", async () => {
     await seedProfilesAndRecords()
     const firestore = testEnv.authenticatedContext("client").firestore()
-    await assertSucceeds(firestore.collection("bookings").doc("OFFICE-BOOKING").update({ lastActivityAt: "2099-01-01T12:00:00Z" }))
+    await assertFails(firestore.collection("bookings").doc("OFFICE-BOOKING").update({ eventName: "Forged edit" }))
+    await assertFails(firestore.collection("bookings").doc("OFFICE-BOOKING").update({ lastActivityAt: "2099-01-01T12:00:00Z" }))
     await assertFails(firestore.collection("bookings").doc("BK002").update({ lastActivityAt: "2099-01-01T12:00:00Z" }))
     await assertSucceeds(firestore.collection("bookings").where("userId", "==", "client").get())
     await assertFails(firestore.collection("bookings").get())
@@ -225,6 +267,13 @@ rulesSuite("Firestore security rules", () => {
     await assertFails(firestore.collection("officeRentals").doc("OTHER-LEASE").get())
     await assertSucceeds(firestore.collection("officeRentals").where("userId", "==", "client").get())
     await assertFails(firestore.collection("officeRentals").get())
+  })
+
+  it("denies unauthenticated booking mutations", async () => {
+    await seedProfilesAndRecords()
+    const firestore = testEnv.unauthenticatedContext().firestore()
+    await assertFails(firestore.collection("bookings").doc("BK001").update({ eventName: "Unauthenticated edit" }))
+    await assertFails(firestore.collection("bookings").doc("BK001").set({ userId: "client" }))
   })
 
   it.each(["admin", "booking-staff", "payment-staff", "reports-staff", "client"])(
