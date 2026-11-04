@@ -1,8 +1,10 @@
 import {
   calculatePaymentSummary,
+  centsToPaymentAmount,
   getPaymentOverallStatusLabel,
   getRecordsForBooking,
   toPaymentAmount,
+  toPaymentCents,
   type BookingLike,
   type PaymentRecordLike,
   type PaymentSummary,
@@ -13,11 +15,27 @@ export type ReportBookingLike = BookingLike & Record<string, unknown>
 
 export type ReportBookingFinancials = {
   summary: PaymentSummary
+  /** The booking's face value, independent of collected cash. */
+  totalBookingValue: number
+  /** Canonical cash ledger: verified money plus received incomplete money. */
+  receivedPayments: number
+  /** Verified payment records only; this is a diagnostic distinct from receipts. */
+  verifiedPayments: number
+  /** Canonical outstanding booking balance before any refund presentation. */
+  outstandingBalance: number
+  paymentStatus: string
+  refundStatus: string
+  /** Refunds completed/claimed by the existing refund workflow only. */
+  processedRefundAmount: number
+  /** Received cash less the processed refund, never below zero. */
+  netReceivedAmount: number
+  /**
+   * Compatibility aliases for callers that consumed the pre-Phase-1A shape.
+   * They are assigned from the canonical fields above, not recalculated.
+   */
   totalAmount: number
   receivedAmount: number
   remainingBalance: number
-  paymentStatus: string
-  refundStatus: string
   refundAmount: number
 }
 
@@ -27,6 +45,13 @@ export type ReportSummary = {
   pending: number
   completed: number
   cancelled: number
+  totalBookingValue: number
+  receivedPayments: number
+  verifiedPayments: number
+  processedRefunds: number
+  netReceivedAmount: number
+  outstandingBalance: number
+  /** Deprecated aliases retained for compatibility with existing consumers. */
   totalRevenue: number
   totalRefunds: number
 }
@@ -46,8 +71,22 @@ export function isProcessedRefundStatus(status: unknown) {
 }
 
 export function getReportRefundAmount(booking: ReportBookingLike) {
-  const amount = toPaymentAmount(booking.refundAmount)
+  // Completion writes `refundedAmount`; older/refund-request records only have
+  // `refundAmount`. Prefer the completion field when it is present, and never
+  // use `refundLedgerAmount` because that is the received-payment ledger at the
+  // time of the refund, not the refund itself.
+  const completedAmount = booking.refundedAmount
+  const source = completedAmount === undefined || completedAmount === null || completedAmount === ""
+    ? booking.refundAmount
+    : completedAmount
+  const amount = toPaymentAmount(source)
   return amount > 0 ? amount : 0
+}
+
+export function getReportProcessedRefundAmount(booking: ReportBookingLike) {
+  return isProcessedRefundStatus(booking.refundStatus)
+    ? getReportRefundAmount(booking)
+    : 0
 }
 
 export function calculateReportBookingFinancials(
@@ -56,20 +95,36 @@ export function calculateReportBookingFinancials(
 ): ReportBookingFinancials {
   const records = getRecordsForBooking(paymentRecords, booking)
   const summary = calculatePaymentSummary(booking, records)
+  const totalBookingValue = summary.bookingTotal
+  const receivedPayments = summary.moneyReceivedTotal
+  const verifiedPayments = summary.acceptedVerifiedTotal
+  const outstandingBalance = summary.remainingBalance
+  const refundStatus = String(booking.refundStatus || "N/A")
+  const processedRefundAmount = getReportProcessedRefundAmount(booking)
+  const netReceivedAmount = centsToPaymentAmount(Math.max(
+    toPaymentCents(receivedPayments) - toPaymentCents(processedRefundAmount),
+    0,
+  ))
 
   return {
     summary,
-    totalAmount: summary.bookingTotal,
-    receivedAmount: summary.moneyReceivedTotal,
-    remainingBalance: summary.remainingBalance,
+    totalBookingValue,
+    receivedPayments,
+    verifiedPayments,
+    outstandingBalance,
     paymentStatus: getPaymentOverallStatusLabel(summary.overallStatus),
-    refundStatus: String(booking.refundStatus || "N/A"),
-    refundAmount: getReportRefundAmount(booking),
+    refundStatus,
+    processedRefundAmount,
+    netReceivedAmount,
+    totalAmount: totalBookingValue,
+    receivedAmount: receivedPayments,
+    remainingBalance: outstandingBalance,
+    refundAmount: processedRefundAmount,
   }
 }
 
 export function buildReportSummary(entries: ReadonlyArray<ReportSummaryEntry>): ReportSummary {
-  return entries.reduce(
+  const totals = entries.reduce(
     (summary, entry) => {
       const lifecycle = getBookingLifecycleLabel(entry.booking)
 
@@ -78,14 +133,12 @@ export function buildReportSummary(entries: ReadonlyArray<ReportSummaryEntry>): 
       if (lifecycle === "Completed") summary.completed += 1
       if (lifecycle === "Cancelled") summary.cancelled += 1
 
-      // Revenue is actual accepted/received money, not the booking face value.
-      summary.totalRevenue += entry.financials.receivedAmount
-
-      if (
-        isProcessedRefundStatus(entry.financials.refundStatus)
-      ) {
-        summary.totalRefunds += entry.financials.refundAmount
-      }
+      summary.totalBookingValueCents += toPaymentCents(entry.financials.totalBookingValue)
+      summary.receivedPaymentsCents += toPaymentCents(entry.financials.receivedPayments)
+      summary.verifiedPaymentsCents += toPaymentCents(entry.financials.verifiedPayments)
+      summary.processedRefundsCents += toPaymentCents(entry.financials.processedRefundAmount)
+      summary.netReceivedAmountCents += toPaymentCents(entry.financials.netReceivedAmount)
+      summary.outstandingBalanceCents += toPaymentCents(entry.financials.outstandingBalance)
 
       return summary
     },
@@ -95,8 +148,37 @@ export function buildReportSummary(entries: ReadonlyArray<ReportSummaryEntry>): 
       pending: 0,
       completed: 0,
       cancelled: 0,
-      totalRevenue: 0,
-      totalRefunds: 0,
+      totalBookingValueCents: 0,
+      receivedPaymentsCents: 0,
+      verifiedPaymentsCents: 0,
+      processedRefundsCents: 0,
+      netReceivedAmountCents: 0,
+      outstandingBalanceCents: 0,
     },
   )
+
+  const totalBookingValue = centsToPaymentAmount(totals.totalBookingValueCents)
+  const receivedPayments = centsToPaymentAmount(totals.receivedPaymentsCents)
+  const verifiedPayments = centsToPaymentAmount(totals.verifiedPaymentsCents)
+  const processedRefunds = centsToPaymentAmount(totals.processedRefundsCents)
+  const netReceivedAmount = centsToPaymentAmount(totals.netReceivedAmountCents)
+  const outstandingBalance = centsToPaymentAmount(totals.outstandingBalanceCents)
+
+  return {
+    totalBookings: totals.totalBookings,
+    confirmed: totals.confirmed,
+    pending: totals.pending,
+    completed: totals.completed,
+    cancelled: totals.cancelled,
+    totalBookingValue,
+    receivedPayments,
+    verifiedPayments,
+    processedRefunds,
+    netReceivedAmount,
+    outstandingBalance,
+    // Existing consumers used these names for received cash and processed
+    // refunds. Keep them as exact aliases while the UI uses explicit names.
+    totalRevenue: receivedPayments,
+    totalRefunds: processedRefunds,
+  }
 }

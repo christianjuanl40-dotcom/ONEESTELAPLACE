@@ -1,6 +1,6 @@
-/** Print-media checks against the real reports page component with local fixtures. */
+/** Report output checks against the real reports page component with local fixtures. */
 import assert from "node:assert/strict"
-import { mkdtemp } from "node:fs/promises"
+import { mkdtemp, readFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -13,7 +13,7 @@ const output = await mkdtemp(join(tmpdir(), "one-estela-report-print-"))
 const fixtureModules = {
   auth: `export const useAuth=()=>({user:{role:'admin',fullName:'Print Fixture Admin'}})`,
   booking: `export const useBookingData=()=>({bookings:[
-    {id:'BK-PRINT-1',bookingCategory:'venue',venueId:'venue-1',spaceId:'venue-1',venue:'Main Hall',eventName:'Fixture Conference',eventType:'Conference',date:'2026-10-01',status:'confirmed',totalPrice:10000,totalAmount:10000,amountPaid:5000,paymentStatus:'partial',userInfo:{name:'Fixture Client'}},
+     {id:'BK-PRINT-1',bookingCategory:'venue',venueId:'venue-1',spaceId:'venue-1',venue:'Main Hall',eventName:'Fixture Conference',eventType:'Conference',date:'2026-10-01',status:'confirmed',totalPrice:10000,totalAmount:10000,amountPaid:5000,paymentStatus:'partial',refundStatus:'refunded',refundAmount:2000,refundedAmount:2000,userInfo:{name:'Fixture Client'}},
     {id:'BK-PRINT-2',bookingCategory:'venue',venueId:'venue-1',spaceId:'venue-1',venue:'Main Hall',eventName:'Fixture Workshop',eventType:'Workshop',date:'2026-10-15',status:'pending',totalPrice:7500,totalAmount:7500,amountPaid:0,paymentStatus:'unpaid',userInfo:{name:'Another Client'}}
   ],paymentRecords:[],isLoading:false})`,
   cms: `export const useCMS=()=>({cmsData:{venues:[{id:'venue-1',name:'Main Hall',isArchived:false,isHidden:false,isBookable:true}],offices:[]}})`,
@@ -45,7 +45,7 @@ const server = await createServer({
     noDiscovery: true,
     include: [
       "react", "react-dom", "react-dom/client", "react/jsx-runtime", "react/jsx-dev-runtime", "lucide-react", "clsx", "tailwind-merge",
-      "class-variance-authority", "recharts", "@radix-ui/react-select", "@radix-ui/react-slot",
+      "class-variance-authority", "recharts", "exceljs", "@radix-ui/react-select", "@radix-ui/react-slot",
     ],
   },
   plugins: [{
@@ -86,9 +86,72 @@ try {
   await page.locator('[data-report-dashboard]').waitFor({ state: "attached" })
   assert.equal(await page.locator('[data-report-print-report]').evaluate(element => getComputedStyle(element).display), "none")
 
+  const dashboardText = await page.locator('[data-report-dashboard]').innerText()
+  assert.match(dashboardText, /Received Payments:/)
+  assert.match(dashboardText, /Net Received Cash:/)
+  assert.match(dashboardText, /Total Booking Value/i)
+  assert.match(dashboardText, /₱10,000\.00/)
+  assert.match(dashboardText, /₱5,000\.00/)
+  assert.match(dashboardText, /₱2,000\.00/)
+  assert.match(dashboardText, /₱3,000\.00/)
+
+  await page.locator('[aria-label="Year"]').click()
+  await page.getByRole("option", { name: "2026", exact: true }).click()
+  await page.locator('[aria-label="Month"]').click()
+  await page.getByRole("option", { name: "Oct", exact: true }).click()
+
+  const [excelDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Export Excel", exact: true }).click(),
+  ])
+  const excelPath = await excelDownload.path()
+  assert.ok(excelPath, "Excel export should produce a local download")
+  const { default: ExcelJS } = await import("exceljs")
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(await readFile(excelPath))
+  const worksheet = workbook.getWorksheet("Booking Records")
+  assert.ok(worksheet, "Excel export should contain the Booking Records sheet")
+  assert.equal(worksheet.getCell("A4").value, "Report Period: Oct 2026")
+  assert.equal(worksheet.getCell("A6").value, "Filters Applied: Year: 2026 | Month: Oct")
+  assert.deepEqual(
+    worksheet.getRow(20).values.slice(1),
+    [
+      "Booking ID", "Event Name", "Client", "Date", "Venue", "Booking Status", "Payment Status",
+      "Total Booking Value", "Received Payments", "Verified Payments", "Outstanding Balance",
+      "Refund Status", "Processed Refund", "Net Received Cash",
+    ],
+  )
+  const excelSummary = new Map()
+  for (let rowNumber = 9; rowNumber < 20; rowNumber++) {
+    excelSummary.set(worksheet.getCell(rowNumber, 1).value, worksheet.getCell(rowNumber, 9).value)
+  }
+  assert.equal(excelSummary.get("Total Booking Value"), 17500)
+  assert.equal(excelSummary.get("Received Payments"), 5000)
+  assert.equal(excelSummary.get("Processed Refunds"), 2000)
+  assert.equal(excelSummary.get("Net Received Cash"), 3000)
+  const excelRows = new Map()
+  for (let rowNumber = 21; rowNumber <= worksheet.rowCount; rowNumber++) {
+    excelRows.set(worksheet.getCell(rowNumber, 1).value, worksheet.getRow(rowNumber).values.slice(1))
+  }
+  assert.equal(excelRows.get("BK-PRINT-1")[7], 10000)
+  assert.equal(excelRows.get("BK-PRINT-1")[8], 5000)
+  assert.equal(excelRows.get("BK-PRINT-1")[12], 2000)
+  assert.equal(excelRows.get("BK-PRINT-1")[13], 3000)
+
   await page.emulateMedia({ media: "print" })
   await page.evaluate(() => window.dispatchEvent(new Event("beforeprint")))
   await page.locator('[data-report-print-report]').waitFor({ state: "visible" })
+  const printText = await page.locator('[data-report-print-report]').innerText()
+  assert.match(printText, /Reporting Period: Oct 2026/)
+  assert.match(printText, /Applied Filters: Year: 2026 \| Month: Oct/)
+  assert.match(printText, /Total Booking Value/i)
+  assert.match(printText, /Received Payments/i)
+  assert.match(printText, /Net Received Cash/i)
+  assert.match(printText, /₱17,500\.00/)
+  assert.match(printText, /₱10,000\.00/)
+  assert.match(printText, /₱5,000\.00/)
+  assert.match(printText, /₱2,000\.00/)
+  assert.match(printText, /₱3,000\.00/)
   const typography = await page.evaluate(() => {
     const read = selector => {
       const element = document.querySelector(selector)

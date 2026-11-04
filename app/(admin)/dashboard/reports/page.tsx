@@ -25,7 +25,6 @@ import {
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { useBookingData } from "@/src/modules/client/contexts/booking-context"
 import { useCMS } from "@/src/modules/admin/contexts/cms-context"
-import { getBookingTotal } from "@/src/modules/shared/lib/payment-calculations"
 import {
   buildReportSummary,
   calculateReportBookingFinancials,
@@ -137,14 +136,6 @@ function parseBookingDate(booking: BookingRecord) {
 
   if (!parsed || Number.isNaN(parsed.getTime())) return null
   return parsed
-}
-
-function getBookingAmount(booking: BookingRecord) {
-  return getBookingTotal(booking as ReportBookingLike)
-}
-
-function formatMoney(value: number) {
-  return `₱${Number(value || 0).toLocaleString("en-PH")}`
 }
 
 function formatReportMoney(value: number) {
@@ -264,10 +255,13 @@ const EXCEL_HEADERS = [
   "Venue",
   "Booking Status",
   "Payment Status",
-  "Total Amount",
-  "Remaining Balance",
+  "Total Booking Value",
+  "Received Payments",
+  "Verified Payments",
+  "Outstanding Balance",
   "Refund Status",
-  "Refund Amount",
+  "Processed Refund",
+  "Net Received Cash",
 ]
 
 type EnrichedBooking = BookingRecord & {
@@ -283,10 +277,13 @@ type ReportRow = {
   venue: string
   bookingStatus: string
   paymentStatus: string
-  totalAmount: number
-  remainingBalance: number
+  totalBookingValue: number
+  receivedPayments: number
+  verifiedPayments: number
+  outstandingBalance: number
   refundStatus: string
-  refundAmount: number
+  processedRefundAmount: number
+  netReceivedAmount: number
 }
 
 function getReportLifecycleLabel(booking: BookingRecord) {
@@ -325,18 +322,6 @@ function formatReportDate(value: Date | string) {
   }).format(value)
 }
 
-function formatDate(booking: BookingRecord) {
-  const parsed = parseBookingDate(booking)
-
-  if (!parsed) return getBookingDate(booking) || "No date"
-
-  return new Intl.DateTimeFormat("en-PH", {
-    month: "short",
-    day: "2-digit",
-    year: "numeric",
-  }).format(parsed)
-}
-
 function formatGeneratedDate(date: Date) {
   return new Intl.DateTimeFormat("en-PH", {
     year: "numeric",
@@ -365,10 +350,13 @@ function buildReportRows(bookings: EnrichedBooking[]): ReportRow[] {
       venue: booking.venue || "N/A",
       bookingStatus: getCanonicalBookingLifecycleLabel(booking as ReportBookingLike),
       paymentStatus: financials.paymentStatus,
-      totalAmount: financials.totalAmount,
-      remainingBalance: financials.remainingBalance,
+      totalBookingValue: financials.totalBookingValue,
+      receivedPayments: financials.receivedPayments,
+      verifiedPayments: financials.verifiedPayments,
+      outstandingBalance: financials.outstandingBalance,
       refundStatus: financials.refundStatus,
-      refundAmount: financials.refundAmount,
+      processedRefundAmount: financials.processedRefundAmount,
+      netReceivedAmount: financials.netReceivedAmount,
     }
   })
 }
@@ -463,13 +451,13 @@ function useContainerWidth<T extends HTMLElement>() {
 
 type MonthlyPerformancePoint = {
   month: string
-  revenue: number
+  receivedPayments: number
   bookings: number
 }
 
-type RevenueByVenuePoint = {
+type ReceivedPaymentsByVenuePoint = {
   name: string
-  total: number
+  receivedPayments: number
 }
 
 type ReportCountPoint = {
@@ -509,7 +497,7 @@ function ReportMonthlyPerformanceChart({
           tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }}
           tickFormatter={(value) => abbreviateMoney(Number(value))}
         >
-          {isPrinting && <Label value="Revenue (PHP)" angle={-90} position="insideLeft" fill="#64748b" fontSize={9} fontWeight={700} />}
+          {isPrinting && <Label value="Received Payments (PHP)" angle={-90} position="insideLeft" fill="#64748b" fontSize={9} fontWeight={700} />}
         </YAxis>
         <YAxis
           yAxisId="right"
@@ -522,7 +510,7 @@ function ReportMonthlyPerformanceChart({
         </YAxis>
         <Tooltip
           formatter={(value, name) => {
-            if (name === "revenue") return [formatMoney(Number(value)), "Revenue"]
+            if (name === "receivedPayments") return [formatReportMoney(Number(value)), "Received Payments"]
             return [`${value} booking/s`, "Bookings"]
           }}
           contentStyle={{
@@ -535,15 +523,15 @@ function ReportMonthlyPerformanceChart({
         <Legend wrapperStyle={{ fontSize: 11, fontWeight: 800 }} />
         <Bar
           yAxisId="left"
-          dataKey="revenue"
+          dataKey="receivedPayments"
           fill="#ea580c"
           radius={[8, 8, 0, 0]}
-          name="Revenue"
+          name="Received Payments"
           isAnimationActive={!isPrinting}
         >
           {isPrinting && (
             <LabelList
-              dataKey="revenue"
+              dataKey="receivedPayments"
               position="top"
               fill="#c2410c"
               fontSize={9}
@@ -570,11 +558,11 @@ function ReportMonthlyPerformanceChart({
   )
 }
 
-function ReportRevenueByVenueChart({
+function ReportReceivedPaymentsByVenueChart({
   data,
   isPrinting,
   printOnly = false,
-}: ReportChartProps & { data: RevenueByVenuePoint[] }) {
+}: ReportChartProps & { data: ReceivedPaymentsByVenuePoint[] }) {
   return (
     <ResponsiveContainer
       initialDimension={printOnly ? { width: 480, height: 190 } : undefined}
@@ -596,11 +584,11 @@ function ReportRevenueByVenueChart({
           tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }}
           tickFormatter={(value) => abbreviateMoney(Number(value))}
         >
-          {isPrinting && <Label value="Revenue (PHP)" angle={-90} position="insideLeft" fill="#64748b" fontSize={9} fontWeight={700} />}
+          {isPrinting && <Label value="Received Payments (PHP)" angle={-90} position="insideLeft" fill="#64748b" fontSize={9} fontWeight={700} />}
         </YAxis>
         <Tooltip
           cursor={{ fill: "#f8fafc" }}
-          formatter={(value) => [formatMoney(Number(value)), "Revenue"]}
+          formatter={(value) => [formatReportMoney(Number(value)), "Received Payments"]}
           contentStyle={{
             borderRadius: "1rem",
             border: "1px solid #e2e8f0",
@@ -610,16 +598,16 @@ function ReportRevenueByVenueChart({
         />
         {isPrinting && <Legend wrapperStyle={{ fontSize: 11, fontWeight: 800 }} />}
         <Bar
-          dataKey="total"
+          dataKey="receivedPayments"
           fill="#ea580c"
           radius={[8, 8, 0, 0]}
           barSize={42}
-          name="Revenue"
+          name="Received Payments"
           isAnimationActive={!isPrinting}
         >
           {isPrinting && (
             <LabelList
-              dataKey="total"
+              dataKey="receivedPayments"
               position="top"
               fill="#c2410c"
               fontSize={9}
@@ -991,9 +979,9 @@ export default function ReportsPage() {
 
   const totalPages = Math.max(1, Math.ceil(filteredData.length / rowsPerPage))
   const safePage = Math.min(currentPage, totalPages)
-  const paginatedData = useMemo(
-    () => enrichedData.slice((safePage - 1) * rowsPerPage, safePage * rowsPerPage),
-    [enrichedData, safePage, rowsPerPage],
+  const paginatedReportRows = useMemo(
+    () => reportRows.slice((safePage - 1) * rowsPerPage, safePage * rowsPerPage),
+    [reportRows, safePage, rowsPerPage],
   )
 
   const reportSummary = useMemo(
@@ -1005,17 +993,11 @@ export default function ReportsPage() {
     ),
     [enrichedData],
   )
-  const totalRevenue = reportSummary.totalRevenue
-  const totalRefunds = reportSummary.totalRefunds
-
-  const netRevenue = useMemo(() => {
-    return totalRevenue - totalRefunds
-  }, [totalRevenue, totalRefunds])
 
   const monthlyPerformance = useMemo(() => {
     const map = MONTHS.map((month) => ({
       month,
-      revenue: 0,
+      receivedPayments: 0,
       bookings: 0,
     }))
 
@@ -1026,23 +1008,23 @@ export default function ReportsPage() {
       const monthIndex = parsedDate.getMonth()
       map[monthIndex].bookings += 1
 
-      map[monthIndex].revenue += booking._financials.receivedAmount
+      map[monthIndex].receivedPayments += booking._financials.receivedPayments
     })
 
     return filterMonth === "all" ? map : map.filter((_, index) => index.toString() === filterMonth)
   }, [enrichedData, filterMonth])
 
-  const revenueByVenue = useMemo(() => {
+  const receivedPaymentsByVenue = useMemo(() => {
     const map: Record<string, number> = {}
 
     enrichedData.forEach((booking) => {
       const venue = getVenueName(booking.venue)
-      map[venue] = (map[venue] || 0) + booking._financials.receivedAmount
+      map[venue] = (map[venue] || 0) + booking._financials.receivedPayments
     })
 
     return Object.entries(map)
-      .map(([name, total]) => ({ name, total }))
-      .sort((a, b) => b.total - a.total)
+      .map(([name, receivedPayments]) => ({ name, receivedPayments }))
+      .sort((a, b) => b.receivedPayments - a.receivedPayments)
   }, [enrichedData])
 
   const statusCounts = useMemo(() => {
@@ -1115,6 +1097,8 @@ export default function ReportsPage() {
     || (enrichedData.length > 0 && enrichedData.every((booking) => booking._category === "office"))
 
   const activeReportFilters = [
+    filterYear !== "all" ? `Year: ${filterYear}` : "",
+    filterMonth !== "all" ? `Month: ${MONTHS[Number(filterMonth)]}` : "",
     filterCategory !== "all"
       ? `Booking Category: ${filterCategory === "venue" ? "Event Venues" : "Office Reservations"}`
       : "",
@@ -1149,9 +1133,12 @@ export default function ReportsPage() {
     { label: "Pending", value: String(reportSummary.pending) },
     { label: "Completed", value: String(reportSummary.completed) },
     { label: "Cancelled", value: String(reportSummary.cancelled) },
-    { label: "Total Revenue", value: formatReportMoney(reportSummary.totalRevenue) },
-    { label: "Total Refunds", value: formatReportMoney(reportSummary.totalRefunds) },
-    { label: "Net Revenue", value: formatReportMoney(netRevenue) },
+    { label: "Total Booking Value", value: formatReportMoney(reportSummary.totalBookingValue) },
+    { label: "Received Payments", value: formatReportMoney(reportSummary.receivedPayments) },
+    { label: "Verified Payments", value: formatReportMoney(reportSummary.verifiedPayments) },
+    { label: "Processed Refunds", value: formatReportMoney(reportSummary.processedRefunds) },
+    { label: "Net Received Cash", value: formatReportMoney(reportSummary.netReceivedAmount) },
+    { label: "Outstanding Balance", value: formatReportMoney(reportSummary.outstandingBalance) },
   ]
 
   const printReport = () => {
@@ -1184,14 +1171,14 @@ export default function ReportsPage() {
       workbook.creator = generatedBy
       workbook.created = new Date()
       workbook.company = "One Estela Place"
+      const headerRow = 20
 
       const worksheet = workbook.addWorksheet("Booking Records", {
-        views: [{ state: "frozen", ySplit: 15 }],
+        views: [{ state: "frozen", ySplit: headerRow }],
       })
       worksheet.properties.showGridLines = false
       worksheet.properties.defaultRowHeight = 18
 
-      const headerRow = 15
       const lastColumn = columnLetter(EXCEL_HEADERS.length)
 
       const dataRows = reportRows.map((row) => [
@@ -1202,10 +1189,13 @@ export default function ReportsPage() {
         row.venue,
         row.bookingStatus,
         row.paymentStatus,
-        row.totalAmount,
-        row.remainingBalance,
+        row.totalBookingValue,
+        row.receivedPayments,
+        row.verifiedPayments,
+        row.outstandingBalance,
         row.refundStatus,
-        row.refundAmount,
+        row.processedRefundAmount,
+        row.netReceivedAmount,
       ])
 
       const companyCell = worksheet.getCell("A1")
@@ -1245,7 +1235,14 @@ export default function ReportsPage() {
       worksheet.mergeCells(5, 1, 5, EXCEL_HEADERS.length)
       worksheet.getRow(5).height = 18
 
-      const accentRow = worksheet.getRow(6)
+      const filtersCell = worksheet.getCell("A6")
+      filtersCell.value = `Filters Applied: ${activeReportFilters.length > 0 ? activeReportFilters.join(" | ") : "None"}`
+      filtersCell.font = { name: "Calibri", size: 9, bold: true, color: { argb: "FF000000" } }
+      filtersCell.alignment = { vertical: "middle", horizontal: "center", wrapText: true }
+      worksheet.mergeCells(6, 1, 6, EXCEL_HEADERS.length)
+      worksheet.getRow(6).height = 24
+
+      const accentRow = worksheet.getRow(7)
       accentRow.height = 4
       for (let columnIndex = 1; columnIndex <= EXCEL_HEADERS.length; columnIndex++) {
         accentRow.getCell(columnIndex).fill = {
@@ -1271,13 +1268,13 @@ export default function ReportsPage() {
         // Logo is decorative only — fall back to the text banner when unavailable.
       }
 
-      const summaryBar = worksheet.getCell("A7")
+      const summaryBar = worksheet.getCell("A8")
       summaryBar.value = "REPORT SUMMARY"
       summaryBar.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FFFFFFFF" } }
       summaryBar.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } }
       summaryBar.alignment = { vertical: "middle", horizontal: "center" }
-      worksheet.mergeCells(7, 1, 7, EXCEL_HEADERS.length)
-      worksheet.getRow(7).height = 20
+      worksheet.mergeCells(8, 1, 8, EXCEL_HEADERS.length)
+      worksheet.getRow(8).height = 20
 
       const summaryItems: { label: string; value: number; money?: boolean }[] = [
         { label: "Total Bookings", value: reportSummary.totalBookings },
@@ -1285,12 +1282,16 @@ export default function ReportsPage() {
         { label: "Pending", value: reportSummary.pending },
         { label: "Completed", value: reportSummary.completed },
         { label: "Cancelled", value: reportSummary.cancelled },
-        { label: "Total Revenue", value: reportSummary.totalRevenue, money: true },
-        { label: "Total Refunds", value: reportSummary.totalRefunds, money: true },
+        { label: "Total Booking Value", value: reportSummary.totalBookingValue, money: true },
+        { label: "Received Payments", value: reportSummary.receivedPayments, money: true },
+        { label: "Verified Payments", value: reportSummary.verifiedPayments, money: true },
+        { label: "Processed Refunds", value: reportSummary.processedRefunds, money: true },
+        { label: "Net Received Cash", value: reportSummary.netReceivedAmount, money: true },
+        { label: "Outstanding Balance", value: reportSummary.outstandingBalance, money: true },
       ]
 
       summaryItems.forEach((item, index) => {
-        const rowNumber = 8 + index
+        const rowNumber = 9 + index
         const rowFill = {
           type: "pattern" as const,
           pattern: "solid" as const,
@@ -1332,8 +1333,8 @@ export default function ReportsPage() {
         const row = worksheet.getRow(headerRow + 1 + index)
         row.height = 20
 
-        const moneyColumns = [8, 9, 11]
-        const centerColumns = [4, 6, 7, 10]
+        const moneyColumns = [8, 9, 10, 11, 13, 14]
+        const centerColumns = [4, 6, 7, 12]
 
         values.forEach((value, columnIndex) => {
           const columnNumber = columnIndex + 1
@@ -1760,7 +1761,7 @@ export default function ReportsPage() {
         </header>
 
         <div data-report-print-title>
-          <h2>Venue Booking and Revenue Report</h2>
+          <h2>Venue Booking Financial Report</h2>
           <p>Reporting Period: {reportPeriod}</p>
           <p>Applied Filters: {activeReportFilters.length > 0 ? activeReportFilters.join(" | ") : "None"}</p>
         </div>
@@ -1809,7 +1810,7 @@ export default function ReportsPage() {
           <div data-report-print-chart-grid>
             <article data-report-print-chart-card data-report-print-chart-card-wide>
               <h4>Monthly Performance</h4>
-              <p>Booking volume and accepted/received revenue per month.</p>
+              <p>Booking volume and received payments per month.</p>
               <div data-report-print-chart-canvas>
                 {filteredData.length > 0 ? (
                   <ReportMonthlyPerformanceChart data={monthlyPerformance} isPrinting={isPrinting} printOnly />
@@ -1820,13 +1821,13 @@ export default function ReportsPage() {
             </article>
 
             <article data-report-print-chart-card>
-              <h4>Revenue per Venue</h4>
-              <p>Based on accepted/received payment amounts.</p>
+              <h4>Received Payments per Venue</h4>
+              <p>Based on the canonical received-payment ledger.</p>
               <div data-report-print-chart-canvas data-report-print-chart-canvas-compact>
-                {revenueByVenue.length > 0 ? (
-                  <ReportRevenueByVenueChart data={revenueByVenue} isPrinting={isPrinting} printOnly />
+                {receivedPaymentsByVenue.length > 0 ? (
+                  <ReportReceivedPaymentsByVenueChart data={receivedPaymentsByVenue} isPrinting={isPrinting} printOnly />
                 ) : (
-                  <div data-report-print-chart-empty>No revenue data yet.</div>
+                  <div data-report-print-chart-empty>No received-payment data yet.</div>
                 )}
               </div>
             </article>
@@ -1874,17 +1875,20 @@ export default function ReportsPage() {
           <h3 data-report-print-table-heading>BOOKING RECORDS</h3>
           <table>
             <colgroup>
-              <col style={{ width: "8%" }} />
-              <col style={{ width: "12%" }} />
-              <col style={{ width: "11%" }} />
-              <col style={{ width: "8%" }} />
-              <col style={{ width: "11%" }} />
+              <col style={{ width: "6%" }} />
               <col style={{ width: "9%" }} />
-              <col style={{ width: "11%" }} />
               <col style={{ width: "8%" }} />
-              <col style={{ width: "9%" }} />
+              <col style={{ width: "6%" }} />
+              <col style={{ width: "7%" }} />
+              <col style={{ width: "7%" }} />
+              <col style={{ width: "7%" }} />
+              <col style={{ width: "7%" }} />
               <col style={{ width: "7%" }} />
               <col style={{ width: "6%" }} />
+              <col style={{ width: "7%" }} />
+              <col style={{ width: "7%" }} />
+              <col style={{ width: "7%" }} />
+              <col style={{ width: "9%" }} />
             </colgroup>
             <thead>
               <tr>
@@ -1903,10 +1907,13 @@ export default function ReportsPage() {
                   <td>{row.venue}</td>
                   <td className="report-print-center">{row.bookingStatus}</td>
                   <td className="report-print-center">{row.paymentStatus}</td>
-                  <td className="report-print-money">{formatReportMoney(row.totalAmount)}</td>
-                  <td className="report-print-money">{formatReportMoney(row.remainingBalance)}</td>
+                  <td className="report-print-money">{formatReportMoney(row.totalBookingValue)}</td>
+                  <td className="report-print-money">{formatReportMoney(row.receivedPayments)}</td>
+                  <td className="report-print-money">{formatReportMoney(row.verifiedPayments)}</td>
+                  <td className="report-print-money">{formatReportMoney(row.outstandingBalance)}</td>
                   <td className="report-print-center">{row.refundStatus}</td>
-                  <td className="report-print-money">{formatReportMoney(row.refundAmount)}</td>
+                  <td className="report-print-money">{formatReportMoney(row.processedRefundAmount)}</td>
+                  <td className="report-print-money">{formatReportMoney(row.netReceivedAmount)}</td>
                 </tr>
               ))}
               {reportRows.length === 0 && (
@@ -1929,13 +1936,16 @@ export default function ReportsPage() {
             Records: <b className="text-slate-950">{filteredData.length}</b>
           </span>
           <span>
-            Gross Revenue: <b className="text-orange-600">{formatMoney(totalRevenue)}</b>
+            Total Booking Value: <b className="text-slate-950">{formatReportMoney(reportSummary.totalBookingValue)}</b>
           </span>
           <span>
-            Refunds: <b className="text-red-600">{totalRefunds > 0 ? "-" : ""}{formatMoney(totalRefunds)}</b>
+            Received Payments: <b className="text-orange-600">{formatReportMoney(reportSummary.receivedPayments)}</b>
           </span>
           <span>
-            Net Revenue: <b className="text-emerald-600">{formatMoney(netRevenue)}</b>
+            Processed Refunds: <b className="text-red-600">{formatReportMoney(reportSummary.processedRefunds)}</b>
+          </span>
+          <span>
+            Net Received Cash: <b className="text-emerald-600">{formatReportMoney(reportSummary.netReceivedAmount)}</b>
           </span>
           <span>
             Confirmed: <b className="text-slate-950">{reportSummary.confirmed}</b>
@@ -2004,10 +2014,10 @@ export default function ReportsPage() {
               <CalendarDays className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-lg font-black text-slate-950">Monthly Performance</h3>
-              <p className="text-xs font-semibold text-slate-500">
-                 Shows booking volume and accepted/received revenue per month.
-              </p>
+               <h3 className="text-lg font-black text-slate-950">Monthly Performance</h3>
+               <p className="text-xs font-semibold text-slate-500">
+                 Shows booking volume and received payments per month.
+               </p>
             </div>
           </div>
 
@@ -2197,22 +2207,22 @@ export default function ReportsPage() {
               <TrendingUp className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-lg font-black text-slate-950">Revenue per Venue</h3>
-              <p className="text-xs font-semibold text-slate-500">
-                 Based on accepted/received payment amounts.
-              </p>
+               <h3 className="text-lg font-black text-slate-950">Received Payments per Venue</h3>
+               <p className="text-xs font-semibold text-slate-500">
+                 Based on the canonical received-payment ledger.
+               </p>
             </div>
           </div>
 
           <div data-report-print-chart className="h-[250px] sm:h-[300px] w-full">
-            {revenueByVenue.length > 0 ? (
-              <ReportRevenueByVenueChart data={revenueByVenue} isPrinting={isPrinting} />
-            ) : (
-              <div data-report-print-empty className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50">
-                <div className="text-center">
-                  <p className="text-sm font-black text-slate-500">No revenue data yet</p>
-                  <p className="mt-1 text-xs font-semibold text-slate-400">
-                    Confirmed or completed bookings will appear here.
+             {receivedPaymentsByVenue.length > 0 ? (
+               <ReportReceivedPaymentsByVenueChart data={receivedPaymentsByVenue} isPrinting={isPrinting} />
+             ) : (
+               <div data-report-print-empty className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50">
+                 <div className="text-center">
+                   <p className="text-sm font-black text-slate-500">No received-payment data yet</p>
+                   <p className="mt-1 text-xs font-semibold text-slate-400">
+                     Confirmed or completed bookings will appear here.
                   </p>
                 </div>
               </div>
@@ -2308,65 +2318,97 @@ export default function ReportsPage() {
            <p className="ml-2 text-xs font-normal text-black">({filteredData.length} record{filteredData.length === 1 ? "" : "s"})</p>
         </div>
 
-        <div className="overflow-x-auto print:overflow-visible">
-          <table className="w-full min-w-[950px] text-left text-sm print:min-w-0">
-           <thead className="border-b border-slate-100 bg-white text-[10px] font-bold uppercase tracking-[0.2em] text-black">
-              <tr>
-                <th className="p-5 pl-8">Booking ID</th>
-                <th className="p-5">Event Details</th>
-                <th className="p-5">Client</th>
-                <th className="p-5">Date</th>
-                <th className="p-5">Status</th>
-                <th className="p-5 pr-8 text-right">Amount</th>
-              </tr>
+         <div className="overflow-x-auto print:overflow-visible">
+           <table className="w-full min-w-[1550px] text-left text-sm print:min-w-0">
+            <thead className="border-b border-slate-100 bg-white text-[10px] font-bold uppercase tracking-[0.2em] text-black">
+               <tr>
+                 <th className="p-5 pl-8">Booking ID</th>
+                 <th className="p-5">Event Details</th>
+                 <th className="p-5">Client</th>
+                 <th className="p-5">Date</th>
+                 <th className="p-5">Booking Status</th>
+                 <th className="p-5">Payment Status</th>
+                 <th className="p-5 text-right">Total Booking Value</th>
+                 <th className="p-5 text-right">Received Payments</th>
+                 <th className="p-5 text-right">Verified Payments</th>
+                 <th className="p-5 text-right">Outstanding Balance</th>
+                 <th className="p-5">Refund Status</th>
+                 <th className="p-5 text-right">Processed Refund</th>
+                 <th className="p-5 pr-8 text-right">Net Received Cash</th>
+               </tr>
             </thead>
 
             <tbody className="divide-y divide-slate-100">
-              {(isPrinting ? enrichedData : paginatedData).map((booking, index) => {
-                const status = booking.status || "pending"
-                const clientName = getReportClientName(booking)
+               {(isPrinting ? reportRows : paginatedReportRows).map((row, index) => {
+                 return (
+                   <tr key={`${row.bookingId || "booking"}-${index}`} className="transition-colors hover:bg-slate-50">
+                     <td className="p-5 pl-8">
+                        <p className="font-normal text-black">{row.bookingId}</p>
+                     </td>
 
-                return (
-                  <tr key={`${booking.id || "booking"}-${index}`} className="transition-colors hover:bg-slate-50">
-                    <td className="p-5 pl-8">
-                       <p className="font-normal text-black">{booking.id || "N/A"}</p>
-                    </td>
+                     <td className="p-5">
+                        <p className="font-normal text-black">
+                         {row.eventName}
+                       </p>
+                        <p className="mt-1 text-xs font-normal text-black">{row.venue}</p>
+                     </td>
 
-                    <td className="p-5">
-                       <p className="font-normal text-black">
-                        {booking.eventName || booking.eventType || "Untitled Event"}
-                      </p>
-                       <p className="mt-1 text-xs font-normal text-black">{booking.venue || "No venue selected"}</p>
-                    </td>
+                     <td className="p-5">
+                        <p className="font-normal text-black">{row.client}</p>
+                     </td>
 
-                    <td className="p-5">
-                       <p className="font-normal text-black">{clientName}</p>
-                    </td>
+                     <td className="p-5">
+                        <p className="font-normal text-black">{formatReportDate(row.date)}</p>
+                     </td>
 
-                    <td className="p-5">
-                       <p className="font-normal text-black">{formatDate(booking)}</p>
-                    </td>
+                     <td className="p-5">
+                       <span
+                         className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] ${getStatusBadgeClass(
+                           row.bookingStatus
+                         )}`}
+                       >
+                         {row.bookingStatus}
+                       </span>
+                     </td>
 
-                    <td className="p-5">
-                      <span
-                        className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] ${getStatusBadgeClass(
-                          status
-                        )}`}
-                      >
-                        {prettifyStatus(status)}
-                      </span>
-                    </td>
+                     <td className="p-5">
+                       <span className="font-normal text-black">{row.paymentStatus}</span>
+                     </td>
 
-                    <td className="p-5 pr-8 text-right">
-                       <p className="text-lg font-normal text-black">{formatMoney(getBookingAmount(booking))}</p>
-                    </td>
-                  </tr>
-                )
+                     <td className="p-5 text-right">
+                        <p className="font-normal tabular-nums text-black">{formatReportMoney(row.totalBookingValue)}</p>
+                     </td>
+
+                     <td className="p-5 text-right">
+                        <p className="font-normal tabular-nums text-black">{formatReportMoney(row.receivedPayments)}</p>
+                     </td>
+
+                     <td className="p-5 text-right">
+                        <p className="font-normal tabular-nums text-black">{formatReportMoney(row.verifiedPayments)}</p>
+                     </td>
+
+                     <td className="p-5 text-right">
+                        <p className="font-normal tabular-nums text-black">{formatReportMoney(row.outstandingBalance)}</p>
+                     </td>
+
+                     <td className="p-5">
+                       <span className="font-normal text-black">{row.refundStatus}</span>
+                     </td>
+
+                     <td className="p-5 text-right">
+                        <p className="font-normal tabular-nums text-black">{formatReportMoney(row.processedRefundAmount)}</p>
+                     </td>
+
+                     <td className="p-5 pr-8 text-right">
+                        <p className="font-normal tabular-nums text-black">{formatReportMoney(row.netReceivedAmount)}</p>
+                     </td>
+                   </tr>
+                 )
               })}
 
-              {filteredData.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="p-12 text-center">
+               {filteredData.length === 0 && (
+                 <tr>
+                   <td colSpan={13} className="p-12 text-center">
                     <div className="mx-auto max-w-sm">
                        <p className="text-base font-normal text-black">No booking records found for the selected filters.</p>
                        <p className="mt-1 text-sm font-normal text-black">
