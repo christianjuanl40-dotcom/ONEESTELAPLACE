@@ -22,6 +22,8 @@ import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { useBookingData, type Booking } from "@/src/modules/client/contexts/booking-context"
 import {
   calculatePaymentSummary,
+  getPaymentOverallStatusLabel,
+  getPendingPaymentTotal,
   getRecordsForBooking,
   type PaymentRecordLike,
 } from "@/src/modules/shared/lib/payment-calculations"
@@ -40,6 +42,7 @@ import {
 } from "@/src/modules/shared/components/ui/select"
 import { cn } from "@/src/modules/shared/lib/utils"
 import {
+  formatBookingDate,
   getBookingLifecycleLabel,
   getBookingLifecycleStatus,
 } from "@/src/modules/shared/lib/booking-helpers"
@@ -55,13 +58,7 @@ function isOfficeBooking(booking: Booking) {
 
 function formatDate(date?: string) {
   if (!date) return "—"
-  const parsed = new Date(date)
-  if (Number.isNaN(parsed.getTime())) return date
-  return new Intl.DateTimeFormat("en-PH", {
-    month: "short",
-    day: "2-digit",
-    year: "numeric",
-  }).format(parsed)
+  return formatBookingDate(date, "short")
 }
 
 function formatMoney(value?: number | string) {
@@ -123,13 +120,11 @@ function getPaymentStatusTone(
 
 function getPaymentStatusLabel(paymentStatus?: string) {
   const v = String(paymentStatus || "").toLowerCase()
-  if (v === "completed") return "Fully Paid"
+  if (["completed", "partial", "for_review", "incomplete", "rejected"].includes(v)) {
+    return getPaymentOverallStatusLabel(v as "completed" | "partial" | "for_review" | "incomplete" | "rejected")
+  }
   if (["verified", "paid", "slot_verified"].includes(v)) return "Verified"
-  if (v === "partial") return "Partial"
-  if (["for_review", "cash_pending", "slot_pending", "pending_verification"].includes(v))
-    return "For Review"
-  if (v === "incomplete") return "Incomplete"
-  if (v === "rejected") return "Rejected"
+  if (["cash_pending", "slot_pending", "pending_verification"].includes(v)) return "Pending Verification"
   if (!v) return "Not Set"
   return v.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
 }
@@ -204,10 +199,8 @@ function StatusCard({
 
   // Canonical overall payment state — same source as My Transactions and the
   // Admin Payment Verification page (accepted/verified records only).
-  const paymentSummary = calculatePaymentSummary(
-    booking,
-    getRecordsForBooking(paymentRecords, booking),
-  )
+  const bookingPaymentRecords = getRecordsForBooking(paymentRecords, booking)
+  const paymentSummary = calculatePaymentSummary(booking, bookingPaymentRecords)
   const canonicalPayStatus = paymentSummary.overallStatus
   const lifecycleStatus = getBookingLifecycleStatus(booking as unknown as Record<string, unknown>)
 
@@ -336,10 +329,10 @@ function StatusCard({
                     Amount
                   </p>
                   <p className="mt-0.5 text-slate-900">
-                    {formatMoney((booking as any).totalPrice)}
+                     {formatMoney(paymentSummary.bookingTotal)}
                   </p>
                 </div>
-                <div>
+                 <div>
                   <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
                     Type
                   </p>
@@ -356,8 +349,24 @@ function StatusCard({
                     Payment Status
                   </p>
                   <p className="mt-0.5 text-slate-900">
-                    {getPaymentStatusLabel(canonicalPayStatus)}
-                  </p>
+                   {getPaymentStatusLabel(canonicalPayStatus)}
+                   </p>
+                 </div>
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Received / Credited</p>
+                  <p className="mt-0.5 text-slate-900">{formatMoney(paymentSummary.moneyReceivedTotal)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Verified Payments</p>
+                  <p className="mt-0.5 text-slate-900">{formatMoney(paymentSummary.acceptedVerifiedTotal)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Pending Review</p>
+                  <p className="mt-0.5 text-amber-700">{formatMoney(getPendingPaymentTotal(bookingPaymentRecords))}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">Outstanding Balance</p>
+                  <p className="mt-0.5 text-slate-900">{formatMoney(paymentSummary.remainingBalance)}</p>
                 </div>
               </div>
             </div>

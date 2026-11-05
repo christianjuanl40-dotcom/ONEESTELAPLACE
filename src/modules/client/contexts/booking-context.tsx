@@ -2807,7 +2807,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       const payVenue = updatedBooking.venue || updatedBooking.eventName || "a venue"
       createNotification({
         type: "payment_submitted",
-        title: "Payment for Review",
+        title: "Payment Pending Verification",
         message: `A new payment for ${payVenue} is waiting for verification.`,
         bookingId: updatedBooking.id,
         userId: "admin",

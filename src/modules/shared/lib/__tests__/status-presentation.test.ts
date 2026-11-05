@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   getBookingStatusPresentationClass,
+  getBookingSchedulePresentationClass,
   getPaymentStatusPresentationClass,
   getRefundStatusPresentationClass,
   getReportBookingStatusPresentationClass,
@@ -9,6 +10,12 @@ import {
 } from "@/src/modules/shared/lib/status-presentation"
 
 describe("status presentation mappings", () => {
+  it("keeps schedule timing badges distinct from persisted lifecycle badges", () => {
+    expect(getBookingSchedulePresentationClass("upcoming")).toContain("blue")
+    expect(getBookingSchedulePresentationClass("active")).toContain("emerald")
+    expect(getBookingSchedulePresentationClass("legacy")).toContain("slate")
+  })
+
   it("keeps booking lifecycle meanings visually distinct", () => {
     expect(getBookingStatusPresentationClass("confirmed")).toContain("emerald")
     expect(getBookingStatusPresentationClass("pending")).toContain("orange")

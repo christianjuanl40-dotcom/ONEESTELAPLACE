@@ -21,6 +21,7 @@ import { PaymentReviewDetails } from "@/src/modules/shared/components/payment-re
 import { usePaymentHistorySelection } from "@/src/modules/shared/hooks/use-payment-history-selection"
 import { resolvePaymentReviewNote } from "@/src/modules/shared/lib/payment-review"
 import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-identity"
+import { formatBookingDateTime } from "@/src/modules/shared/lib/booking-helpers"
 import { Button } from "@/src/modules/shared/components/ui/button"
 import { Input } from "@/src/modules/shared/components/ui/input"
 import { Textarea } from "@/src/modules/shared/components/ui/textarea"
@@ -34,6 +35,7 @@ import {
   calculatePaymentSummary,
   findPaymentReceipt,
   getPaymentDisplayModel,
+  getPendingPaymentTotal,
   getPaymentRecordStatusLabel,
   getReceiptPaymentNumber,
   getReceiptPaymentType,
@@ -398,9 +400,23 @@ export function PaymentReviewModal({
           </div>
         </aside>
 
-        <div className="min-w-0 flex-1 px-4 py-5 sm:px-5 md:min-h-0 md:overflow-y-auto">
-          <div className="space-y-5">
-            {selectionUnavailable ? (
+          <div className="min-w-0 flex-1 px-4 py-5 sm:px-5 md:min-h-0 md:overflow-y-auto">
+            <div className="space-y-5">
+              <ModalSection title="Booking Payment Summary">
+                <dl className="grid grid-cols-2 gap-3 rounded-2xl border border-orange-100 bg-orange-50/50 p-4 sm:grid-cols-5">
+                  <div className="min-w-0"><dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Total Booking Value</dt><dd className="mt-1 text-sm font-black tabular-nums text-slate-900">{formatCurrency(paymentSummary.bookingTotal)}</dd></div>
+                  <div className="min-w-0"><dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Received / Credited</dt><dd className="mt-1 text-sm font-black tabular-nums text-slate-900">{formatCurrency(paymentSummary.moneyReceivedTotal)}</dd></div>
+                  <div className="min-w-0"><dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Verified Payments</dt><dd className="mt-1 text-sm font-black tabular-nums text-slate-900">{formatCurrency(paymentSummary.acceptedVerifiedTotal)}</dd></div>
+                  <div className="min-w-0"><dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Pending Review</dt><dd className="mt-1 text-sm font-black tabular-nums text-amber-700">{formatCurrency(getPendingPaymentTotal(submissions))}</dd></div>
+                  <div className="min-w-0"><dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Outstanding Balance</dt><dd className="mt-1 text-sm font-black tabular-nums text-slate-900">{formatCurrency(paymentSummary.remainingBalance)}</dd></div>
+                </dl>
+                {paymentSummary.hasPendingSubmission && (
+                  <p role="status" className="mt-3 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                    Submitted amounts are shown separately from received and verified money until an administrator completes review.
+                  </p>
+                )}
+              </ModalSection>
+              {selectionUnavailable ? (
               <p role="status" className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
                 The selected submission is no longer available. Choose a submission from history.
               </p>
@@ -898,7 +914,7 @@ function PaymentBadge({ payment, className }: { payment: BookingRecord; classNam
 
   if (paymentStatus === "completed") return <span className={`${baseClass} border-emerald-100 bg-emerald-50 text-emerald-700`}><CheckCircle2 className="h-3 w-3" />Fully Paid</span>
   if (paymentStatus === "partial") return <span className={`${baseClass} border-amber-100 bg-amber-50 text-amber-700`}><AlertCircle className="h-3 w-3" />Partial Payment</span>
-  if (paymentStatus === "for_review") return <span className={`${baseClass} border-amber-100 bg-amber-50 text-amber-700`}><ShieldCheck className="h-3 w-3" />For Review</span>
+  if (paymentStatus === "for_review") return <span className={`${baseClass} border-amber-100 bg-amber-50 text-amber-700`}><ShieldCheck className="h-3 w-3" />Pending Verification</span>
   if (paymentStatus === "rejected") return <span className={`${baseClass} border-rose-100 bg-rose-50 text-rose-700`}><XCircle className="h-3 w-3" />Rejected</span>
   if (paymentStatus === "incomplete") return <span className={`${baseClass} border-amber-100 bg-amber-50 text-amber-700`}><AlertCircle className="h-3 w-3" />Incomplete Payment</span>
   if (paymentStatus === "paid" && remainingBalance === 0 && totalAmount > 0 && amountPaid >= totalAmount) return <span className={`${baseClass} border-emerald-100 bg-emerald-50 text-emerald-700`}><CheckCircle2 className="h-3 w-3" />Fully Paid</span>
@@ -981,13 +997,7 @@ function getPaymentTypeLabel(type?: string) {
 
 function formatSubmittedAt(value?: string) {
   if (!value) return "—"
-  try {
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return value
-    return new Intl.DateTimeFormat("en-PH", { month: "short", day: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }).format(date)
-  } catch {
-    return value
-  }
+  return formatBookingDateTime(value, "short") || value
 }
 
 function getBookingTimeLabel(payment: BookingRecord) {
@@ -1006,7 +1016,7 @@ function getPaymentStatusText(payment: BookingRecord) {
   switch (ps) {
     case "completed": return "Fully Paid"
     case "partial": return "Partial Payment"
-    case "for_review": return "For Review"
+    case "for_review": return "Pending Verification"
     case "rejected": return "Rejected"
     case "incomplete": return "Incomplete Payment"
   }

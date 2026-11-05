@@ -334,7 +334,7 @@ try {
     const dialog = bookingDialog()
     assert.equal(await dialog.getByRole("button", { name: /close/i }).count(), 1)
     const labels = await dialog.locator("dt").allTextContents()
-    assert.deepEqual(labels, ["Payment Status", "Total Booking Amount", "Confirmed Paid Amount", "Remaining Balance", "Customer", "Email", "Booking Date", "Event Date", "End Date", "Venue / Office", "Guests", "Time", "Booking ID", "Event Type"])
+    assert.deepEqual(labels, ["Payment Status", "Total Booking Amount", "Received / Credited Amount", "Verified Payments", "Pending Review", "Remaining Balance", "Customer", "Email", "Booking Date", "Event Date", "End Date", "Venue / Office", "Guests", "Time", "Booking ID", "Event Type"])
     for (const name of ["Send Balance Reminder", "Record Onsite Payment", "Mark Contract as Signed"]) {
       assert.equal(await dialog.getByRole("button", { name, exact: true }).isEnabled(), true)
     }

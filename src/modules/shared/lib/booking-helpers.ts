@@ -4,6 +4,307 @@ export function normalizeStatus(value: unknown): string {
 
 export type BookingLifecycleStatus = "pending" | "confirmed" | "cancelled" | "completed"
 
+export type BookingScheduleClassification =
+  | "upcoming"
+  | "active"
+  | "completed"
+  | "cancelled"
+  | "rejected"
+  | "legacy"
+
+export type BookingScheduleInput = {
+  status?: unknown
+  bookingStatus?: unknown
+  date?: unknown
+  bookingDate?: unknown
+  eventDate?: unknown
+  startDate?: unknown
+  endDate?: unknown
+  startTime?: unknown
+  endTime?: unknown
+  time?: unknown
+  createdAt?: unknown
+}
+
+export type BookingScheduleRange = {
+  start: Date
+  end: Date
+  startTimestamp: number
+  endTimestamp: number
+}
+
+const BOOKING_TIME_ZONE = "Asia/Manila"
+
+type ManilaDateParts = {
+  year: number
+  month: number
+  day: number
+  hour?: number
+  minute?: number
+  second?: number
+}
+
+function asDate(value: unknown): Date | null {
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value : null
+  }
+
+  if (value && typeof value === "object" && "toDate" in value && typeof value.toDate === "function") {
+    try {
+      return asDate(value.toDate())
+    } catch {
+      return null
+    }
+  }
+
+  if (typeof value === "number") {
+    const parsed = new Date(value)
+    return Number.isFinite(parsed.getTime()) ? parsed : null
+  }
+
+  if (typeof value !== "string" || !value.trim()) return null
+  const parsed = new Date(value)
+  return Number.isFinite(parsed.getTime()) ? parsed : null
+}
+
+function getManilaDateParts(value: Date): ManilaDateParts | null {
+  if (!Number.isFinite(value.getTime())) return null
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: BOOKING_TIME_ZONE,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(value)
+  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value)
+  const result = {
+    year: get("year"),
+    month: get("month"),
+    day: get("day"),
+    hour: get("hour"),
+    minute: get("minute"),
+    second: get("second"),
+  }
+  return Object.values(result).every(Number.isFinite) ? result : null
+}
+
+function parseCalendarValue(value: unknown): ManilaDateParts | null {
+  const text = typeof value === "string" ? value.trim() : ""
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const [year, month, day] = text.split("-").map(Number)
+    const candidate = new Date(Date.UTC(year, month - 1, day))
+    if (
+      candidate.getUTCFullYear() === year &&
+      candidate.getUTCMonth() === month - 1 &&
+      candidate.getUTCDate() === day
+    ) {
+      return { year, month, day }
+    }
+    return null
+  }
+
+  const parsed = asDate(value)
+  return parsed ? getManilaDateParts(parsed) : null
+}
+
+function parseTime(value: unknown): number | null {
+  if (typeof value !== "string") return null
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})(?:\s*([ap]m))?$/i)
+  if (!match) return null
+
+  let hour = Number(match[1])
+  const minute = Number(match[2])
+  const meridiem = match[3]?.toLowerCase()
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || minute > 59) return null
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return null
+    if (meridiem === "am" && hour === 12) hour = 0
+    if (meridiem === "pm" && hour !== 12) hour += 12
+  }
+  if (hour > 23) return null
+  return hour * 60 + minute
+}
+
+function getEmbeddedTime(value: unknown): number | null {
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return null
+  const parsed = asDate(value)
+  const parts = parsed ? getManilaDateParts(parsed) : null
+  if (!parts || parts.hour === undefined || parts.minute === undefined) return null
+  return parts.hour * 60 + parts.minute
+}
+
+function getTimes(booking: BookingScheduleInput): { start: number | null; end: number | null } {
+  const timeMatches = typeof booking.time === "string"
+    ? booking.time.match(/\d{1,2}:\d{2}(?:\s*[ap]m)?/gi) || []
+    : []
+  return {
+    start: parseTime(booking.startTime) ?? parseTime(timeMatches[0]),
+    end: parseTime(booking.endTime) ?? parseTime(timeMatches[1]),
+  }
+}
+
+function comparableDate(parts: ManilaDateParts, minutes: number, endOfDay = false): Date {
+  return new Date(Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    Math.floor(minutes / 60),
+    minutes % 60,
+    endOfDay ? 59 : 0,
+    endOfDay ? 999 : 0,
+  ))
+}
+
+function getScheduleStartValue(booking: BookingScheduleInput): unknown {
+  return booking.date || booking.startDate || booking.eventDate || booking.bookingDate
+}
+
+function getScheduleEndValue(booking: BookingScheduleInput, startValue: unknown): unknown {
+  return booking.endDate || startValue
+}
+
+/**
+ * Parses booking dates as Manila calendar values. Date-only records are never
+ * passed through the host machine's timezone, so a browser or test runner in a
+ * different timezone cannot move a booking across a day boundary.
+ */
+export function getBookingScheduleRange(
+  booking: BookingScheduleInput,
+): BookingScheduleRange | null {
+  const startValue = getScheduleStartValue(booking)
+  const endValue = getScheduleEndValue(booking, startValue)
+  const startParts = parseCalendarValue(startValue)
+  const endParts = parseCalendarValue(endValue)
+  if (!startParts || !endParts) return null
+
+  const times = getTimes(booking)
+  const startMinutes = times.start ?? getEmbeddedTime(startValue) ?? 0
+  const endMinutes = times.end ?? getEmbeddedTime(endValue)
+  const start = comparableDate(startParts, startMinutes)
+  const end = endMinutes === null || endMinutes === undefined
+    ? comparableDate(endParts, 23 * 60 + 59, true)
+    : comparableDate(endParts, endMinutes)
+
+  if (end.getTime() < start.getTime()) return null
+  return {
+    start,
+    end,
+    startTimestamp: start.getTime(),
+    endTimestamp: end.getTime(),
+  }
+}
+
+function getBookingRawStatus(booking: BookingScheduleInput): string {
+  return normalizeStatus(booking.status) || normalizeStatus(booking.bookingStatus)
+}
+
+/**
+ * Returns a presentation-only schedule classification. It deliberately does
+ * not mutate or replace the persisted lifecycle status: a confirmed future
+ * booking remains confirmed, while its schedule classification is upcoming.
+ */
+export function getBookingScheduleClassification(
+  booking: BookingScheduleInput,
+  now = new Date(),
+): BookingScheduleClassification {
+  const rawStatus = getBookingRawStatus(booking).replace(/[\s-]+/g, "_")
+  if (["rejected", "declined", "denied", "booking_rejected", "request_rejected"].includes(rawStatus)) {
+    return "rejected"
+  }
+  if (["cancelled", "canceled", "expired"].includes(rawStatus)) return "cancelled"
+  if (rawStatus === "rental_expired" || getBookingLifecycleStatus(booking as Record<string, unknown>) === "completed") {
+    return "completed"
+  }
+
+  const range = getBookingScheduleRange(booking)
+  const nowParts = getManilaDateParts(now)
+  if (!range || !nowParts) return "legacy"
+  const comparableNow = comparableDate(
+    nowParts,
+    (nowParts.hour || 0) * 60 + (nowParts.minute || 0),
+  ).getTime() + (nowParts.second || 0) * 1000
+  const lifecycle = getBookingLifecycleStatus(booking as Record<string, unknown>)
+
+  if (comparableNow < range.startTimestamp) return "upcoming"
+  if (lifecycle === "pending") return "legacy"
+  if (comparableNow <= range.endTimestamp) return "active"
+  return "completed"
+}
+
+export function getBookingScheduleClassificationLabel(
+  classification: BookingScheduleClassification,
+): string {
+  if (classification === "upcoming") return "Upcoming"
+  if (classification === "active") return "Active now"
+  if (classification === "completed") return "Completed"
+  if (classification === "cancelled") return "Cancelled"
+  if (classification === "rejected") return "Rejected"
+  return "Schedule unavailable"
+}
+
+/** Formats reservation calendar dates in the application's Manila timezone. */
+export function formatBookingDate(value: unknown, month: "long" | "short" = "long"): string {
+  if (value === null || value === undefined || value === "") return ""
+  const text = String(value).trim()
+  let date: Date | null = null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const parts = parseCalendarValue(text)
+    date = parts ? new Date(Date.UTC(parts.year, parts.month - 1, parts.day)) : null
+  } else {
+    date = asDate(value)
+  }
+  if (!date) return text
+  return new Intl.DateTimeFormat("en-PH", {
+    timeZone: BOOKING_TIME_ZONE,
+    month,
+    day: "2-digit",
+    year: "numeric",
+  }).format(date)
+}
+
+/** Formats booking/payment timestamps in Manila time for user-facing detail views. */
+export function formatBookingDateTime(value: unknown, month: "long" | "short" = "short"): string {
+  if (value === null || value === undefined || value === "") return ""
+  const text = String(value).trim()
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(text)
+    ? (() => {
+        const parts = parseCalendarValue(text)
+        return parts ? new Date(Date.UTC(parts.year, parts.month - 1, parts.day)) : null
+      })()
+    : asDate(value)
+  if (!date) return text
+  return new Intl.DateTimeFormat("en-PH", {
+    timeZone: BOOKING_TIME_ZONE,
+    month,
+    day: "2-digit",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(date)
+}
+
+export function isBookingCurrentOrUpcoming(
+  booking: BookingScheduleInput,
+  now = new Date(),
+): boolean {
+  const classification = getBookingScheduleClassification(booking, now)
+  return classification === "active" || classification === "upcoming"
+}
+
+export function isBookingHistory(
+  booking: BookingScheduleInput,
+  now = new Date(),
+): boolean {
+  return ["completed", "cancelled", "rejected", "legacy"].includes(
+    getBookingScheduleClassification(booking, now),
+  )
+}
+
 /**
  * Maps legacy and workflow-specific values to the four user-facing booking
  * lifecycle states. Payment and request states belong in their own fields.
@@ -333,22 +634,69 @@ export function isAvailabilityBlockingBooking(booking: Record<string, unknown>):
 }
 
 export function isActiveBooking(booking: {
-  status?: string
-  bookingStatus?: string
-}): boolean {
-  const status = normalizeAvailabilityLifecycleStatus(booking.status || booking.bookingStatus)
-  return (AVAILABILITY_BLOCKING_BOOKING_STATUSES as readonly string[]).includes(status)
+  status?: unknown
+  bookingStatus?: unknown
+  date?: unknown
+  bookingDate?: unknown
+  eventDate?: unknown
+  startDate?: unknown
+  endDate?: unknown
+  startTime?: unknown
+  endTime?: unknown
+  time?: unknown
+}, now = new Date()): boolean {
+  return getBookingScheduleClassification(booking, now) === "active"
 }
 
 export function getCurrentBooking<T extends {
-  status?: string
-  bookingStatus?: string
-  createdAt?: string
-}>(bookings: T[]): T | null {
+  status?: unknown
+  bookingStatus?: unknown
+  createdAt?: unknown
+  date?: unknown
+  bookingDate?: unknown
+  eventDate?: unknown
+  startDate?: unknown
+  endDate?: unknown
+  startTime?: unknown
+  endTime?: unknown
+  time?: unknown
+}>(bookings: T[], now = new Date()): T | null {
   const sorted = [...bookings].sort(
     (a, b) =>
-      new Date(String(b.createdAt || 0)).getTime() - new Date(String(a.createdAt || 0)).getTime(),
+      getTimestamp(b.createdAt) - getTimestamp(a.createdAt),
   )
-  const active = sorted.filter(isActiveBooking)
+  const active = sorted.filter((booking) => isActiveBooking(booking, now))
   return active.length > 0 ? active[0] : null
+}
+
+function getTimestamp(value: unknown): number {
+  const parsed = asDate(value)
+  return parsed ? parsed.getTime() : 0
+}
+
+/** Selects the active booking, or the soonest scheduled booking when none is active. */
+export function getNextBooking<T extends {
+  status?: unknown
+  bookingStatus?: unknown
+  createdAt?: unknown
+  date?: unknown
+  bookingDate?: unknown
+  eventDate?: unknown
+  startDate?: unknown
+  endDate?: unknown
+  startTime?: unknown
+  endTime?: unknown
+  time?: unknown
+}>(bookings: T[], now = new Date()): T | null {
+  const current = getCurrentBooking(bookings, now)
+  if (current) return current
+
+  return bookings
+    .filter((booking) => getBookingScheduleClassification(booking, now) === "upcoming")
+    .sort((a, b) => {
+      const aRange = getBookingScheduleRange(a)?.startTimestamp ?? Number.POSITIVE_INFINITY
+      const bRange = getBookingScheduleRange(b)?.startTimestamp ?? Number.POSITIVE_INFINITY
+      if (aRange !== bRange) return aRange - bRange
+      return getTimestamp(b.createdAt) - getTimestamp(a.createdAt)
+    })[0] || null
 }

@@ -399,7 +399,7 @@ export async function POST(request: NextRequest) {
         receipt,
         notification: {
           type: "payment_submitted",
-          title: "Payment for Review",
+          title: "Payment Pending Verification",
           message: `A new payment for ${String(booking.venue || booking.eventName || "a venue")} is waiting for verification.`,
           bookingId,
           userId: "admin",

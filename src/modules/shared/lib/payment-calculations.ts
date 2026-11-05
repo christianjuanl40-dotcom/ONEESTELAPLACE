@@ -433,6 +433,16 @@ export function getPaymentRecordAmount(record: PaymentRecordLike | null | undefi
   return centsToPaymentAmount(getPaymentRecordAmountCents(record))
 }
 
+/** Submitted money still awaiting an explicit admin decision. */
+export function getPendingPaymentTotal(
+  records: ReadonlyArray<PaymentRecordLike> | null | undefined,
+): number {
+  return (records || []).reduce(
+    (total, record) => total + (isUnresolvedPaymentRecord(record) ? getPaymentRecordAmount(record) : 0),
+    0,
+  )
+}
+
 export function getPaymentRecordAmountCents(record: PaymentRecordLike | null | undefined): number {
   return toPaymentCents(record?.amount ?? record?.amountPaid ?? 0)
 }
@@ -708,13 +718,17 @@ function isReceiptIncompletePaymentRecord(record: PaymentRecordLike | null | und
 }
 
 export function getReceiptPaymentStatusLabel(record: PaymentRecordLike | null | undefined): string {
-  if (!record) return "For Review"
+  if (!record) return "Pending Verification"
   if (isReceiptRejectedPaymentRecord(record)) return "Rejected"
   if (isReceiptIncompletePaymentRecord(record)) return "Incomplete Payment"
   if (isReceiptVerifiedPaymentRecord(record)) return "Verified"
-  if (isPendingPaymentRecord(record)) return "For Review"
+  if (isPendingPaymentRecord(record)) return "Pending Verification"
   const rawStatus = String(record.status || record.verificationStatus || record.paymentStatus || "").trim()
-  return rawStatus || "For Review"
+  const normalizedStatus = normalizePaymentStatusValue(rawStatus)
+  if (["for_review", "for verification", "pending_verification", "pending verification", "cash_pending", "slot_pending"].includes(normalizedStatus)) {
+    return "Pending Verification"
+  }
+  return rawStatus || "Pending Verification"
 }
 
 function getReceiptRequiredDownpayment(
@@ -979,11 +993,11 @@ export function getPaymentRecordStatusLabel(
   record: PaymentRecordLike | null | undefined,
   _receipts?: unknown[],
 ): string {
-  if (record === null || record === undefined) return "For Review"
+  if (record === null || record === undefined) return "Pending Verification"
   if (isRejectedPaymentRecord(record)) return "Rejected"
   if (isIncompletePaymentRecord(record)) return "Incomplete Payment"
   if (isVerifiedPaymentRecord(record)) return "Verified"
-  return "For Review"
+  return "Pending Verification"
 }
 
 export function getPaymentOverallStatusLabel(status: PaymentOverallStatus): string {
@@ -991,7 +1005,7 @@ export function getPaymentOverallStatusLabel(status: PaymentOverallStatus): stri
   if (status === "partial") return "Partial Payment"
   if (status === "rejected") return "Rejected"
   if (status === "incomplete") return "Incomplete Payment"
-  return "For Review"
+  return "Pending Verification"
 }
 
 function getBookingPaymentType(booking: BookingLike): PaymentRecordType {

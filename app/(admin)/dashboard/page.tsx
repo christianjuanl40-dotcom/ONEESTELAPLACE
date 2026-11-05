@@ -29,7 +29,7 @@ import {
   getRecordsForBooking,
   type PaymentRecordLike,
 } from "@/src/modules/shared/lib/payment-calculations"
-import { getBookingLifecycleStatus } from "@/src/modules/shared/lib/booking-helpers"
+import { formatBookingDate, getBookingLifecycleStatus } from "@/src/modules/shared/lib/booking-helpers"
 import { Button } from "@/src/modules/shared/components/ui/button"
 import {
   Dialog,
@@ -860,9 +860,7 @@ function getBookingTime(booking: any) {
 
 function formatQueueDate(value?: string) {
   if (!value) return "—"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat("en-PH", { month: "short", day: "2-digit", year: "numeric" }).format(date)
+  return formatBookingDate(value, "short") || value
 }
 
 function getQueueSchedule(booking: Booking) {
@@ -884,8 +882,9 @@ function getQueueLocation(booking: Booking) {
 function getStoredPaymentStatusLabel(value: unknown) {
   const status = String(value || "unpaid").trim().toLowerCase()
   if (status === "unpaid") return "Unpaid"
-  if (["for_review", "for review", "pending_verification", "pending verification", "for verification", "cash_pending", "slot_pending"].includes(status)) return "For Review"
-  if (["paid", "fully paid", "completed", "verified", "slot_verified"].includes(status)) return "Paid"
+  if (["for_review", "for review", "pending_verification", "pending verification", "for verification", "cash_pending", "slot_pending"].includes(status)) return "Pending Verification"
+  if (["paid", "fully paid", "completed"].includes(status)) return "Fully Paid"
+  if (["verified", "slot_verified"].includes(status)) return "Verified"
   if (status === "partial") return "Partial Payment"
   if (status === "rejected") return "Rejected"
   return String(value || "Unpaid")

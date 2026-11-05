@@ -1,6 +1,6 @@
 # Design and Color Palette
 
-Source reviewed: **2026-10-19** baseline; compact booking/payment tables rechecked **2026-11-03**; Phase 7.4 presentation refinements and protected shell scrolling rechecked **2026-11-04**; Phase 2.1 table scroll chaining and admin booking ordering rechecked **2026-11-05**. This is the project's visual reference for future UI work, based on the current public site, portal, dashboard, shared components, and CSS configuration.
+Source reviewed: **2026-10-19** baseline; compact booking/payment tables rechecked **2026-11-03**; Phase 7.4 presentation refinements and protected shell scrolling rechecked **2026-11-04**; Phase 2.1 table scroll chaining, admin booking ordering, and lifecycle/payment presentation rechecked **2026-11-05**. This is the project's visual reference for future UI work, based on the current public site, portal, dashboard, shared components, and CSS configuration.
 
 Office occupancy badges and scheduling notices rechecked **2026-10-26**; customer/admin Booking Details button hierarchy refined **2026-10-27**; CMS responsive/accessibility surfaces rechecked **2026-11-05**. They reuse the existing compact orange/slate language.
 
@@ -71,7 +71,7 @@ Use the existing state mapping on the surface being edited. Typical light badges
 | Expired | Red 600 `#DC2626` | `bg-red-50 text-red-700 border-red-100` | Rental expired |
 | Neutral / hidden | Slate 500 `#64748B` | `bg-slate-50 text-slate-600 border-slate-200` | Unknown, hidden, empty, inactive |
 
-Unread badges use **Rose 500 `#F43F5E`** with white text. A state label/icon should communicate the meaning alongside its color. Booking lifecycle, individual payment status, and aggregate payment state are distinct; styling should reflect the correct one.
+Unread badges use **Rose 500 `#F43F5E`** with white text. A state label/icon should communicate the meaning alongside its color. Booking lifecycle, schedule classification, individual payment status, and aggregate payment state are distinct; styling should reflect the correct one. Schedule badges use blue for upcoming/completed information, emerald for active timing, and slate for legacy or unavailable schedules. Pending payment submissions are labeled **Pending Verification**, while received/credited, verified, pending-review, and outstanding amounts remain separate values.
 
 ### Reports and chart colors
 

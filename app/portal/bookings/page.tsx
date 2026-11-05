@@ -60,6 +60,8 @@ import { Textarea } from "@/src/modules/shared/components/ui/textarea"
 import { getPaymentMethodLabel } from "@/src/modules/shared/lib/labels"
 import {
   calculatePaymentSummary,
+  getPaymentOverallStatusLabel,
+  getPendingPaymentTotal,
   getReceiptPaymentMethodLabel,
   getReceiptPresentation,
   getRecordsForBooking,
@@ -73,14 +75,21 @@ import {
   type ReceiptPaperData,
 } from "@/src/modules/shared/components/receipt-paper"
 import { cn } from "@/src/modules/shared/lib/utils"
-import { getBookingStatusPresentationClass } from "@/src/modules/shared/lib/status-presentation"
 import {
-  getCurrentBooking,
+  getBookingSchedulePresentationClass,
+  getBookingStatusPresentationClass,
+} from "@/src/modules/shared/lib/status-presentation"
+import {
+  getBookingScheduleClassification,
+  getBookingScheduleClassificationLabel,
+  formatBookingDate,
+  getNextBooking,
   hasActiveModificationRequest as bookingHasActiveModificationRequest,
   getBookingLifecycleLabel,
   getBookingLifecycleStatus,
   hasActiveCancellationRequest as bookingHasActiveCancellationRequest,
-  isActiveBooking,
+  isBookingCurrentOrUpcoming,
+  isBookingHistory,
 } from "@/src/modules/shared/lib/booking-helpers"
 import { getRemainingDurationFromDates } from "@/src/modules/shared/lib/date-utils"
 import { useCMS } from "@/src/modules/admin/contexts/cms-context"
@@ -154,10 +163,6 @@ function normalizeStatus(value: any) {
   return String(value || "").trim().toLowerCase()
 }
 
-function getBookingStatus(booking: any) {
-  return normalizeStatus(booking.bookingStatus || booking.status)
-}
-
 function getBookingId(booking: any) {
   return String(
     booking.id ||
@@ -179,13 +184,12 @@ function getBookingTime(booking: any) {
   ).getTime()
 }
 
-function isPastBooking(booking: any) {
-  const statuses = ["completed", "cancelled", "declined", "rental_expired"]
-  return statuses.includes(getBookingStatus(booking))
+function isPastBooking(booking: any, now = new Date()) {
+  return isBookingHistory(booking, now)
 }
 
-function isCurrentBooking(booking: any) {
-  return !isPastBooking(booking)
+function isCurrentBooking(booking: any, now = new Date()) {
+  return isBookingCurrentOrUpcoming(booking, now)
 }
 
 function getBookingCustomerName(booking: Booking | null) {
@@ -200,13 +204,7 @@ function getBookingEventName(booking: Booking | null) {
 
 function formatDate(date?: string) {
   if (!date) return "No date"
-  const parsed = new Date(date)
-  if (Number.isNaN(parsed.getTime())) return date
-  return new Intl.DateTimeFormat("en-PH", {
-    month: "long",
-    day: "2-digit",
-    year: "numeric",
-  }).format(parsed)
+  return formatBookingDate(date)
 }
 
 function formatMoney(value?: number | string) {
@@ -416,11 +414,22 @@ function getClientBookingScheduleParts(booking: Booking) {
 }
 
 function ClientBookingStatusBadges({ booking }: { booking: Booking }) {
+  const scheduleClassification = getBookingScheduleClassification(booking)
+  const showScheduleBadge = ["upcoming", "active", "legacy"].includes(scheduleClassification) ||
+    (scheduleClassification === "completed" && getBookingLifecycleStatus(booking as unknown as Record<string, unknown>) !== "completed")
   return (
     <div className="flex min-w-0 flex-col items-start gap-1.5">
       <span className={cn("oe-status-badge max-w-full whitespace-normal break-words", getStatusBadgeClass(booking.status))}>
         {getStatusLabel(booking.status)}
       </span>
+      {showScheduleBadge && (
+        <span className={cn(
+          "oe-status-badge max-w-full whitespace-normal break-words",
+          getBookingSchedulePresentationClass(scheduleClassification),
+        )}>
+          {getBookingScheduleClassificationLabel(scheduleClassification)}
+        </span>
+      )}
       {hasPendingCancellationIndicator(booking) && (
         <span className="oe-status-badge max-w-full whitespace-normal break-words border border-amber-200 bg-amber-50 text-amber-700">
           Cancellation Requested
@@ -645,6 +654,13 @@ function BookingDetailsModal({
   const canonicalPayStatus = paymentSummary.overallStatus
   const storedPayStatus = String(booking.paymentStatus || "").toLowerCase()
   const effectivePayStatus = hasPaymentRecords ? canonicalPayStatus : storedPayStatus
+  const pendingPaymentAmount = getPendingPaymentTotal(bookingPaymentRecords)
+  const paymentStatusLabel = hasPaymentRecords
+    ? getPaymentOverallStatusLabel(canonicalPayStatus)
+    : canonicalPayStatus === "for_review" && paymentSummary.moneyReceivedTotal === 0
+      ? "Unpaid"
+      : getPaymentOverallStatusLabel(canonicalPayStatus)
+  const scheduleClassification = getBookingScheduleClassification(booking)
 
   const isCancelled =
     String(booking.status || "").toLowerCase() === "cancelled" ||
@@ -805,8 +821,18 @@ function BookingDetailsModal({
               <BookingDetailSection title="Booking Information">
                 <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
                   <BookingDetailField label="Booking Title" wide>{booking.eventName || "Untitled Booking"}</BookingDetailField>
-                  <BookingDetailField label="Booking Date">{formatDate(booking.createdAt)}</BookingDetailField>
-                  <BookingDetailField label="Booking ID">#{booking.id}</BookingDetailField>
+                   <BookingDetailField label="Booking Date">{formatDate(booking.createdAt)}</BookingDetailField>
+                   <BookingDetailField label="Booking ID">#{booking.id}</BookingDetailField>
+                  <BookingDetailField label="Reservation Status">
+                    <span className={cn("inline-flex max-w-full rounded-md border px-2 py-1 text-xs font-semibold", getStatusBadgeClass(booking.status))}>
+                      {getBookingLifecycleLabel(booking as unknown as Record<string, unknown>)}
+                    </span>
+                  </BookingDetailField>
+                  <BookingDetailField label="Schedule Status">
+                    <span className={cn("inline-flex max-w-full rounded-md border px-2 py-1 text-xs font-semibold", getBookingSchedulePresentationClass(scheduleClassification))}>
+                      {getBookingScheduleClassificationLabel(scheduleClassification)}
+                    </span>
+                  </BookingDetailField>
                   <BookingDetailField label={isOfficeRental ? "Office / Room" : "Venue"} wide>{booking.venue || "—"}</BookingDetailField>
                   <BookingDetailField label={isOfficeRental ? "Rental Start Date" : "Event Date"}>{startDate}</BookingDetailField>
                   <BookingDetailField label={isOfficeRental ? "Rental End Date" : "Event End Date"}>{endDate}</BookingDetailField>
@@ -820,6 +846,17 @@ function BookingDetailsModal({
                     <BookingDetailField label="Guests">{booking.guestCount ? `${booking.guestCount} pax` : "—"}</BookingDetailField>
                     <BookingDetailField label="Time" wide>{timeValue}</BookingDetailField>
                   </>}
+                 </dl>
+               </BookingDetailSection>
+
+              <BookingDetailSection title="Payment Summary">
+                <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+                  <BookingDetailField label="Payment Status">{paymentStatusLabel}</BookingDetailField>
+                  <BookingDetailField label="Total Booking Amount">₱{paymentSummary.bookingTotal.toLocaleString()}</BookingDetailField>
+                  <BookingDetailField label="Received / Credited Amount">₱{paymentSummary.moneyReceivedTotal.toLocaleString()}</BookingDetailField>
+                  <BookingDetailField label="Verified Payments">₱{paymentSummary.acceptedVerifiedTotal.toLocaleString()}</BookingDetailField>
+                  <BookingDetailField label="Pending Review">₱{pendingPaymentAmount.toLocaleString()}</BookingDetailField>
+                  <BookingDetailField label="Remaining Balance">₱{paymentSummary.remainingBalance.toLocaleString()}</BookingDetailField>
                 </dl>
               </BookingDetailSection>
 
@@ -2177,7 +2214,7 @@ function ModifyBookingFlowModal({
 export default function MyBookingsPage() {
   const router = useRouter()
   const { user } = useAuth()
-  const { getUserBookings, requestCancellation, issueReceipt, requestModification, bookings, paymentRecords } =
+  const { getUserBookings, requestCancellation, issueReceipt, requestModification, bookings, paymentRecords, isLoading, dataError, retryData } =
     useBookingData({ bookings: true, maintenance: true, payments: true })
   const { toast } = useToast()
 
@@ -2209,6 +2246,12 @@ export default function MyBookingsPage() {
   const [historyPage, setHistoryPage] = useState(1)
   const [currentPage, setCurrentPage] = useState(1)
   const [showHistory, setShowHistory] = useState(false)
+  const [presentationNow, setPresentationNow] = useState(() => new Date())
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setPresentationNow(new Date()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     if (user) {
@@ -2284,17 +2327,17 @@ export default function MyBookingsPage() {
   )
 
   const { currentBooking, otherActiveBookings, historyBookings } = useMemo(() => {
-    const current = getCurrentBooking(sortedBookings)
+    const current = getNextBooking(sortedBookings, presentationNow)
     const currentId = current ? getBookingId(current) : ""
 
     return {
       currentBooking: current,
       otherActiveBookings: sortedBookings.filter(
-        (b) => isActiveBooking(b) && getBookingId(b) !== currentId,
+        (b) => isCurrentBooking(b, presentationNow) && getBookingId(b) !== currentId,
       ),
-      historyBookings: sortedBookings.filter(isPastBooking),
+      historyBookings: sortedBookings.filter((booking) => isPastBooking(booking, presentationNow)),
     }
-  }, [sortedBookings])
+  }, [sortedBookings, presentationNow])
 
   const searchMatch = (booking: Booking, query: string) => {
     if (!query) return true
@@ -2315,7 +2358,7 @@ export default function MyBookingsPage() {
 
   const matchesFilter = (booking: Booking, f: BookingFilter) => {
     if (f === "all") return true
-    if (f === "current") return isCurrentBooking(booking)
+    if (f === "current") return isCurrentBooking(booking, presentationNow)
     if (f === "cancellation_requested") {
       return String(booking.status || "").toLowerCase() === f
     }
@@ -2351,7 +2394,7 @@ export default function MyBookingsPage() {
           searchMatch(b, searchQuery) &&
           isDateInRange(b.date, dateFrom || undefined, dateTo || undefined),
       ),
-    [historyBookings, filter, searchQuery, dateFrom, dateTo],
+    [historyBookings, filter, searchQuery, dateFrom, dateTo, presentationNow],
   )
 
   const totalHistoryPages = Math.max(
@@ -2423,7 +2466,7 @@ export default function MyBookingsPage() {
     const target = myBookings.find((b) => b.id === highlightedBookingId)
     if (!target) return
 
-    const past = isPastBooking(target)
+    const past = isPastBooking(target, presentationNow)
 
     if (past && !showHistory) {
       setShowHistory(true)
@@ -2479,6 +2522,7 @@ export default function MyBookingsPage() {
     otherActiveBookings,
     safeCurrentPage,
     currentBooking,
+    presentationNow,
   ])
 
   const canWriteReview = (booking: Booking) => {
@@ -2621,6 +2665,28 @@ export default function MyBookingsPage() {
   const hasHistoryRecords = historyBookings.length > 0
   const hasOtherActive = otherActiveBookings.length > 0
 
+  if (isLoading || dataError) {
+    return (
+      <div className="w-full min-w-0 max-w-full overflow-x-hidden">
+        <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+          <p className="oe-page-kicker">Client Portal</p>
+          <h1 className="oe-page-title mt-1">My Bookings</h1>
+          {isLoading ? (
+            <section className="mt-6" aria-busy="true" aria-live="polite">
+              <p className="mb-3 text-sm font-semibold text-slate-600">Loading your bookings…</p>
+              <BookingSkeleton />
+            </section>
+          ) : (
+            <div role="alert" className="mt-6 flex flex-col items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3"><AlertCircle className="mt-0.5 h-5 w-5 shrink-0" /><div><p className="font-bold">Bookings could not be loaded.</p><p className="mt-1 text-xs">{dataError}</p></div></div>
+              <Button type="button" variant="outline" onClick={retryData} className="h-9 shrink-0 border-rose-300 text-rose-800 hover:bg-rose-100">Retry</Button>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="w-full min-w-0 max-w-full overflow-x-hidden">
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 animate-in fade-in duration-500">
@@ -2754,8 +2820,8 @@ export default function MyBookingsPage() {
       {!showHistory && (
         <section>
           <SectionHeader
-          title="Current Booking"
-          subtitle="Your active reservation"
+          title={currentBooking && getBookingScheduleClassification(currentBooking) === "upcoming" ? "Next Booking" : "Current Booking"}
+          subtitle={currentBooking && getBookingScheduleClassification(currentBooking) === "upcoming" ? "Your next scheduled reservation" : "Your active reservation"}
           icon={<ListChecks className="h-4 w-4" />}
         />
         {currentBooking ? (
@@ -2810,8 +2876,8 @@ export default function MyBookingsPage() {
       {!showHistory && (hasOtherActive || searchQuery) && (
         <section className="mt-8">
           <SectionHeader
-            title="Other Current Bookings"
-            subtitle="Other active reservations that are still ongoing."
+            title="Other Upcoming & Active Bookings"
+            subtitle="Other reservations with a future or current schedule."
             icon={<ListChecks className="h-4 w-4" />}
           />
           <div className="mt-3 space-y-2">

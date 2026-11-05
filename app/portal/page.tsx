@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { Card, CardContent } from "@/src/modules/shared/components/ui/card"
 import { Badge } from "@/src/modules/shared/components/ui/badge"
@@ -18,11 +18,21 @@ import { useBookingData, type Booking } from "@/src/modules/client/contexts/book
 import {
   getBookingLifecycleLabel,
   getBookingLifecycleStatus,
-  getCurrentBooking,
+  getBookingScheduleClassification,
+  formatBookingDate,
+  getNextBooking,
 } from "@/src/modules/shared/lib/booking-helpers"
 import { getRemainingDurationFromDates } from "@/src/modules/shared/lib/date-utils"
 import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-identity"
 import { cn } from "@/src/modules/shared/lib/utils"
+import {
+  calculatePaymentSummary,
+  getPaymentOverallStatusLabel,
+  getPendingPaymentTotal,
+  getPaymentRecordTime,
+  getRecordsForBooking,
+} from "@/src/modules/shared/lib/payment-calculations"
+import { getPaymentStatusPresentationClass } from "@/src/modules/shared/lib/status-presentation"
 
 function isOfficeBooking(booking: Booking) {
   return isOfficeResourceBooking(booking as unknown as Record<string, unknown>)
@@ -142,18 +152,22 @@ function getRemainingDuration(endDate?: string, startDate?: string) {
 
 function formatDate(date?: string) {
   if (!date) return "No date"
-  const parsed = new Date(date)
-  if (Number.isNaN(parsed.getTime())) return date
-  return new Intl.DateTimeFormat("en-PH", {
-    month: "long",
-    day: "2-digit",
-    year: "numeric",
-  }).format(parsed)
+  return formatBookingDate(date)
 }
 
 function getOfficeStatusDisplay(booking: Booking) {
   const s = String(booking.status || "").toLowerCase()
+  const schedule = getBookingScheduleClassification(booking)
   if (s === "active_rental") {
+    if (schedule === "upcoming") {
+      return {
+        badge: "UPCOMING",
+        badgeClass: "border-blue-200 bg-blue-50 text-blue-700",
+        icon: "🔵",
+        remaining: null,
+        endDate: (booking as any).endDate ? formatDate((booking as any).endDate) : null,
+      }
+    }
     const remaining = getRemainingDuration((booking as any).endDate, booking.date)
     return {
       badge: "ACTIVE RENTAL",
@@ -181,6 +195,15 @@ function getOfficeStatusDisplay(booking: Booking) {
       endDate: null,
     }
   }
+  if (schedule === "completed") {
+    return {
+      badge: "COMPLETED",
+      badgeClass: "border-blue-100 bg-blue-50 text-blue-700",
+      icon: "🔵",
+      remaining: null,
+      endDate: null,
+    }
+  }
   if (s === "pending") {
     return {
       badge: "PENDING",
@@ -200,6 +223,15 @@ function getOfficeStatusDisplay(booking: Booking) {
     }
   }
   if (s === "reservation_secured") {
+    if (schedule === "upcoming") {
+      return {
+        badge: "UPCOMING",
+        badgeClass: "border-blue-200 bg-blue-50 text-blue-700",
+        icon: "🔵",
+        remaining: null,
+        endDate: null,
+      }
+    }
     return {
       badge: "RESERVATION SECURED",
       badgeClass: "border-emerald-100 bg-emerald-50 text-emerald-700",
@@ -215,6 +247,15 @@ function getOfficeStatusDisplay(booking: Booking) {
       icon: "🔵",
       remaining: null,
       endDate: null,
+    }
+  }
+  if (schedule === "upcoming") {
+    return {
+      badge: "UPCOMING",
+      badgeClass: "border-blue-200 bg-blue-50 text-blue-700",
+      icon: "🔵",
+      remaining: null,
+      endDate: (booking as any).endDate ? formatDate((booking as any).endDate) : null,
     }
   }
   if (s === "cancelled" || s === "declined") {
@@ -237,7 +278,13 @@ function getOfficeStatusDisplay(booking: Booking) {
 
 export default function ClientDashboardPage() {
   const { user } = useAuth()
-  const { getUserBookings, bookings } = useBookingData({ bookings: true })
+  const { getUserBookings, bookings, paymentRecords } = useBookingData({ bookings: true, payments: true })
+  const [presentationNow, setPresentationNow] = useState(() => new Date())
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setPresentationNow(new Date()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
   const myBookings = useMemo(() => {
     if (user?.id) return getUserBookings(user.id)
     return bookings
@@ -252,9 +299,16 @@ export default function ClientDashboardPage() {
   }, [myBookings])
 
   const activeOfficeRental = useMemo(() => {
-    const current = getCurrentBooking(officeBookings)
+    const current = officeBookings.filter((booking) => getBookingScheduleClassification(booking, presentationNow) === "active")
+      .sort((a, b) => new Date(String(b.createdAt || 0)).getTime() - new Date(String(a.createdAt || 0)).getTime())[0]
     return current || null
-  }, [officeBookings])
+  }, [officeBookings, presentationNow])
+
+  const nextOfficeRental = useMemo(
+    () => getNextBooking(officeBookings, presentationNow),
+    [officeBookings, presentationNow],
+  )
+  const featuredOfficeRental = activeOfficeRental || nextOfficeRental
 
   const eventBookings = useMemo(
     () => myBookings.filter(b => !isOfficeBooking(b)),
@@ -262,36 +316,42 @@ export default function ClientDashboardPage() {
   )
 
   const activeEventBooking = useMemo(() => {
-    const current = getCurrentBooking(eventBookings)
+    const current = getNextBooking(eventBookings, presentationNow)
     return current || null
-  }, [eventBookings])
+  }, [eventBookings, presentationNow])
+
+  const eventBookingClassification = activeEventBooking
+    ? getBookingScheduleClassification(activeEventBooking)
+    : null
 
   const activeRental = useMemo(
-    () => (activeOfficeRental && activeOfficeRental.status === "active_rental" ? activeOfficeRental : null),
-    [activeOfficeRental],
+    () => (featuredOfficeRental && getBookingScheduleClassification(featuredOfficeRental) === "active" && featuredOfficeRental.status === "active_rental" ? featuredOfficeRental : null),
+    [featuredOfficeRental],
   )
   const contractSigning = useMemo(
-    () => (activeOfficeRental && activeOfficeRental.status === "contract_signing_required" ? activeOfficeRental : null),
-    [activeOfficeRental],
+    () => (featuredOfficeRental && featuredOfficeRental.status === "contract_signing_required" ? featuredOfficeRental : null),
+    [featuredOfficeRental],
   )
   const expiredRental = useMemo(
-    () => (activeOfficeRental && activeOfficeRental.status === "rental_expired" ? activeOfficeRental : null),
-    [activeOfficeRental],
+    () => officeBookings.find((booking) => String(booking.status || "").toLowerCase() === "rental_expired") || null,
+    [officeBookings],
   )
   const earlyStageRental = useMemo(() => {
-    if (!activeOfficeRental) return null
-    if (activeOfficeRental.status === "active_rental") return null
-    if (activeOfficeRental.status === "contract_signing_required") return null
-    if (activeOfficeRental.status === "rental_expired") return null
-    return activeOfficeRental
-  }, [activeOfficeRental])
+    if (!featuredOfficeRental) return null
+    const classification = getBookingScheduleClassification(featuredOfficeRental)
+    if (classification === "active") return null
+    if (featuredOfficeRental.status === "active_rental") return null
+    if (featuredOfficeRental.status === "contract_signing_required") return null
+    if (featuredOfficeRental.status === "rental_expired") return null
+    return featuredOfficeRental
+  }, [featuredOfficeRental])
 
   const excludedIds = useMemo(() => {
     const ids = new Set<string>()
-    if (activeOfficeRental) ids.add(activeOfficeRental.id)
+    if (featuredOfficeRental) ids.add(featuredOfficeRental.id)
     if (activeEventBooking) ids.add(activeEventBooking.id)
     return ids
-  }, [activeOfficeRental, activeEventBooking])
+  }, [featuredOfficeRental, activeEventBooking])
 
   const otherBookings = useMemo(() => {
     return sortedBookings
@@ -302,13 +362,25 @@ export default function ClientDashboardPage() {
 
   const recentPayments = useMemo(() => {
     return [...myBookings]
-      .filter(b => {
-        const ps = String(b.paymentStatus || "").toLowerCase()
-        return ["verified", "paid", "slot_verified", "partial"].includes(ps)
+      .map((booking) => {
+        const records = getRecordsForBooking(paymentRecords, booking)
+        const summary = calculatePaymentSummary(booking, records)
+        const pendingReview = getPendingPaymentTotal(records)
+        const latestRecordTime = records.reduce((latest, record) => Math.max(latest, getPaymentRecordTime(record)), 0)
+        const storedStatus = String(booking.paymentStatus || "").trim().toLowerCase()
+        const hasLegacyPaymentActivity = ["verified", "paid", "slot_verified", "partial", "incomplete", "for_review", "pending_verification", "rejected"].includes(storedStatus)
+        return {
+          booking,
+          summary,
+          pendingReview,
+          activityTime: latestRecordTime || new Date(String(booking.createdAt || 0)).getTime(),
+          hasActivity: records.length > 0 || hasLegacyPaymentActivity,
+        }
       })
-      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+      .filter((entry) => entry.hasActivity)
+      .sort((a, b) => b.activityTime - a.activityTime)
       .slice(0, 3)
-  }, [myBookings])
+  }, [myBookings, paymentRecords])
 
   return (
     <TooltipProvider delayDuration={400}>
@@ -453,16 +525,23 @@ export default function ClientDashboardPage() {
           {activeEventBooking && (
             <div>
               <h2 className="oe-section-heading mb-3">
-                Active Event Booking
+                {eventBookingClassification === "upcoming" ? "Next Event Booking" : "Active Event Booking"}
               </h2>
               <Card className="rounded-2xl border-slate-200 shadow-sm overflow-hidden bg-white">
                 <CardContent className="p-4 sm:p-5">
                   <div className="flex flex-col gap-4">
                     <div className="flex flex-col sm:flex-row justify-between gap-4">
                       <div className="flex-1 min-w-0">
-                        <Badge variant="outline" className="uppercase text-[10px] font-black tracking-[0.2em] px-2.5 py-1 rounded-full mb-3 border-emerald-100 bg-emerald-50 text-emerald-600 shadow-none">
-                           {getBookingLifecycleLabel({ status: activeEventBooking.status })}
-                        </Badge>
+                        <div className="mb-3 flex flex-wrap items-center gap-2">
+                          <Badge variant="outline" className="uppercase text-[10px] font-black tracking-[0.2em] px-2.5 py-1 rounded-full border-emerald-100 bg-emerald-50 text-emerald-600 shadow-none">
+                            {getBookingLifecycleLabel({ status: activeEventBooking.status })}
+                          </Badge>
+                          {eventBookingClassification && (
+                            <Badge variant="outline" className="uppercase text-[10px] font-black tracking-[0.2em] px-2.5 py-1 rounded-full border-blue-200 bg-blue-50 text-blue-700 shadow-none">
+                              {eventBookingClassification === "upcoming" ? "Upcoming" : "Active now"}
+                            </Badge>
+                          )}
+                        </div>
                         <h3 className="text-xl font-black text-slate-950 tracking-tight leading-snug mb-3 line-clamp-2">
                           {activeEventBooking.eventName || "Event"}
                         </h3>
@@ -530,7 +609,8 @@ export default function ClientDashboardPage() {
                     const officeStatus = isOffice ? getOfficeStatusDisplay(booking) : null
                     const normStatus = String(booking.status || "").toLowerCase()
                     const lifecycleStatus = getBookingLifecycleStatus(booking as unknown as Record<string, unknown>)
-                    const isTerminal = ["cancelled", "completed", "declined", "rental_expired"].includes(normStatus)
+                    const scheduleClassification = getBookingScheduleClassification(booking)
+                    const isTerminal = ["cancelled", "completed", "declined", "rejected", "rental_expired"].includes(normStatus) || scheduleClassification === "completed" || scheduleClassification === "cancelled" || scheduleClassification === "rejected"
                     return (
                       <Link href={`/portal/bookings?bookingId=${booking.id}${isTerminal ? '&history=true' : ''}`} key={booking.id} className="p-4 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors group">
                         <div className="flex-1 min-w-0">
@@ -553,8 +633,14 @@ export default function ClientDashboardPage() {
                              lifecycleStatus === "pending" ? "text-orange-600 border-orange-100 bg-orange-50" :
                              lifecycleStatus === "cancelled" ? "text-rose-600 border-rose-100 bg-rose-50" :
                              "text-slate-600 border-slate-200 bg-slate-50"
-                           )}>
-                             {getBookingLifecycleLabel(booking as unknown as Record<string, unknown>)}
+                            )}>
+                              {scheduleClassification === "upcoming"
+                                ? "Upcoming"
+                                : scheduleClassification === "active"
+                                  ? "Active now"
+                                  : scheduleClassification === "completed" && lifecycleStatus !== "completed"
+                                    ? "Completed"
+                                    : getBookingLifecycleLabel(booking as unknown as Record<string, unknown>)}
                           </Badge>
                         )}
                       </Link>
@@ -579,48 +665,43 @@ export default function ClientDashboardPage() {
                     <p className="text-xs text-slate-500">No payments yet.</p>
                   </div>
                 ) : (
-                  recentPayments.map((payment) => {
-                    const normStatus = String(payment.status || "").toLowerCase()
-                    const refundStatus = String((payment as any).refundStatus || "").toLowerCase()
-                    let payLabel: string, badgeClass: string
+                  recentPayments.map(({ booking, summary, pendingReview, activityTime }) => {
+                    const refundStatus = String((booking as any).refundStatus || "").toLowerCase()
+                    let payLabel: string
                     if (refundStatus === "refunded") {
                       payLabel = "Refunded"
-                      badgeClass = "text-slate-600 border-slate-200 bg-slate-50"
                     } else if (refundStatus === "requested") {
                       payLabel = "Refund Requested"
-                      badgeClass = "text-orange-600 border-orange-100 bg-orange-50"
-                    } else if (["cancelled", "declined"].includes(normStatus)) {
-                      payLabel = "Cancelled"
-                      badgeClass = "text-rose-600 border-rose-100 bg-rose-50"
-                    } else if (normStatus === "completed") {
-                      payLabel = "Completed"
-                      badgeClass = "text-blue-600 border-blue-100 bg-blue-50"
-                    } else if (normStatus === "pending") {
-                      payLabel = "Pending"
-                      badgeClass = "text-orange-600 border-orange-100 bg-orange-50"
-                    } else if (normStatus === "verifying") {
-                      payLabel = "Payment Review"
-                      badgeClass = "text-amber-600 border-amber-100 bg-amber-50"
-                    } else if (["confirmed", "reservation_secured", "active_rental", "contract_signing_required"].includes(normStatus)) {
-                      payLabel = "Paid"
-                      badgeClass = "text-emerald-600 border-emerald-100 bg-emerald-50"
                     } else {
-                      payLabel = "Unpaid"
-                      badgeClass = "text-slate-600 border-slate-200 bg-slate-50"
+                      payLabel = pendingReview > 0 || summary.hasPendingSubmission || summary.overallStatus === "for_review"
+                        ? "Pending Verification"
+                        : getPaymentOverallStatusLabel(summary.overallStatus)
                     }
+                    const amount = summary.moneyReceivedTotal > 0
+                      ? summary.moneyReceivedTotal
+                      : pendingReview || Number((booking as any).paymentAmount || 0)
+                    const amountLabel = summary.moneyReceivedTotal > 0
+                      ? "Received"
+                      : pendingReview > 0 || summary.hasPendingSubmission || summary.overallStatus === "for_review"
+                        ? "Submitted"
+                        : "Payment"
+                    const badgeClass = getPaymentStatusPresentationClass(
+                      summary.overallStatus,
+                      refundStatus,
+                    )
                     return (
-                      <Link href={`/portal/payments?view=${payment.id}`} key={payment.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors group">
+                      <Link href={`/portal/payments?view=${booking.id}`} key={booking.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors group">
                         <div className="flex-1 min-w-0">
                           <h4 className="font-bold text-sm text-slate-900">
-                            ₱{Number((payment as any).amountPaid || 0).toLocaleString()}
+                            {amountLabel}: ₱{amount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}
                           </h4>
-                          <p className="text-[11px] text-slate-500 truncate mt-0.5">{payment.eventName || "Payment"}</p>
+                          <p className="text-[11px] text-slate-500 truncate mt-0.5">{booking.eventName || "Payment"}</p>
                         </div>
                         <div className="text-right shrink-0">
                           <Badge variant="outline" className={cn("text-[9px] font-black uppercase px-2.5 py-1 rounded-full shadow-none", badgeClass)}>
                             {payLabel}
                           </Badge>
-                          <p className="text-[10px] text-slate-400 mt-1">{formatDate(payment.createdAt)}</p>
+                          <p className="text-[10px] text-slate-400 mt-1">{formatDate(activityTime ? new Date(activityTime).toISOString() : String(booking.createdAt || ""))}</p>
                         </div>
                       </Link>
                     )

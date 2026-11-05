@@ -68,7 +68,7 @@ import { validatePaymentReference } from "@/src/modules/shared/lib/payment-refer
 import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-identity";
 import { cn } from "@/src/modules/shared/lib/utils";
 import { getPaymentStatusPresentationClass } from "@/src/modules/shared/lib/status-presentation";
-import { getBookingLifecycleLabel } from "@/src/modules/shared/lib/booking-helpers";
+import { formatBookingDate, getBookingLifecycleLabel } from "@/src/modules/shared/lib/booking-helpers";
 import { collection, getDocs, orderBy, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import type { PaymentRecord } from "@/src/modules/client/contexts/booking-context";
@@ -82,6 +82,7 @@ import {
   getReceiptPresentation,
   findPaymentReceipt,
   getPaymentOverallStatusLabel,
+  getPendingPaymentTotal,
   getRecordsForBooking,
   type PaymentRecordLike,
   type ReceiptPresentation,
@@ -315,7 +316,7 @@ function getStatusLabel(paymentStatus?: string, booking?: any) {
   }
   if (["paid", "fully_paid"].includes(payStatus)) return "Fully Paid";
   if (["verified", "slot_verified"].includes(payStatus)) return "Verified";
-  if (["pending_verification", "cash_pending", "slot_pending", "verifying"].includes(payStatus)) return "For Review";
+  if (["pending_verification", "cash_pending", "slot_pending", "verifying"].includes(payStatus)) return "Pending Verification";
   if (payStatus === "pending") return "Pending";
   if (payStatus === "unpaid") return "Unpaid";
   if (!payStatus) return "Unpaid";
@@ -502,9 +503,7 @@ function PaymentActionButtons({
 
 function formatTransactionDate(value?: string) {
   if (!value) return "—"
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return value
-  return new Intl.DateTimeFormat("en-PH", { month: "short", day: "2-digit", year: "numeric" }).format(parsed)
+  return formatBookingDate(value, "short") || value
 }
 
 function getTransactionResourceParts(booking: Booking) {
@@ -534,12 +533,15 @@ function getTransactionRowData(booking: Booking, records: PaymentRecordLike[]) {
   const storedPaymentStatus = String(booking.paymentStatus || "").toLowerCase()
   const paymentStatus = bookingRecords.length > 0 ? summary.overallStatus : storedPaymentStatus || summary.overallStatus
   const remaining = summary.remainingBalance
+  const pendingReview = getPendingPaymentTotal(bookingRecords)
   const isCancelled = ["cancelled", "declined"].includes(String(booking.status || "").toLowerCase())
   return {
     records: bookingRecords,
     summary,
     paymentStatus,
     amountPaid: summary.moneyReceivedTotal,
+    verifiedAmount: summary.acceptedVerifiedTotal,
+    pendingReview,
     remaining,
     displayTotal: isCancelled ? 0 : summary.bookingTotal,
     isUnpaid: bookingRecords.length === 0 && paymentStatus === "unpaid",
@@ -695,18 +697,20 @@ function TransactionTableRow({
         </TableCell>
          <TableCell className="min-w-0 align-top whitespace-normal"><p className="oe-table-primary line-clamp-2">{resource.primary}</p>{resource.room && <p className="oe-table-secondary mt-0.5 line-clamp-1">Room: {resource.room}</p>}</TableCell>
          <TableCell className="min-w-0 max-w-0 align-top whitespace-normal"><p className="oe-table-primary max-w-full line-clamp-2">{schedule.primary}</p><p className="oe-table-secondary mt-0.5 max-w-full line-clamp-2">{schedule.secondary}</p>{booking.status === "pending" && !isCashPending && !isExpired && <p className="mt-1 max-w-full break-words text-xs font-semibold leading-4 text-orange-700">Time left: {formatCountdown(remainingMs)}</p>}</TableCell>
-          <TableCell className="min-w-0 max-w-0 align-top whitespace-normal"><div className="min-w-0 space-y-1.5"><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3"><span className="oe-financial-label">Total</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.displayTotal)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3"><span className="oe-financial-label">Paid</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.amountPaid)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3"><span className="oe-financial-label">Balance</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.remaining)}</span></p></div></TableCell>
+          <TableCell className="min-w-0 max-w-0 align-top whitespace-normal"><div className="min-w-0 space-y-1.5"><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3"><span className="oe-financial-label">Total</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.displayTotal)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3"><span className="oe-financial-label">Received</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.amountPaid)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3"><span className="oe-financial-label">Balance</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.remaining)}</span></p>{data.pendingReview > 0 && <p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3"><span className="oe-financial-label">Pending review</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.pendingReview)}</span></p>}</div></TableCell>
          <TableCell className="min-w-0 max-w-0 align-top whitespace-normal"><span className={cn("oe-status-badge max-w-full whitespace-normal break-words", data.statusClass)}>{data.statusLabel}</span></TableCell>
          <TableCell className="min-w-0 max-w-0 align-top whitespace-normal text-right"><div className="oe-table-actions">{action}</div></TableCell>
       </tr>
       {mode === "history" && expanded && (
         <tr className="border-b border-slate-100 bg-slate-50/60">
           <TableCell colSpan={6} className="px-4 py-3">
-            <div className="grid gap-3 sm:grid-cols-4">
-              <TransactionDetailItem label="Booking Status" value={getBookingStatusLabel(booking.status)} />
-              <TransactionDetailItem label="Payment Type" value={isOfficeRentalBooking(booking) ? "Slot Reservation" : (booking as any).paymentType === "downpayment" ? "Down Payment" : "Full Payment"} />
-              <TransactionDetailItem label="Confirmed Paid" value={formatMoney(data.amountPaid)} />
-              <TransactionDetailItem label="Remaining Balance" value={formatMoney(data.remaining)} />
+             <div className="grid gap-3 sm:grid-cols-6">
+               <TransactionDetailItem label="Booking Status" value={getBookingStatusLabel(booking.status)} />
+               <TransactionDetailItem label="Payment Type" value={isOfficeRentalBooking(booking) ? "Slot Reservation" : (booking as any).paymentType === "downpayment" ? "Down Payment" : "Full Payment"} />
+               <TransactionDetailItem label="Received / Credited" value={formatMoney(data.amountPaid)} />
+               <TransactionDetailItem label="Verified Payments" value={formatMoney(data.verifiedAmount)} />
+               <TransactionDetailItem label="Pending Review" value={formatMoney(data.pendingReview)} />
+               <TransactionDetailItem label="Remaining Balance" value={formatMoney(data.remaining)} />
             </div>
             <div className="mt-3 flex justify-end">
                {data.isUnpaid ? <Button onClick={() => onPay(booking)} className="oe-table-action h-9 bg-orange-600 text-white hover:bg-orange-700"><CreditCard className="mr-1.5 h-3.5 w-3.5" />Pay Now</Button> : <Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 border-slate-300 text-slate-800 hover:bg-white"><Receipt className="mr-1.5 h-3.5 w-3.5" />Open Full Details</Button>}
@@ -761,11 +765,11 @@ function TransactionCompactRow({
         <div className="min-w-0"><p className="oe-table-label">Reserved space</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>
         <div className="min-w-0"><p className="oe-table-label">Date / period</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{schedule.primary}</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{schedule.secondary}</p></div>
       </div>
-       <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3"><div className="min-w-0"><p className="oe-financial-label">Total</p><p className="oe-financial-value mt-0.5">{formatMoney(data.displayTotal)}</p></div><div className="min-w-0"><p className="oe-financial-label">Paid</p><p className="oe-financial-value mt-0.5">{formatMoney(data.amountPaid)}</p></div><div className="min-w-0"><p className="oe-financial-label">Balance</p><p className="oe-financial-value mt-0.5">{formatMoney(data.remaining)}</p></div></div>
+       <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 sm:grid-cols-4"><div className="min-w-0"><p className="oe-financial-label">Total</p><p className="oe-financial-value mt-0.5">{formatMoney(data.displayTotal)}</p></div><div className="min-w-0"><p className="oe-financial-label">Received</p><p className="oe-financial-value mt-0.5">{formatMoney(data.amountPaid)}</p></div><div className="min-w-0"><p className="oe-financial-label">Balance</p><p className="oe-financial-value mt-0.5">{formatMoney(data.remaining)}</p></div><div className="min-w-0"><p className="oe-financial-label">Pending review</p><p className="oe-financial-value mt-0.5">{formatMoney(data.pendingReview)}</p></div></div>
       <div className="mt-3 flex flex-wrap justify-end gap-1.5 border-t border-slate-100 pt-3">
          {mode === "history" ? (data.isUnpaid ? <Button onClick={() => onPay(booking)} className="oe-table-action h-9 bg-orange-600 text-white hover:bg-orange-700"><CreditCard className="mr-1 h-3.5 w-3.5" />Pay Now</Button> : <Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 border-slate-300 text-slate-800 hover:bg-slate-50">View Details</Button>) : <><Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 border-slate-300 text-slate-800 hover:bg-slate-50">View Details</Button><PaymentActionButtons booking={booking} onPay={onPay} onSettle={onSettle} compact paymentCount={data.records.length} latestPaymentStatus={getLatestPaymentStatus(records as PaymentRecord[], booking)} records={data.records} /></>}
       </div>
-      {mode === "history" && expanded && <div className="mt-3 grid gap-3 border-t border-slate-100 bg-slate-50/60 pt-3 sm:grid-cols-2"><TransactionDetailItem label="Booking Status" value={getBookingStatusLabel(booking.status)} /><TransactionDetailItem label="Payment Type" value={isOfficeRentalBooking(booking) ? "Slot Reservation" : (booking as any).paymentType === "downpayment" ? "Down Payment" : "Full Payment"} /><TransactionDetailItem label="Confirmed Paid" value={formatMoney(data.amountPaid)} /><TransactionDetailItem label="Remaining Balance" value={formatMoney(data.remaining)} /></div>}
+       {mode === "history" && expanded && <div className="mt-3 grid gap-3 border-t border-slate-100 bg-slate-50/60 pt-3 sm:grid-cols-2"><TransactionDetailItem label="Booking Status" value={getBookingStatusLabel(booking.status)} /><TransactionDetailItem label="Payment Type" value={isOfficeRentalBooking(booking) ? "Slot Reservation" : (booking as any).paymentType === "downpayment" ? "Down Payment" : "Full Payment"} /><TransactionDetailItem label="Received / Credited" value={formatMoney(data.amountPaid)} /><TransactionDetailItem label="Verified Payments" value={formatMoney(data.verifiedAmount)} /><TransactionDetailItem label="Pending Review" value={formatMoney(data.pendingReview)} /><TransactionDetailItem label="Remaining Balance" value={formatMoney(data.remaining)} /></div>}
     </div>
   )
 }
@@ -823,7 +827,7 @@ function TransactionsContent() {
   const urlViewId = searchParams.get("view");
 
   const { toast } = useToast();
-  const { bookings, submitPayment, cancelBooking, isLoading: bookingsLoading, paymentRecords } = useBookingData({ bookings: true, payments: true });
+  const { bookings, submitPayment, cancelBooking, isLoading: bookingsLoading, dataError, retryData, paymentRecords } = useBookingData({ bookings: true, payments: true });
   const { user } = useAuth();
   const { paymentInfo } = useCMS();
 
@@ -1420,6 +1424,17 @@ function TransactionsContent() {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-orange-600" />
+      </div>
+    );
+  }
+
+  if (dataError) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center px-4">
+        <div role="alert" className="flex w-full max-w-lg flex-col items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3"><AlertCircle className="mt-0.5 h-5 w-5 shrink-0" /><div><p className="font-bold">Transactions could not be loaded.</p><p className="mt-1 text-xs">{dataError}</p></div></div>
+          <Button type="button" variant="outline" onClick={retryData} className="h-9 shrink-0 border-rose-300 text-rose-800 hover:bg-rose-100">Retry</Button>
+        </div>
       </div>
     );
   }

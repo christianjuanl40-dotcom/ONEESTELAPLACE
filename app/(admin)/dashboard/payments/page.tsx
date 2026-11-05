@@ -57,7 +57,7 @@ import { useBookingData } from "@/src/modules/client/contexts/booking-context"
 import type { PaymentRecord } from "@/src/modules/client/contexts/booking-context"
 import { cn } from "@/src/modules/shared/lib/utils"
 import { stableSortBy, type TableSortDirection, type TableSortableValue } from "@/src/modules/shared/lib/report-table-utils"
-import { normalizeBookingLifecycleStatus } from "@/src/modules/shared/lib/booking-helpers"
+import { formatBookingDateTime, normalizeBookingLifecycleStatus } from "@/src/modules/shared/lib/booking-helpers"
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
 import type { NotificationType } from "@/src/modules/shared/lib/notifications"
 import { db } from "@/lib/firebase"
@@ -79,6 +79,7 @@ import {
   findPaymentReceipt,
   calculatePaymentSummary,
   getRecordsForBooking,
+  getPendingPaymentTotal,
   type PaymentRecordLike,
   type BookingLike,
 } from "@/src/modules/shared/lib/payment-calculations"
@@ -762,7 +763,7 @@ export default function AdminPaymentsPage() {
                   <SelectItem value="all" className="font-bold">
                     All
                   </SelectItem>
-                  <SelectItem value="for_review">For Review</SelectItem>
+                   <SelectItem value="for_review">Pending Verification</SelectItem>
                   <SelectItem value="incomplete">Incomplete</SelectItem>
                   <SelectItem value="partial">Partial</SelectItem>
                   <SelectItem value="completed">Fully Paid</SelectItem>
@@ -1200,20 +1201,7 @@ function PaymentVerificationCompactRow({
 
 function formatSubmittedAt(value?: string) {
   if (!value) return "—"
-  try {
-    const date = new Date(value)
-    if (isNaN(date.getTime())) return value
-    return new Intl.DateTimeFormat("en-PH", {
-      month: "short",
-      day: "2-digit",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    }).format(date)
-  } catch {
-    return value
-  }
+  return formatBookingDateTime(value, "short") || value
 }
 
 function getBookingTimeLabel(payment: BookingRecord) {
@@ -1557,8 +1545,22 @@ function PaymentReviewModal({
           </aside>
 
           {/* ── RIGHT: RECEIPT + DETAILS ── */}
-          <div className="min-w-0 flex-1 px-4 py-5 sm:px-5 md:min-h-0 md:overflow-y-auto">
-            <div className="space-y-5">
+           <div className="min-w-0 flex-1 px-4 py-5 sm:px-5 md:min-h-0 md:overflow-y-auto">
+             <div className="space-y-5">
+              <ModalSection title="Booking Payment Summary">
+                <dl className="grid grid-cols-2 gap-3 rounded-2xl border border-orange-100 bg-orange-50/50 p-4 sm:grid-cols-5">
+                  <div className="min-w-0"><dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Total Booking Value</dt><dd className="mt-1 text-sm font-black tabular-nums text-slate-900">{formatCurrency(paymentSummary.bookingTotal)}</dd></div>
+                  <div className="min-w-0"><dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Received / Credited</dt><dd className="mt-1 text-sm font-black tabular-nums text-slate-900">{formatCurrency(paymentSummary.moneyReceivedTotal)}</dd></div>
+                  <div className="min-w-0"><dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Verified Payments</dt><dd className="mt-1 text-sm font-black tabular-nums text-slate-900">{formatCurrency(paymentSummary.acceptedVerifiedTotal)}</dd></div>
+                  <div className="min-w-0"><dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Pending Review</dt><dd className="mt-1 text-sm font-black tabular-nums text-amber-700">{formatCurrency(getPendingPaymentTotal(submissions))}</dd></div>
+                  <div className="min-w-0"><dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Outstanding Balance</dt><dd className="mt-1 text-sm font-black tabular-nums text-slate-900">{formatCurrency(paymentSummary.remainingBalance)}</dd></div>
+                </dl>
+                {paymentSummary.hasPendingSubmission && (
+                  <p role="status" className="mt-3 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                    Submitted amounts are shown separately from received and verified money until an administrator completes review.
+                  </p>
+                )}
+              </ModalSection>
               {selectionUnavailable ? (
                 <p role="status" className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
                   The selected submission is no longer available. Choose a submission from history.
@@ -1688,7 +1690,7 @@ function PaymentBadge({ payment, className }: { payment: BookingRecord; classNam
   }
 
   if (paymentStatus === "for_review") {
-    return <span className={`${baseClass} border-amber-200 bg-amber-50 text-amber-700`}><ShieldCheck className="h-3 w-3" />For Review</span>
+    return <span className={`${baseClass} border-amber-200 bg-amber-50 text-amber-700`}><ShieldCheck className="h-3 w-3" />Pending Verification</span>
   }
 
   if (paymentStatus === "rejected") {
@@ -1697,6 +1699,14 @@ function PaymentBadge({ payment, className }: { payment: BookingRecord; classNam
 
   if (paymentStatus === "incomplete") {
     return <span className={`${baseClass} border-amber-200 bg-amber-50 text-amber-700`}><AlertCircle className="h-3 w-3" />Incomplete Payment</span>
+  }
+
+  if (["pending_verification", "cash_pending", "slot_pending", "verifying"].includes(paymentStatus)) {
+    return <span className={`${baseClass} border-amber-200 bg-amber-50 text-amber-700`}><ShieldCheck className="h-3 w-3" />Pending Verification</span>
+  }
+
+  if (["rejected", "declined"].includes(paymentStatus)) {
+    return <span className={`${baseClass} border-rose-200 bg-rose-50 text-rose-700`}><XCircle className="h-3 w-3" />Rejected</span>
   }
 
   // Legacy-only fallbacks (bookings without payment records whose stored
@@ -2075,7 +2085,12 @@ function getPaymentStatusText(payment: BookingRecord) {
     case "partial":
       return "Partial Payment"
     case "for_review":
-      return "For Review"
+      return "Pending Verification"
+    case "pending_verification":
+    case "cash_pending":
+    case "slot_pending":
+    case "verifying":
+      return "Pending Verification"
     case "rejected":
       return "Rejected"
     case "incomplete":

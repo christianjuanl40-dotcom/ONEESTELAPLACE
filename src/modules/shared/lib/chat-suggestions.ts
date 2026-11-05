@@ -82,7 +82,7 @@ export const CHAT_SUGGESTION_STATUS_GROUPS: Array<{ value: ChatSuggestionKind; l
   { value: "no_booking", label: "No Booking" },
   { value: "pending_booking", label: "Pending Booking" },
   { value: "awaiting_payment", label: "Awaiting Payment" },
-  { value: "payment_review", label: "Payment For Review" },
+  { value: "payment_review", label: "Payment Pending Verification" },
   { value: "partially_paid", label: "Partially Paid" },
   { value: "confirmed_event", label: "Confirmed Event" },
   { value: "active_office", label: "Active Office Reservation" },

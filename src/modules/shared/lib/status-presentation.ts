@@ -32,8 +32,19 @@ export function getBookingStatusPresentationClass(status?: string) {
   if (["cancellation_requested", "cancellation requested"].includes(value)) return STATUS_CLASSES.warning
   if (value === "modification_under_review") return STATUS_CLASSES.purple
   if (value === "contract_signing_required") return STATUS_CLASSES.attention
-  if (["cancelled", "declined"].includes(value)) return STATUS_CLASSES.cancellation
+  if (["cancelled", "declined", "rejected"].includes(value)) return STATUS_CLASSES.cancellation
   if (value === "rental_expired") return STATUS_CLASSES.danger
+  return STATUS_CLASSES.neutralMuted
+}
+
+/** Presentation-only timing state; it never replaces the persisted lifecycle badge. */
+export function getBookingSchedulePresentationClass(classification?: string) {
+  const value = normalizeToken(classification)
+  if (value === "upcoming") return STATUS_CLASSES.info
+  if (value === "active") return STATUS_CLASSES.success
+  if (value === "completed") return STATUS_CLASSES.info
+  if (value === "cancelled") return STATUS_CLASSES.cancellation
+  if (value === "rejected") return STATUS_CLASSES.danger
   return STATUS_CLASSES.neutralMuted
 }
 

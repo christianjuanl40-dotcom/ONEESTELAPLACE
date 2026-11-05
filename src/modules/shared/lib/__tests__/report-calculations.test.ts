@@ -107,7 +107,7 @@ describe("report financial calculations", () => {
     expect(entry.financials.verifiedPayments).toBe(0)
     expect(entry.financials.outstandingBalance).toBe(15000)
     expect(entry.financials.netReceivedAmount).toBe(0)
-    expect(entry.financials.paymentStatus).toBe("For Review")
+    expect(entry.financials.paymentStatus).toBe("Pending Verification")
     expect(buildReportSummary([entry]).receivedPayments).toBe(0)
   })
 

@@ -54,12 +54,18 @@ import {
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { cn } from "@/src/modules/shared/lib/utils"
-import { getBookingStatusPresentationClass } from "@/src/modules/shared/lib/status-presentation"
+import {
+  getBookingSchedulePresentationClass,
+  getBookingStatusPresentationClass,
+} from "@/src/modules/shared/lib/status-presentation"
 import { getCancellationAudit } from "@/src/modules/shared/lib/cancellation"
 import { getRemainingDurationFromDates, getContractDurationLabel } from "@/src/modules/shared/lib/date-utils"
 import {
   getBookingLifecycleLabel,
   getBookingLifecycleStatus,
+  formatBookingDate,
+  getBookingScheduleClassification,
+  getBookingScheduleClassificationLabel,
 } from "@/src/modules/shared/lib/booking-helpers"
 import type { AvailabilitySpace } from "@/src/modules/shared/lib/availability"
 import { fetchAvailability } from "@/src/modules/shared/lib/availability-client"
@@ -74,6 +80,7 @@ import {
   centsToPaymentAmount,
   getRecordsForBooking,
   getPaymentOverallStatusLabel,
+  getPendingPaymentTotal,
   parseCurrencyToCents,
   toPaymentCents,
   type PaymentRecordLike,
@@ -95,11 +102,7 @@ type BookingSortKey = "createdAt" | "date" | "customer" | "event" | "resource" |
 
 function formatDate(date?: string) {
   if (!date) return "—"
-  try {
-    return new Intl.DateTimeFormat("en-PH", { month: "long", day: "2-digit", year: "numeric" }).format(new Date(date))
-  } catch {
-    return date
-  }
+  return formatBookingDate(date)
 }
 
 function getStatusBadgeClass(status?: string) {
@@ -1013,11 +1016,22 @@ function getBookingScheduleParts(booking: Booking) {
 }
 
 function AdminBookingStatusBadges({ booking }: { booking: Booking }) {
+  const scheduleClassification = getBookingScheduleClassification(booking)
+  const showScheduleBadge = ["upcoming", "active", "legacy"].includes(scheduleClassification) ||
+    (scheduleClassification === "completed" && getBookingLifecycleStatus(booking as unknown as Record<string, unknown>) !== "completed")
   return (
     <div className="flex min-w-0 flex-col items-start gap-1.5">
       <span className={cn("oe-status-badge max-w-full whitespace-normal break-words", getStatusBadgeClass(booking.status))}>
         {getStatusLabel(booking.status)}
       </span>
+      {showScheduleBadge && (
+        <span className={cn(
+          "oe-status-badge max-w-full whitespace-normal break-words",
+          getBookingSchedulePresentationClass(scheduleClassification),
+        )}>
+          {getBookingScheduleClassificationLabel(scheduleClassification)}
+        </span>
+      )}
       {isCancellationRequestPending(booking) && (
         <span className="oe-status-badge max-w-full whitespace-normal break-words border border-amber-200 bg-amber-50 text-amber-700">
           Cancellation Requested
@@ -1267,6 +1281,12 @@ export function BookingDetailsModal({
     bookingPaymentRecords,
   )
   const canonicalPayStatus = paymentSummary.overallStatus
+  const pendingPaymentAmount = getPendingPaymentTotal(bookingPaymentRecords)
+  const paymentStatusLabel = hasPaymentRecords
+    ? getPaymentOverallStatusLabel(canonicalPayStatus)
+    : canonicalPayStatus === "for_review" && paymentSummary.moneyReceivedTotal === 0
+      ? "Unpaid"
+      : getPaymentOverallStatusLabel(canonicalPayStatus)
 
   const isPaymentVerified = (() => {
     if (hasPaymentRecords) {
@@ -1283,6 +1303,7 @@ export function BookingDetailsModal({
   const typeLabel = isOfficeRental ? "Office Space Rental" : booking.eventType || "Event Venue Rental"
   const startDate = formatDate(booking.date)
   const endDate = (booking as any)?.endDate ? formatDate((booking as any).endDate) : startDate
+  const scheduleClassification = getBookingScheduleClassification(booking)
   const isCompleted = String(booking.status || "").toLowerCase() === "completed"
   const isCancelled = ["cancelled", "declined"].includes(String(booking.status || "").toLowerCase())
 
@@ -1318,21 +1339,7 @@ export function BookingDetailsModal({
     return proofExists && isUnderReview
   })()
 
-  const isEventFinished = (() => {
-    if (!booking.date) return false
-    const bookingEndDate = (booking as any)?.endDate
-    if (bookingEndDate) {
-      const endDateObj = new Date(bookingEndDate + "T23:59:59")
-      if (!isNaN(endDateObj.getTime())) return endDateObj.getTime() < Date.now()
-    }
-    const eventDate = new Date(booking.date)
-    const endTime = booking.endTime
-    if (endTime) {
-      const [hours, minutes] = String(endTime).split(":").map(Number)
-      if (!isNaN(hours)) eventDate.setHours(hours, minutes || 0, 0, 0)
-    }
-    return eventDate.getTime() < Date.now()
-  })()
+  const isEventFinished = scheduleClassification === "completed"
 
   const isFullyPaid = paymentSummary.fullyPaid
 
@@ -1558,10 +1565,18 @@ export function BookingDetailsModal({
                   "inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em]",
                   getStatusBadgeClass(booking.status),
                 )}
-              >
-                {getStatusLabel(booking.status)}
-              </span>
-              {booking.cancellationStatus && booking.cancellationStatus !== "None" && (
+                >
+                  {getStatusLabel(booking.status)}
+                </span>
+                <span
+                  className={cn(
+                    "inline-flex items-center rounded-md border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em]",
+                    getBookingSchedulePresentationClass(scheduleClassification),
+                  )}
+                >
+                  {getBookingScheduleClassificationLabel(scheduleClassification)}
+                </span>
+                {booking.cancellationStatus && booking.cancellationStatus !== "None" && (
                 <span className="inline-flex items-center rounded-md border border-amber-100 bg-amber-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">
                   Cancellation: {isCancellationRequested ? "Pending Review" : booking.cancellationStatus}
                 </span>
@@ -1611,9 +1626,11 @@ export function BookingDetailsModal({
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-orange-800">Payment Summary</p>
             </div>
             <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 md:grid-cols-4">
-              <BookingDetail label="Payment Status" value={hasPaymentRecords ? getPaymentOverallStatusLabel(canonicalPayStatus) : (booking.paymentStatus || "Unpaid")} />
+              <BookingDetail label="Payment Status" value={paymentStatusLabel} />
               <BookingDetail label="Total Booking Amount" value={`₱${paymentSummary.bookingTotal.toLocaleString()}`} />
-              <BookingDetail label="Confirmed Paid Amount" value={`₱${amountPaid.toLocaleString()}`} />
+              <BookingDetail label="Received / Credited Amount" value={`₱${amountPaid.toLocaleString()}`} />
+              <BookingDetail label="Verified Payments" value={`₱${paymentSummary.acceptedVerifiedTotal.toLocaleString()}`} />
+              <BookingDetail label="Pending Review" value={`₱${pendingPaymentAmount.toLocaleString()}`} />
               <BookingDetail label="Remaining Balance" value={`₱${remainingBalance.toLocaleString()}`} />
             </dl>
           </section>

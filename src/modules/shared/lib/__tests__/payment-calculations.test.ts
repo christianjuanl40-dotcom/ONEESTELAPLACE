@@ -3,6 +3,7 @@ import {
   calculatePaymentSummary,
   centsToPaymentAmount,
   getPaymentDisplayModel,
+  getPendingPaymentTotal,
   getPaymentRecordCreditedAmount,
   getRecordsForBooking,
   isAcceptedPaymentRecord,
@@ -608,6 +609,15 @@ describe("Canonical accepted ledger aliases", () => {
 })
 
 describe("Edge cases", () => {
+  it("totals only unresolved submitted amounts for pending review presentation", () => {
+    expect(getPendingPaymentTotal([
+      makeRecord({ amount: 2000, status: "For Review" }),
+      makeRecord({ amount: 1500, status: "Pending Verification" }),
+      makeRecord({ amount: 3000, status: "Verified" }),
+      makeRecord({ amount: 1000, status: "Rejected" }),
+    ])).toBe(3500)
+  })
+
   it("labels a pending downpayment as submitted instead of paid", () => {
     const booking = makeBooking()
     const record = makeRecord({ term: "Down Payment", amount: 7500 })
@@ -615,7 +625,7 @@ describe("Edge cases", () => {
     const display = getPaymentDisplayModel(booking, record, summary)
 
     expect(display.paymentTypeLabel).toBe("Down Payment")
-    expect(display.statusLabel).toBe("For Review")
+    expect(display.statusLabel).toBe("Pending Verification")
     expect(display.amountLabel).toBe("DP Submitted")
     expect(display.amount).toBe(7500)
     expect(display.acceptedAmount).toBe(0)
