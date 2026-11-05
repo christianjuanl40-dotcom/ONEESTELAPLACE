@@ -67,6 +67,7 @@ import { resolvePaymentReviewNote } from "@/src/modules/shared/lib/payment-revie
 import { validatePaymentReference } from "@/src/modules/shared/lib/payment-reference";
 import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-identity";
 import { cn } from "@/src/modules/shared/lib/utils";
+import { getPaymentStatusPresentationClass } from "@/src/modules/shared/lib/status-presentation";
 import { getBookingLifecycleLabel } from "@/src/modules/shared/lib/booking-helpers";
 import { collection, getDocs, orderBy, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -300,16 +301,7 @@ function normalizePaymentDisplayStatus(value?: string) {
 }
 
 function getStatusBadgeClass(paymentStatus?: string, booking?: any) {
-  const payStatus = normalizePaymentDisplayStatus(paymentStatus);
-  const refundStatus = normalizePaymentDisplayStatus(booking?.refundStatus);
-
-  if (refundStatus === "refunded") return "border-slate-200 bg-slate-50 text-slate-700";
-  if (refundStatus === "requested" || refundStatus === "refund_requested") return "border-orange-200 bg-orange-50 text-orange-700";
-  if (["rejected", "declined", "cancelled"].includes(payStatus)) return "border-rose-200 bg-rose-50 text-rose-700";
-  if (["completed", "paid", "fully_paid", "verified", "slot_verified"].includes(payStatus)) return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (["partial", "for_review", "pending_verification", "cash_pending", "slot_pending", "incomplete", "pending", "verifying"].includes(payStatus)) return "border-amber-200 bg-amber-50 text-amber-700";
-
-  return "border-slate-200 bg-slate-50 text-slate-700";
+  return getPaymentStatusPresentationClass(paymentStatus, booking?.refundStatus);
 }
 
 function getStatusLabel(paymentStatus?: string, booking?: any) {

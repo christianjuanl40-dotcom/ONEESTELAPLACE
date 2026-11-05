@@ -7,6 +7,7 @@ import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { CMSHomepageTab } from "@admin/components/cms/cms-homepage-tab"
 import { CMSVenuesTab } from "@admin/components/cms/cms-venues-tab"
 import { CMSOfficesTab } from "@admin/components/cms/cms-offices-tab"
+import { CMSVirtualTourTab } from "@admin/components/cms/cms-virtual-tour-tab"
 import { CMSFaqsTab } from "@admin/components/cms/cms-faqs-tab"
 import { CMSPredefinedQuestionsTab } from "@admin/components/cms/cms-predefined-questions-tab"
 import { CMSPoliciesTab } from "@admin/components/cms/cms-policies-tab"
@@ -31,6 +32,7 @@ export default function CMSPage() {
         {activeTab === "homepage" && <CMSHomepageTab onNavigate={setActiveTab} />}
         {activeTab === "venues" && <CMSVenuesTab onNavigate={setActiveTab} />}
         {activeTab === "offices" && <CMSOfficesTab onNavigate={setActiveTab} />}
+        {activeTab === "virtualTour" && <CMSVirtualTourTab onNavigate={setActiveTab} />}
         {activeTab === "faqs" && <CMSFaqsTab onNavigate={setActiveTab} />}
         {activeTab === "predefinedQuestions" && <CMSPredefinedQuestionsTab onNavigate={setActiveTab} />}
         {activeTab === "policies" && <CMSPoliciesTab onNavigate={setActiveTab} />}

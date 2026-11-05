@@ -103,16 +103,17 @@ export function CMSOfficeMaintenance({ buildingName, open, onClose }: Props) {
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-8">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-8" role="dialog" aria-modal="true" aria-labelledby="office-maintenance-title">
       <div className="w-full max-w-xl rounded-xl border border-slate-200 bg-white shadow-xl max-h-[calc(100dvh-32px)] overflow-y-auto">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-5 py-3.5">
-          <h2 className="text-base font-black text-slate-950">
+          <h2 id="office-maintenance-title" className="text-base font-black text-slate-950">
             Room Maintenance — {buildingName}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100"
+            aria-label="Close room maintenance"
+            className="flex h-9 w-9 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
           >
             <X className="h-4 w-4" />
           </button>
@@ -207,6 +208,7 @@ export function CMSOfficeMaintenance({ buildingName, open, onClose }: Props) {
                               </div>
                               <button
                                 type="button"
+                                aria-label={`Remove maintenance for ${room.name}`}
                                 onClick={() => handleRemove(rec.id)}
                                 disabled={isSaving}
                                 className="shrink-0 p-1 rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500"
@@ -221,10 +223,11 @@ export function CMSOfficeMaintenance({ buildingName, open, onClose }: Props) {
 
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
+                        <label htmlFor={`office-maintenance-start-${room.id}`} className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
                           Start Date
                         </label>
                         <Input
+                          id={`office-maintenance-start-${room.id}`}
                           type="date"
                           value={startDate}
                           onChange={(e) => setStartDate(e.target.value)}
@@ -233,10 +236,11 @@ export function CMSOfficeMaintenance({ buildingName, open, onClose }: Props) {
                         />
                       </div>
                       <div>
-                        <label className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
+                        <label htmlFor={`office-maintenance-end-${room.id}`} className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
                           End Date
                         </label>
                         <Input
+                          id={`office-maintenance-end-${room.id}`}
                           type="date"
                           value={endDate}
                           onChange={(e) => setEndDate(e.target.value)}
@@ -247,10 +251,11 @@ export function CMSOfficeMaintenance({ buildingName, open, onClose }: Props) {
                     </div>
 
                     <div>
-                      <label className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
+                      <label htmlFor={`office-maintenance-reason-${room.id}`} className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
                         Reason <span className="text-slate-300">(optional)</span>
                       </label>
                       <textarea
+                        id={`office-maintenance-reason-${room.id}`}
                         value={reason}
                         onChange={(e) => setReason(e.target.value)}
                         placeholder="e.g. Annual plumbing inspection"
@@ -261,7 +266,8 @@ export function CMSOfficeMaintenance({ buildingName, open, onClose }: Props) {
                     <Button
                       onClick={handleAdd}
                       disabled={isSaving || !startDate}
-                      className="h-9 w-full rounded-lg bg-slate-900 text-[11px] font-black text-white hover:bg-slate-800 disabled:opacity-40"
+                      variant="brand"
+                      className="h-9 w-full rounded-lg text-[11px] font-black disabled:opacity-40"
                     >
                       {isSaving ? "Saving..." : "Block Dates"}
                     </Button>

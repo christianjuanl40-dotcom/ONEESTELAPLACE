@@ -1,11 +1,14 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ChevronDown, Loader2, Pencil, Plus, Save, Trash2, X } from "lucide-react"
 import { Button } from "@shared/components/ui/button"
 import { Input } from "@shared/components/ui/input"
 import { Textarea } from "@shared/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader } from "@shared/components/ui/table"
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@shared/components/ui/dialog"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@shared/components/ui/alert-dialog"
+import { IconButton } from "@shared/components/ui/icon-button"
 import { useToast } from "@shared/hooks/use-toast"
 import { useCMS } from "@admin/contexts/cms-context"
 import { CMSSectionHeader } from "./cms-section-header"
@@ -28,10 +31,23 @@ export function CMSVenuesTab({ onNavigate }: { onNavigate: (tab: string) => void
   const [isSaving, setIsSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [filter, setFilter] = useState<CatalogStatusFilter>("all")
+  const restoreFocusRef = useRef<HTMLElement | null>(null)
 
   const resetForm = () => { setForm(EMPTY_FORM); setEditingId(null); setShowModal(false) }
-  const openNew = () => { resetForm(); setShowModal(true) }
-  const openEdit = (v: any) => { setEditingId(v.id); setForm({ name: v.name || "", capacity: v.capacity || "", price: v.price ?? "", downPaymentPercentage: v.downPaymentPercentage ?? 50, description: v.description || "", detailedDescription: v.detailedDescription || "", image: v.image || "", panoImage: v.panoImage || v.panoramaUrl || v.panorama || v.pano || v.tourImage || "", catalogStatus: getCatalogStatus(v) }); setShowModal(true) }
+  const rememberFocus = (target?: HTMLElement) => {
+    restoreFocusRef.current = target || (document.activeElement instanceof HTMLElement ? document.activeElement : null)
+  }
+  useEffect(() => {
+    if (showModal || !restoreFocusRef.current) return
+    const target = restoreFocusRef.current
+    const frame = window.requestAnimationFrame(() => {
+      if (target.isConnected) target.focus()
+      if (restoreFocusRef.current === target) restoreFocusRef.current = null
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [showModal])
+  const openNew = (target?: HTMLElement) => { rememberFocus(target); resetForm(); setShowModal(true) }
+  const openEdit = (v: any, target?: HTMLElement) => { rememberFocus(target); setEditingId(v.id); setForm({ name: v.name || "", capacity: v.capacity || "", price: v.price ?? "", downPaymentPercentage: v.downPaymentPercentage ?? 50, description: v.description || "", detailedDescription: v.detailedDescription || "", image: v.image || "", panoImage: v.panoImage || v.panoramaUrl || v.panorama || v.pano || v.tourImage || "", catalogStatus: getCatalogStatus(v) }); setShowModal(true) }
 
   const handleSave = async () => {
     if (isSaving) return
@@ -60,7 +76,7 @@ export function CMSVenuesTab({ onNavigate }: { onNavigate: (tab: string) => void
     <div>
       <CMSSectionHeader title="Event Venues"
         currentSection="venues" onNavigate={onNavigate}
-        action={<Button type="button" onClick={openNew} className="h-9 shrink-0 whitespace-nowrap rounded-lg bg-emerald-600 px-3.5 text-sm font-bold text-white hover:bg-emerald-700"><Plus className="mr-1 h-3.5 w-3.5" /> Add Venue</Button>} />
+        action={<Button type="button" variant="brand" onClick={(event) => openNew(event.currentTarget)} className="h-9 shrink-0 whitespace-nowrap rounded-lg px-3.5 text-sm"><Plus className="mr-1 h-3.5 w-3.5" /> Add Venue</Button>} />
 
       <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-end gap-3 border-b border-slate-100 px-4 py-2.5">
@@ -106,8 +122,8 @@ export function CMSVenuesTab({ onNavigate }: { onNavigate: (tab: string) => void
                     <TableCell className="hidden md:table-cell"><CMSStatusBadge status={getCatalogStatus(v)} /></TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-0.5">
-                        <button type="button" aria-label={`Edit ${v.name || "venue"}`} title="Edit venue" onClick={() => openEdit(v)} className="flex h-9 w-9 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"><Pencil className="h-3.5 w-3.5" aria-hidden="true" /></button>
-                        <button type="button" aria-label={`Archive ${v.name || "venue"}`} title="Archive venue" onClick={() => setConfirmDelete(v.id)} className="flex h-9 w-9 items-center justify-center rounded-md text-rose-400 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300"><Trash2 className="h-3.5 w-3.5" aria-hidden="true" /></button>
+                        <IconButton label={`Edit ${v.name || "venue"}`} onClick={(event) => openEdit(v, event.currentTarget)}><Pencil className="h-3.5 w-3.5" aria-hidden="true" /></IconButton>
+                        <IconButton label={`Archive ${v.name || "venue"}`} tone="danger" onClick={() => setConfirmDelete(v.id)}><Trash2 className="h-3.5 w-3.5" aria-hidden="true" /></IconButton>
                       </div>
                     </TableCell>
                   </tr>
@@ -120,40 +136,44 @@ export function CMSVenuesTab({ onNavigate }: { onNavigate: (tab: string) => void
               icon={filter === "under_renovation" ? undefined : <Plus className="h-8 w-8 text-emerald-400" />}
               title={filter === "under_renovation" ? "No venues under renovation." : filter === "published" ? "No published venues." : "No venues yet"}
               description={filter === "all" ? "Add a venue to get started." : undefined}
-              action={filter === "under_renovation" ? undefined : <Button type="button" onClick={openNew} className="h-9 rounded-lg bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-700"><Plus className="mr-1.5 h-4 w-4" /> Add Venue</Button>} />
+              action={filter === "under_renovation" ? undefined : <Button type="button" variant="brand" onClick={(event) => openNew(event.currentTarget)} className="h-9 rounded-lg text-xs"><Plus className="mr-1.5 h-4 w-4" /> Add Venue</Button>} />
           </div>
         )}
       </section>
 
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-8">
-          <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-xl max-h-[calc(100dvh-32px)] overflow-y-auto">
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-5 py-3.5">
-              <h2 className="text-base font-black text-slate-950">{editingId ? "Edit Venue" : "Add Venue"}</h2>
-              <button type="button" onClick={resetForm} disabled={isSaving} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100"><X className="h-4 w-4" /></button>
+      <Dialog open={showModal} onOpenChange={(open) => { if (!open && !isSaving) resetForm() }}>
+        <DialogContent showCloseButton={false} onCloseAutoFocus={(event) => { event.preventDefault(); restoreFocusRef.current?.focus(); restoreFocusRef.current = null }} className="w-[calc(100vw-2rem)] max-w-lg p-0">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-white px-5 py-3.5">
+              <div>
+                <DialogTitle className="text-base font-black text-slate-950">{editingId ? "Edit Venue" : "Add Venue"}</DialogTitle>
+                <DialogDescription className="sr-only">Create or update the event venue catalog record.</DialogDescription>
+              </div>
+              <DialogClose asChild><IconButton label="Close venue editor" onClick={resetForm} disabled={isSaving}><X className="h-4 w-4" /></IconButton></DialogClose>
             </div>
-            <div className="grid gap-4 p-5">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+              <div className="grid gap-4 p-5">
               <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Name</label>
-                  <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Grand Hall" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
+                  <label htmlFor="venue-name" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Name</label>
+                  <Input id="venue-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Grand Hall" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Capacity</label>
-                  <Input value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} placeholder="80–100 pax" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
+                  <label htmlFor="venue-capacity" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Capacity</label>
+                  <Input id="venue-capacity" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} placeholder="80–100 pax" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Price (₱)</label>
-                  <Input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="15000" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
+                  <label htmlFor="venue-price" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Price (₱)</label>
+                  <Input id="venue-price" type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="15000" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Down Payment (%)</label>
-                  <Input type="number" min="0" max="100" value={form.downPaymentPercentage} onChange={(e) => setForm({ ...form, downPaymentPercentage: e.target.value })} placeholder="50" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
+                  <label htmlFor="venue-down-payment" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Down Payment (%)</label>
+                  <Input id="venue-down-payment" type="number" min="0" max="100" value={form.downPaymentPercentage} onChange={(e) => setForm({ ...form, downPaymentPercentage: e.target.value })} placeholder="50" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 {editingId && <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Status</label>
+                  <label htmlFor="venue-status" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Status</label>
                   <div className="relative mt-1">
-                    <select value={form.catalogStatus}
+                    <select id="venue-status" value={form.catalogStatus}
                       onChange={(e) => setForm({ ...form, catalogStatus: e.target.value as CatalogStatus })}
                       className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-white px-4 pr-10 text-sm font-semibold text-slate-700 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100 cursor-pointer">
                       <option value="published">Published</option>
@@ -176,9 +196,10 @@ export function CMSVenuesTab({ onNavigate }: { onNavigate: (tab: string) => void
               </div>
               <CMSImageUpload label="Venue Photo" value={form.image} storagePath="venues" onValueChange={(v) => setForm({ ...form, image: v })} note="Used in booking, landing page, and tour preview." />
               <CMSPanoramaUpload value={form.panoImage} storagePath="panoramas" onValueChange={(v) => setForm({ ...form, panoImage: v })} />
+              </div>
             </div>
-            <div className="sticky bottom-0 flex gap-2 border-t border-slate-100 bg-white px-5 py-3.5">
-              <Button type="button" onClick={handleSave} disabled={isSaving} className="w-full sm:w-auto h-11 flex-1 rounded-lg bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-700">
+            <div className="flex shrink-0 gap-2 border-t border-slate-100 bg-white px-5 py-3.5">
+              <Button type="button" variant="brand" onClick={handleSave} disabled={isSaving} className="h-11 w-full flex-1 rounded-lg text-xs">
                 {isSaving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />} {isSaving ? "Saving..." : editingId ? "Save Changes" : "Add Venue"}
               </Button>
               <Button type="button" variant="outline" onClick={resetForm} disabled={isSaving} className="h-9 rounded-lg border-slate-200 text-xs font-bold">
@@ -186,21 +207,23 @@ export function CMSVenuesTab({ onNavigate }: { onNavigate: (tab: string) => void
               </Button>
             </div>
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
-      {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-xs rounded-xl border border-slate-200 bg-white p-5 shadow-xl">
-            <h3 className="text-base font-black text-slate-900">Delete Venue?</h3>
-            <p className="mt-1 text-sm font-semibold text-slate-500">This cannot be undone.</p>
-            <div className="mt-4 flex gap-2">
-              <Button type="button" variant="outline" onClick={() => setConfirmDelete(null)} className="h-9 flex-1 rounded-lg border-slate-200 text-xs font-bold">Cancel</Button>
-              <Button type="button" onClick={() => handleDelete(confirmDelete)} className="h-9 flex-1 rounded-lg bg-rose-600 text-xs font-bold text-white hover:bg-rose-700"><Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete</Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AlertDialog open={Boolean(confirmDelete)} onOpenChange={(open) => { if (!open) setConfirmDelete(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Venue?</AlertDialogTitle>
+            <AlertDialogDescription>This cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (confirmDelete) handleDelete(confirmDelete) }} className="bg-rose-600 text-white hover:bg-rose-700">
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

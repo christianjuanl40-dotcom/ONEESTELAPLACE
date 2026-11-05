@@ -32,7 +32,8 @@ export function CMSPaymentTab({ onNavigate }: { onNavigate: (key: string) => voi
         action={
           <Button
             onClick={handleSave}
-            className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg bg-orange-600 px-3.5 text-sm font-bold text-white hover:bg-orange-700 sm:w-auto"
+            variant="brand"
+            className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg px-3.5 text-sm sm:w-auto"
           >
             <Save className="mr-1.5 h-3.5 w-3.5" />
             Save Payment Settings
@@ -43,8 +44,9 @@ export function CMSPaymentTab({ onNavigate }: { onNavigate: (key: string) => voi
       <div className="grid gap-5 lg:grid-cols-2">
         <div className="space-y-4">
           <div>
-            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Bank Name</Label>
+            <Label htmlFor="payment-bank-name" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Bank Name</Label>
             <Input
+              id="payment-bank-name"
               value={bankName}
               onChange={(e) => setBankName(e.target.value)}
               placeholder="e.g. BDO, GCash, Maya"
@@ -53,8 +55,9 @@ export function CMSPaymentTab({ onNavigate }: { onNavigate: (key: string) => voi
           </div>
 
           <div>
-            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Account Name</Label>
+            <Label htmlFor="payment-account-name" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Account Name</Label>
             <Input
+              id="payment-account-name"
               value={accountName}
               onChange={(e) => setAccountName(e.target.value)}
               placeholder="e.g. One Estela Place"
@@ -63,8 +66,9 @@ export function CMSPaymentTab({ onNavigate }: { onNavigate: (key: string) => voi
           </div>
 
           <div>
-            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Account Number</Label>
+            <Label htmlFor="payment-account-number" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Account Number</Label>
             <Input
+              id="payment-account-number"
               value={accountNumber}
               onChange={(e) => setAccountNumber(e.target.value)}
               placeholder="e.g. 0012 3456 7890"
@@ -73,8 +77,9 @@ export function CMSPaymentTab({ onNavigate }: { onNavigate: (key: string) => voi
           </div>
 
           <div>
-            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Payment Instructions (Optional)</Label>
+            <Label htmlFor="payment-instructions" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Payment Instructions (Optional)</Label>
             <Textarea
+              id="payment-instructions"
               value={instructions}
               onChange={(e) => setInstructions(e.target.value)}
               placeholder="e.g. Please upload a clear screenshot of your bank transfer receipt."

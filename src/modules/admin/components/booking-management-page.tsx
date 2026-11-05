@@ -54,6 +54,7 @@ import {
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { cn } from "@/src/modules/shared/lib/utils"
+import { getBookingStatusPresentationClass } from "@/src/modules/shared/lib/status-presentation"
 import { getCancellationAudit } from "@/src/modules/shared/lib/cancellation"
 import { getRemainingDurationFromDates, getContractDurationLabel } from "@/src/modules/shared/lib/date-utils"
 import {
@@ -82,6 +83,7 @@ import { Label } from "@/src/modules/shared/components/ui/label"
 import { useCMS } from "@/src/modules/admin/contexts/cms-context"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/src/modules/shared/components/ui/tabs"
 import { stableSortBy, type TableSortDirection, type TableSortableValue } from "@/src/modules/shared/lib/report-table-utils"
+import { getBookingCreationTime, sortBookingsByCreationTime } from "@/src/modules/shared/lib/booking-sorting"
 
 const adminBookingDetailsActionColors = {
   reminder: "bg-[#FFF7ED] text-[#C2410C] border border-[#FED7AA] hover:bg-[#FFEDD5] hover:text-[#C2410C]",
@@ -89,7 +91,7 @@ const adminBookingDetailsActionColors = {
   contract: "bg-[#F1F5F9] text-[#334155] border border-[#CBD5E1] hover:bg-[#E2E8F0] hover:text-[#334155]",
 } as const
 
-type BookingSortKey = "date" | "customer" | "event" | "resource" | "status"
+type BookingSortKey = "createdAt" | "date" | "customer" | "event" | "resource" | "status"
 
 function formatDate(date?: string) {
   if (!date) return "—"
@@ -101,17 +103,7 @@ function formatDate(date?: string) {
 }
 
 function getStatusBadgeClass(status?: string) {
-  const v = String(status || "").toLowerCase()
-  if (["confirmed", "reservation_secured", "slot_secured", "slot_verified"].includes(v)) return "border-emerald-200 bg-emerald-50 text-emerald-700"
-  if (["completed", "complete"].includes(v)) return "border-blue-200 bg-blue-50 text-blue-700"
-  if (["pending", "verifying"].includes(v)) return "border-orange-200 bg-orange-50 text-orange-700"
-  if (["cancellation_requested", "cancellation requested"].includes(v)) return "border-amber-200 bg-amber-50 text-amber-700"
-  if (["modification_under_review"].includes(v)) return "border-purple-200 bg-purple-50 text-purple-700"
-  if (["cancelled", "declined"].includes(v)) return "border-rose-200 bg-rose-50 text-rose-700"
-  if (v === "contract_signing_required") return "border-yellow-200 bg-yellow-50 text-yellow-700"
-  if (v === "active_rental") return "border-sky-200 bg-sky-50 text-sky-700"
-  if (v === "rental_expired") return "border-rose-200 bg-rose-50 text-rose-700"
-  return "border-slate-200 bg-slate-50 text-slate-600"
+  return getBookingStatusPresentationClass(status)
 }
 
 export function BalanceReminderModal({
@@ -286,6 +278,8 @@ function isCancellationRequestPending(booking: Booking) {
 
 function getBookingSortValue(booking: Booking, sortKey: BookingSortKey): TableSortableValue {
   switch (sortKey) {
+    case "createdAt":
+      return getBookingCreationTime(booking.createdAt)
     case "date":
       return booking.date ? new Date(booking.date) : null
     case "customer":
@@ -338,7 +332,7 @@ export default function AdminBookingsPage() {
   const { toast } = useToast()
   const bookingCtx = useBookingData({ bookings: true, payments: true })
   const bookingDataError = [bookingCtx.dataErrors?.bookings, bookingCtx.dataErrors?.payments].filter(Boolean).join(" ") || null
-  const bookings = bookingCtx?.bookings || []
+  const bookings = useMemo(() => bookingCtx.bookings || [], [bookingCtx.bookings])
   const { markByBookingId } = useNotifications()
   const ADMIN_BOOKING_TYPES: NotificationType[] = ["booking_submitted", "cancellation_requested", "modification_requested"]
 
@@ -374,10 +368,19 @@ export default function AdminBookingsPage() {
   const [showContractConfirm, setShowContractConfirm] = useState(false)
   const [sendReminderTarget, setSendReminderTarget] = useState<Booking | null>(null)
   const [onsitePaymentTarget, setOnsitePaymentTarget] = useState<Booking | null>(null)
-  const [currentPage, setCurrentPage] = useState(1)
+  const [currentPageState, setCurrentPageState] = useState({ key: "", page: 1 })
   const ITEMS_PER_PAGE = 10
-  const [bookingSortKey, setBookingSortKey] = useState<BookingSortKey>("date")
+  const [bookingSortKey, setBookingSortKey] = useState<BookingSortKey>("createdAt")
   const [bookingSortDirection, setBookingSortDirection] = useState<TableSortDirection>("desc")
+  const bookingPageKey = `${bookingSortKey}|${bookingSortDirection}|${statusFilter}|${venueFilter}|${searchQuery}`
+  const currentPage = currentPageState.key === bookingPageKey ? currentPageState.page : 1
+  const setCurrentPage = (next: number | ((page: number) => number)) => {
+    setCurrentPageState((current) => {
+      const currentPageValue = current.key === bookingPageKey ? current.page : 1
+      const nextPage = typeof next === "function" ? next(currentPageValue) : next
+      return { key: bookingPageKey, page: nextPage }
+    })
+  }
 
   const [showApproveCancellationConfirm, setShowApproveCancellationConfirm] = useState(false)
   const [showDeclineCancellationModal, setShowDeclineCancellationModal] = useState(false)
@@ -439,17 +442,15 @@ export default function AdminBookingsPage() {
   }, [bookings, statusFilter, venueFilter, searchQuery])
 
   const sortedBookings = useMemo(
-    () => stableSortBy(
-      filteredBookings,
-      (booking) => getBookingSortValue(booking, bookingSortKey),
-      bookingSortDirection,
-    ),
+    () => bookingSortKey === "createdAt"
+      ? sortBookingsByCreationTime(filteredBookings, bookingSortDirection)
+      : stableSortBy(
+        filteredBookings,
+        (booking) => getBookingSortValue(booking, bookingSortKey),
+        bookingSortDirection,
+      ),
     [bookingSortDirection, bookingSortKey, filteredBookings],
   )
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [bookingSortDirection, bookingSortKey, searchQuery, statusFilter, venueFilter])
 
   const totalPages = Math.max(1, Math.ceil(sortedBookings.length / ITEMS_PER_PAGE))
   const safePage = Math.min(Math.max(currentPage, 1), totalPages)
@@ -457,10 +458,6 @@ export default function AdminBookingsPage() {
     (safePage - 1) * ITEMS_PER_PAGE,
     safePage * ITEMS_PER_PAGE,
   )
-
-  useEffect(() => {
-    if (currentPage !== safePage) setCurrentPage(safePage)
-  }, [currentPage, safePage])
 
   useEffect(() => {
     if (bookingCtx.isLoading) return
@@ -679,8 +676,14 @@ export default function AdminBookingsPage() {
       setBookingSortDirection((direction) => direction === "asc" ? "desc" : "asc")
     } else {
       setBookingSortKey(sortKey)
-      setBookingSortDirection(sortKey === "date" ? "desc" : "asc")
+      setBookingSortDirection(sortKey === "createdAt" || sortKey === "date" ? "desc" : "asc")
     }
+    setCurrentPage(1)
+  }
+
+  const resetBookingSort = () => {
+    setBookingSortKey("createdAt")
+    setBookingSortDirection("desc")
     setCurrentPage(1)
   }
 
@@ -907,6 +910,16 @@ export default function AdminBookingsPage() {
                   </button>
                 )}
               </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={resetBookingSort}
+                aria-label="Reset booking sorting to newest first"
+                className="h-10 shrink-0 rounded-xl border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-orange-600"
+              >
+                <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                Newest First
+              </Button>
             </div>
         </div>
 
@@ -938,7 +951,7 @@ export default function AdminBookingsPage() {
             <Button
               variant="outline"
               disabled={safePage <= 1}
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              onClick={() => setCurrentPage(Math.max(1, safePage - 1))}
               className="h-9 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
             >
               Previous
@@ -949,7 +962,7 @@ export default function AdminBookingsPage() {
             <Button
               variant="outline"
               disabled={safePage >= totalPages}
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              onClick={() => setCurrentPage(Math.min(totalPages, safePage + 1))}
               className="h-9 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
             >
               Next

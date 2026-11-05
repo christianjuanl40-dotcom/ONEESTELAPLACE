@@ -1,9 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Eye, EyeOff, Pencil, Save, X } from "lucide-react"
 import { Button } from "@shared/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader } from "@shared/components/ui/table"
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@shared/components/ui/dialog"
+import { IconButton } from "@shared/components/ui/icon-button"
 import { useToast } from "@shared/hooks/use-toast"
 import { useCMS } from "@admin/contexts/cms-context"
 import { CMSSectionHeader } from "./cms-section-header"
@@ -15,6 +17,16 @@ export function CMSVirtualTourTab({ onNavigate }: { onNavigate: (tab: string) =>
   const { venues, offices, updateVenue, updateOffice } = useCMS()
   const { toast } = useToast()
   const [editing, setEditing] = useState<{ id: string; type: "venue" | "office"; panoImage: string } | null>(null)
+  const restoreFocusRef = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (editing || !restoreFocusRef.current) return
+    const target = restoreFocusRef.current
+    const frame = window.requestAnimationFrame(() => {
+      if (target.isConnected) target.focus()
+      if (restoreFocusRef.current === target) restoreFocusRef.current = null
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [editing])
 
   const allSpaces = [
     ...venues.map((v: any) => ({ ...v, _type: "venue" as const, _label: "Event Venue" })),
@@ -28,6 +40,11 @@ export function CMSVirtualTourTab({ onNavigate }: { onNavigate: (tab: string) =>
     else updateOffice(editing.id, { panoImage: pano, panoramaUrl: pano, updatedAt: new Date().toISOString() })
     toast({ title: "Panorama saved", description: "360 tour image updated.", className: "bg-emerald-500 text-white border-none" })
     setEditing(null)
+  }
+
+  const openEditor = (space: any, target?: HTMLElement) => {
+    restoreFocusRef.current = target || (document.activeElement instanceof HTMLElement ? document.activeElement : null)
+    setEditing({ id: space.id, type: space._type, panoImage: space.panoImage || "" })
   }
 
   return (
@@ -71,16 +88,13 @@ export function CMSVirtualTourTab({ onNavigate }: { onNavigate: (tab: string) =>
                     <TableCell className="hidden md:table-cell"><CMSStatusBadge status={getCatalogStatus(s)} /></TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-0.5">
-                        <button type="button" onClick={() => setEditing({ id: s.id, type: s._type, panoImage: s.panoImage || "" })}
-                          aria-label={`Edit panorama for ${s.name || "space"}`} title="Edit panorama" className="flex h-9 w-9 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"><Pencil className="h-3.5 w-3.5" aria-hidden="true" /></button>
-                        <button type="button" aria-label={getCatalogStatus(s) === "published" ? "Mark under renovation" : "Publish space"}
-                          title={getCatalogStatus(s) === "published" ? "Mark under renovation" : "Publish space"}
+                        <IconButton label={`Edit panorama for ${s.name || "space"}`} onClick={(event) => openEditor(s, event.currentTarget)}><Pencil className="h-3.5 w-3.5" aria-hidden="true" /></IconButton>
+                        <IconButton label={getCatalogStatus(s) === "published" ? `Mark ${s.name || "space"} under renovation` : `Publish ${s.name || "space"}`}
                           onClick={() => {
                             const catalogStatus: CatalogStatus = getCatalogStatus(s) === "published" ? "under_renovation" : "published"
                             const data = { catalogStatus, isHidden: catalogStatus === "under_renovation", updatedAt: new Date().toISOString() }
                             if (s._type === "venue") updateVenue(s.id, data); else updateOffice(s.id, data)
-                          }}
-                           className="flex h-9 w-9 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300">{getCatalogStatus(s) === "under_renovation" ? <Eye className="h-3.5 w-3.5" aria-hidden="true" /> : <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />}</button>
+                          }}>{getCatalogStatus(s) === "under_renovation" ? <Eye className="h-3.5 w-3.5" aria-hidden="true" /> : <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />}</IconButton>
                       </div>
                     </TableCell>
                   </tr>
@@ -95,21 +109,22 @@ export function CMSVirtualTourTab({ onNavigate }: { onNavigate: (tab: string) =>
         )}
       </section>
 
-      {editing && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-8">
-          <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-xl max-h-[calc(100dvh-32px)] overflow-y-auto">
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-5 py-3.5">
+      <Dialog open={Boolean(editing)} onOpenChange={(open) => { if (!open) setEditing(null) }}>
+        {editing && <DialogContent showCloseButton={false} onCloseAutoFocus={(event) => { event.preventDefault(); restoreFocusRef.current?.focus(); restoreFocusRef.current = null }} className="w-[calc(100vw-2rem)] max-w-md p-0">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-white px-5 py-3.5">
               <div>
-                <h2 className="text-base font-black text-slate-950">Edit Panorama</h2>
+                <DialogTitle className="text-base font-black text-slate-950">Edit Panorama</DialogTitle>
+                <DialogDescription className="sr-only">Update the 360 tour image for this catalog space.</DialogDescription>
                 <p className="text-xs font-semibold text-slate-500">{allSpaces.find((s: any) => s.id === editing.id)?.name}</p>
               </div>
-              <button type="button" onClick={() => setEditing(null)} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100"><X className="h-4 w-4" /></button>
+              <DialogClose asChild><IconButton label="Close panorama editor"><X className="h-4 w-4" /></IconButton></DialogClose>
             </div>
-            <div className="p-5">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
               <CMSPanoramaUpload value={editing.panoImage} onValueChange={(v) => setEditing({ ...editing, panoImage: v })} />
             </div>
-            <div className="sticky bottom-0 flex gap-2 border-t border-slate-100 bg-white px-5 py-3.5">
-              <Button type="button" onClick={handleSave} className="w-full sm:w-auto h-11 flex-1 rounded-lg bg-purple-600 text-xs font-bold text-white hover:bg-purple-700">
+            <div className="flex shrink-0 gap-2 border-t border-slate-100 bg-white px-5 py-3.5">
+              <Button type="button" variant="brand" onClick={handleSave} className="h-11 w-full flex-1 rounded-lg text-xs">
                 <Save className="mr-1.5 h-3.5 w-3.5" /> Save
               </Button>
               <Button type="button" variant="outline" onClick={() => setEditing(null)} className="h-9 rounded-lg border-slate-200 text-xs font-bold">
@@ -117,8 +132,8 @@ export function CMSVirtualTourTab({ onNavigate }: { onNavigate: (tab: string) =>
               </Button>
             </div>
           </div>
-        </div>
-      )}
+        </DialogContent>}
+      </Dialog>
     </div>
   )
 }

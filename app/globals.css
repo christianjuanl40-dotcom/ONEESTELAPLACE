@@ -465,7 +465,7 @@
 /* Safari iOS scroll */
 .safari-scroll {
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
+  overscroll-behavior-x: contain;
 }
 
 /* Button appearance across browsers */

@@ -29,11 +29,11 @@ function Dialog({
   return <DialogPrimitive.Root data-slot="dialog" {...props} />
 }
 
-function DialogTrigger({
+const DialogTrigger = React.forwardRef<React.ElementRef<typeof DialogPrimitive.Trigger>, React.ComponentPropsWithoutRef<typeof DialogPrimitive.Trigger>>(function DialogTrigger({
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Trigger>) {
-  return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
-}
+}, ref) {
+  return <DialogPrimitive.Trigger ref={ref} data-slot="dialog-trigger" {...props} />
+})
 
 function DialogPortal({
   ...props
@@ -41,18 +41,19 @@ function DialogPortal({
   return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
 }
 
-function DialogClose({
+const DialogClose = React.forwardRef<React.ElementRef<typeof DialogPrimitive.Close>, React.ComponentPropsWithoutRef<typeof DialogPrimitive.Close>>(function DialogClose({
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Close>) {
-  return <DialogPrimitive.Close data-slot="dialog-close" {...props} />
-}
+}, ref) {
+  return <DialogPrimitive.Close ref={ref} data-slot="dialog-close" {...props} />
+})
 
-function DialogOverlay({
+const DialogOverlay = React.forwardRef<React.ElementRef<typeof DialogPrimitive.Overlay>, React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>>(function DialogOverlay({
   className,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
+}, ref) {
   return (
     <DialogPrimitive.Overlay
+      ref={ref}
       data-slot="dialog-overlay"
       className={cn(
         'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[10001] bg-black/60',
@@ -61,18 +62,18 @@ function DialogOverlay({
       {...props}
     />
   )
-}
+})
 
-function DialogContent({
+const DialogContent = React.forwardRef<React.ElementRef<typeof DialogPrimitive.Content>, React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+  showCloseButton?: boolean
+  plain?: boolean
+}>(function DialogContent({
   className,
   children,
   showCloseButton = true,
   plain,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content> & {
-  showCloseButton?: boolean
-  plain?: boolean
-}) {
+}, ref) {
   // Radix's modal overlay owns the reference-counted scroll lock. A separate
   // body-overflow effect here also runs for closed, mounted DialogContent and
   // restores stale values when nested dialogs close in a different order.
@@ -93,6 +94,7 @@ function DialogContent({
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
       <DialogPrimitive.Content
+        ref={ref}
         data-slot="dialog-content"
         className={cn(
           'fixed left-[50%] top-[50%] z-[10002] w-full max-w-[calc(100vw-32px)] translate-x-[-50%] translate-y-[-50%]',
@@ -124,7 +126,7 @@ function DialogContent({
       </DialogPrimitive.Content>
     </DialogPortal>
   )
-}
+})
 
 function DialogHeader({ className, ...props }: React.ComponentProps<'div'>) {
   return (
@@ -149,31 +151,33 @@ function DialogFooter({ className, ...props }: React.ComponentProps<'div'>) {
   )
 }
 
-function DialogTitle({
+const DialogTitle = React.forwardRef<React.ElementRef<typeof DialogPrimitive.Title>, React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>>(function DialogTitle({
   className,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Title>) {
+}, ref) {
   return (
     <DialogPrimitive.Title
+      ref={ref}
       data-slot="dialog-title"
       className={cn('text-lg leading-none font-bold', className)}
       {...props}
     />
   )
-}
+})
 
-function DialogDescription({
+const DialogDescription = React.forwardRef<React.ElementRef<typeof DialogPrimitive.Description>, React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>>(function DialogDescription({
   className,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Description>) {
+}, ref) {
   return (
     <DialogPrimitive.Description
+      ref={ref}
       data-slot="dialog-description"
       className={cn('text-sm font-normal', className)}
       {...props}
     />
   )
-}
+})
 
 export {
   Dialog,

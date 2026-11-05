@@ -73,6 +73,7 @@ import {
   type ReceiptPaperData,
 } from "@/src/modules/shared/components/receipt-paper"
 import { cn } from "@/src/modules/shared/lib/utils"
+import { getBookingStatusPresentationClass } from "@/src/modules/shared/lib/status-presentation"
 import {
   getCurrentBooking,
   hasActiveModificationRequest as bookingHasActiveModificationRequest,
@@ -310,29 +311,7 @@ function formatTextLabel(value?: string) {
 }
 
 function getStatusBadgeClass(status?: string) {
-  const normalized = String(status || "").toLowerCase()
-  if (["confirmed", "reservation_secured", "slot_verified", "slot_secured", "active_rental"].includes(normalized)) {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700"
-  }
-  if (["completed", "complete"].includes(normalized)) {
-    return "border-blue-200 bg-blue-50 text-blue-700"
-  }
-  if (["pending", "verifying"].includes(normalized)) {
-    return "border-orange-200 bg-orange-50 text-orange-700"
-  }
-  if (["contract_signing_required"].includes(normalized)) {
-    return "border-yellow-200 bg-yellow-50 text-yellow-700"
-  }
-  if (["cancellation_requested", "cancellation requested"].includes(normalized)) {
-    return "border-amber-200 bg-amber-50 text-amber-700"
-  }
-  if (["cancelled", "declined"].includes(normalized)) {
-    return "border-rose-200 bg-rose-50 text-rose-700"
-  }
-  if (["rental_expired"].includes(normalized)) {
-    return "border-red-200 bg-red-50 text-red-700"
-  }
-  return "border-slate-200 bg-slate-50 text-slate-600"
+  return getBookingStatusPresentationClass(status)
 }
 
 function getStatusLabel(status?: string) {

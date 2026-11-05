@@ -2,7 +2,7 @@
 
 Booking and rental management system for **One Estela Place**: event venue reservations, office room rentals, payment verification, customer support, and website content management.
 
-Source reviewed: **2026-10-19** baseline; resource identity, scheduling, maintenance, and CMS persistence rechecked **2026-10-25**; exclusive office occupancy and customer/admin Booking Details rechecked **2026-10-26**; session initialization, read recovery, and availability performance rechecked **2026-10-27**; compact booking/payment tables rechecked **2026-11-03**; protected portal/admin shell scrolling rechecked **2026-11-04**. This documentation describes the checked-in implementation; live catalog values and provider configuration come from the connected services.
+Source reviewed: **2026-10-19** baseline; resource identity, scheduling, maintenance, and CMS persistence rechecked **2026-10-25**; exclusive office occupancy and customer/admin Booking Details rechecked **2026-10-26**; session initialization, read recovery, and availability performance rechecked **2026-10-27**; compact booking/payment tables rechecked **2026-11-03**; protected portal/admin shell scrolling rechecked **2026-11-04**; CMS responsive/accessibility surfaces and Phase 2.1 table scrolling/admin booking ordering rechecked **2026-11-05**. This documentation describes the checked-in implementation; live catalog values and provider configuration come from the connected services.
 
 ## Start here for future prompts
 
@@ -28,7 +28,7 @@ Read these project references first, then open the source files relevant to the 
 - **Admin dashboard:** booking management, payment review, onsite payment recording, reports and Excel export, staff administration, CMS, and user information.
 - **Staff access:** dashboard features are controlled by per-module permissions.
 - **Responsive records:** booking and payment lists use compact semantic tables on desktop/tablet and labeled condensed rows on mobile, while retaining the existing filters, pagination, grouping, ownership checks, calculations, and actions.
-- **Protected workspace scrolling:** the client and admin shells are viewport-bounded flex layouts whose content panes own vertical scrolling; side navigation scrolls independently and record tables keep horizontal scrolling contained to their table region.
+- **Protected workspace scrolling:** the client and admin shells are viewport-bounded flex layouts whose content panes own vertical scrolling; side navigation scrolls independently and record tables keep horizontal scrolling contained to their table region without blocking vertical scroll chaining.
 
 The application roles are `admin`, `staff`, and `client`. An owner uses the admin role; `owner` is not a separate supported account role in the auth model.
 
@@ -87,7 +87,7 @@ Use the same Firebase project for the browser configuration and Admin credential
 2. Configure that project with [firestore.rules](firestore.rules) and [firestore.indexes.json](firestore.indexes.json). [firebase.json](firebase.json) points the Firebase CLI at these files; running Next.js does not deploy them.
 3. Provision the first admin in Firebase Authentication and a matching `users/{uid}` Firestore document with `uid`, `fullName`, `email`, `role: "admin"`, `status: "active"`, and an ISO `createdAt`. There is no checked-in admin seed command. Public signup creates client accounts.
 4. Sign in as admin, open `/dashboard/cms`, and save the initial CMS configuration. The website can display fallback content without a stored document, but booking creation requires a persisted **`cms/data`** catalog.
-5. Review the venue/office prices, capacities, rooms, payment details, policy copy, images, contract previews, and **Predefined Questions & Answers** in CMS. Starter question/answer records are shown for review but are not published until an administrator explicitly saves them with the desired entries enabled and published.
+5. Review the venue/office prices, capacities, rooms, payment details, policy copy, images, panorama/Virtual Tour entries, contract previews, and **Predefined Questions & Answers** in CMS. Starter question/answer records are shown for review but are not published until an administrator explicitly saves them with the desired entries enabled and published.
 
 Staff accounts are managed from `/dashboard/staff` after the admin account is available.
 
@@ -120,7 +120,7 @@ Next.js route-group names such as `(client)` and `(admin)` are filesystem organi
 
 ### Booking and payment list convention
 
-The four booking/payment list surfaces—Admin Booking Management, Admin Payment Verification, Client My Bookings, and Client My Transactions—reuse `src/modules/shared/components/ui/table.tsx`. Booking tables show only the booking lifecycle status; payment tables show only the canonical payment/review status. Desktop/tablet views expose labeled columns inside a contained horizontal-scroll region when needed; booking tables fit the available laptop/desktop content area, explicitly wrap schedule/status content, and reserve a full action-button column; mobile views switch to labeled compact rows. Admin payment rows remain grouped by booking, with submission history and exact review identity preserved in the existing modal. Client transaction rows keep Total, Paid, and Balance inside a constrained financial-summary cell and remain one canonical financial summary per owned booking, derived from `calculatePaymentSummary()`; full submission and receipt history remains available through the existing details workflow. The protected layouts keep `min-h-0` on the viewport shell, content row, and scrollable main pane so flex sizing cannot clip page scrolling.
+The four booking/payment list surfaces—Admin Booking Management, Admin Payment Verification, Client My Bookings, and Client My Transactions—reuse `src/modules/shared/components/ui/table.tsx`. Booking tables show only the booking lifecycle status; payment tables show only the canonical payment/review status. Desktop/tablet views expose labeled columns inside a contained horizontal-scroll region when needed; booking tables fit the available laptop/desktop content area, explicitly wrap schedule/status content, and reserve a full action-button column; mobile views switch to labeled compact rows. Admin payment rows remain grouped by booking, with submission history and exact review identity preserved in the existing modal. Client transaction rows keep Total, Paid, and Balance inside a constrained financial-summary cell and remain one canonical financial summary per owned booking, derived from `calculatePaymentSummary()`; full submission and receipt history remains available through the existing details workflow. The protected layouts keep `min-h-0` on the viewport shell, content row, and scrollable main pane so flex sizing cannot clip page scrolling; horizontal table overscroll does not block vertical chaining.
 
 ## Development commands
 
@@ -142,6 +142,8 @@ The four booking/payment list surfaces—Admin Booking Management, Admin Payment
 | `node scripts/verify-booking-maintenance.mjs` | Local-only Chromium maintenance regressions using the actual admin bookings page/provider at 1366×768, 1280×720, 390×844, and 320×568; override temporary artifacts with `BOOKING_MAINTENANCE_TEMP_DIR` |
 | `node scripts/verify-office-availability.mjs` | Chromium occupied/reserved room disabling, Rooms 2–8 selection, lease transitions, full-term maintenance, refresh/error, bounded-search, and nested-dialog checks at the same four sizes; override temporary artifacts with `OFFICE_AVAILABILITY_TEMP_DIR` |
 | `node scripts/verify-booking-details.mjs` | Real customer/admin Booking Details office/event, document grouping, cancellation/refund, one-region scrolling, action handlers, and conditional footer checks at 1366×768, 1280×720, 768×1024, 640×960, 390×844, and 320×568; use `--no-screenshots` for DOM/layout checks only; override artifacts with `BOOKING_DETAILS_TEMP_DIR` |
+| `node scripts/verify-cms.mjs` | Local-only Chromium checks of CMS venue, office/room, and Virtual Tour editors, contextual actions, destructive confirmations, keyboard focus, responsive overflow at 320/375/768/1024/1440px, and shared Radix ref-warning absence |
+| `node scripts/verify-booking-table.mjs` | Local-only Chromium checks of Admin Booking Management creation-time ordering, filters/search/pagination/reset/realtime insertion, table wheel scrolling, horizontal containment, and desktop/tablet/mobile overflow |
 | `node scripts/verify-report-print.mjs` | Local Chromium report checks for financial row/summary values, display-name search, typed sorting, pagination/page-size behavior, mobile disclosure details, Excel column/totals/filter parity, selected year/month print metadata, print typography, dashboard exclusion, and generated PDF |
 
 There is no `npm test` script. Tests live in `src/modules/shared/lib/__tests__/`.

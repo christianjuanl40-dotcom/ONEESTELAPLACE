@@ -52,6 +52,11 @@ import {
   type TableSortableValue,
 } from "@/src/modules/shared/lib/report-table-utils"
 import {
+  getRefundStatusPresentationClass,
+  getReportBookingStatusPresentationClass,
+  getReportPaymentStatusPresentationClass,
+} from "@/src/modules/shared/lib/status-presentation"
+import {
   Bar,
   BarChart,
   CartesianGrid,
@@ -123,10 +128,6 @@ function getStatusGroupName(status?: string) {
 function getStatusGroupColor(groupName: string) {
   return STATUS_GROUPS.find((group) => group.name === groupName)?.color ?? OTHER_STATUS_GROUP.color
 }
-
-const CONFIRMED_STATUSES = ["confirmed"]
-const PENDING_STATUSES = ["pending", "verifying", "pencil booking", "for review", "for verification", "awaiting payment"]
-const CANCELLED_STATUSES = ["cancelled", "canceled", "declined", "rejected"]
 
 function normalizeStatus(status?: string) {
   return String(status || "pending").trim().toLowerCase()
@@ -476,57 +477,15 @@ function computeColumnWidths(headers: string[], rows: (string | number | Date)[]
 }
 
 function getStatusBadgeClass(status?: string) {
-  const normalized = normalizeStatus(status)
-
-  if (CONFIRMED_STATUSES.includes(normalized)) {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700"
-  }
-
-  if (PENDING_STATUSES.includes(normalized)) {
-    return "border-amber-200 bg-amber-50 text-amber-700"
-  }
-
-  if (CANCELLED_STATUSES.includes(normalized)) {
-    return "border-rose-200 bg-rose-50 text-rose-700"
-  }
-
-  return "border-slate-200 bg-slate-50 text-slate-700"
+  return getReportBookingStatusPresentationClass(status)
 }
 
 function getPaymentStatusBadgeClass(status?: string) {
-  const normalized = normalizeStatus(status)
-
-  if (["paid", "fully paid", "completed", "verified", "received"].includes(normalized)) {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700"
-  }
-
-  if (normalized.includes("review") || normalized.includes("pending") || normalized.includes("incomplete") || normalized.includes("partial")) {
-    return "border-amber-200 bg-amber-50 text-amber-700"
-  }
-
-  if (["rejected", "declined"].includes(normalized)) {
-    return "border-rose-200 bg-rose-50 text-rose-700"
-  }
-
-  return "border-slate-200 bg-slate-50 text-slate-700"
+  return getReportPaymentStatusPresentationClass(status)
 }
 
 function getRefundStatusBadgeClass(status?: string) {
-  const normalized = normalizeStatus(status).replace(/[\s-]+/g, "_")
-
-  if (["refunded", "refund_claimed"].includes(normalized)) {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700"
-  }
-
-  if (["requested", "pending"].includes(normalized)) {
-    return "border-amber-200 bg-amber-50 text-amber-700"
-  }
-
-  if (normalized === "eligible") {
-    return "border-blue-200 bg-blue-50 text-blue-700"
-  }
-
-  return "border-slate-200 bg-slate-50 text-slate-700"
+  return getRefundStatusPresentationClass(status)
 }
 
 function ReportSortableHeader({
@@ -979,7 +938,7 @@ export default function ReportsPage() {
   const [filterResource, setFilterResource] = useState("all")
   const [filterRoom, setFilterRoom] = useState("all")
   const [searchTerm, setSearchTerm] = useState("")
-  const [currentPage, setCurrentPage] = useState(1)
+  const [currentPageState, setCurrentPageState] = useState({ key: "", page: 1 })
   const [rowsPerPage, setRowsPerPage] = useState(10)
   const [reportSortKey, setReportSortKey] = useState<ReportSortKey>("date")
   const [reportSortDirection, setReportSortDirection] = useState<TableSortDirection>("desc")
@@ -987,6 +946,15 @@ export default function ReportsPage() {
   const [printDate, setPrintDate] = useState<Date | null>(null)
   const isPrinting = printDate !== null
   const generatedBy = user?.fullName || user?.name || user?.email || "System User"
+  const reportPageKey = `${filterYear}|${filterMonth}|${filterStatus}|${filterCategory}|${filterResource}|${filterRoom}|${searchTerm}|${rowsPerPage}|${reportSortKey}|${reportSortDirection}`
+  const currentPage = currentPageState.key === reportPageKey ? currentPageState.page : 1
+  const setCurrentPage = (next: number | ((page: number) => number)) => {
+    setCurrentPageState((current) => {
+      const currentPageValue = current.key === reportPageKey ? current.page : 1
+      const nextPage = typeof next === "function" ? next(currentPageValue) : next
+      return { key: reportPageKey, page: nextPage }
+    })
+  }
 
   useEffect(() => {
     // Commit print dimensions and all filtered rows before the browser snapshots
@@ -1222,10 +1190,6 @@ export default function ReportsPage() {
     [currentPage, reportRows, rowsPerPage],
   )
   const { items: paginatedReportRows, totalPages, page: safePage } = reportPagination
-
-  useEffect(() => {
-    if (currentPage !== safePage) setCurrentPage(safePage)
-  }, [currentPage, safePage])
 
   const reportSummary = useMemo(
     () => buildReportSummary(
@@ -2720,7 +2684,7 @@ export default function ReportsPage() {
                  type="button"
                  variant="outline"
                  disabled={safePage <= 1}
-                 onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  onClick={() => setCurrentPage(Math.max(1, safePage - 1))}
                  aria-label="Go to previous report page"
                  className="h-9 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                >
@@ -2731,7 +2695,7 @@ export default function ReportsPage() {
                  type="button"
                  variant="outline"
                  disabled={safePage >= totalPages}
-                 onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                  onClick={() => setCurrentPage(Math.min(totalPages, safePage + 1))}
                  aria-label="Go to next report page"
                  className="h-9 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                >

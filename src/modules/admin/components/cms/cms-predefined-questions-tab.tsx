@@ -354,10 +354,10 @@ export function CMSPredefinedQuestionsTab({ onNavigate }: { onNavigate: (tab: st
           <div className="flex w-full shrink-0 flex-wrap justify-end gap-2 sm:w-auto">
             {dirty && <span role="status" className="inline-flex h-9 items-center rounded-lg border border-amber-200 bg-amber-50 px-2.5 text-xs font-bold text-amber-800">Unsaved changes</span>}
             {dirty && <Button type="button" variant="outline" onClick={handleDiscard} className="h-9 rounded-lg border-slate-200 px-2.5 text-xs font-bold text-slate-600">Discard draft</Button>}
-            <Button type="button" onClick={openNew} className="h-9 rounded-lg bg-orange-600 px-3.5 text-sm font-bold text-white hover:bg-orange-700">
+            <Button type="button" variant="brand" onClick={openNew} className="h-9 rounded-lg px-3.5 text-sm">
               <Plus className="mr-1 h-3.5 w-3.5" /> Add Question
             </Button>
-            <Button type="button" onClick={() => void handleSave()} disabled={!dirty || isSaving} className="h-9 rounded-lg bg-slate-900 px-3.5 text-sm font-bold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50">
+            <Button type="button" variant="brand" onClick={() => void handleSave()} disabled={!dirty || isSaving} className="h-9 rounded-lg px-3.5 text-sm disabled:cursor-not-allowed disabled:opacity-50">
               {isSaving ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1 h-3.5 w-3.5" />}
               {isSaving ? "Saving..." : "Save Changes"}
             </Button>
@@ -486,9 +486,9 @@ export function CMSPredefinedQuestionsTab({ onNavigate }: { onNavigate: (tab: st
             </div>
           </div>
         ) : questions.length > 0 ? (
-          <div className="p-5"><EmptyState icon={<Search className="h-8 w-8 text-orange-400" />} title="No questions match these filters" description="Try a different search, category, or publication status." action={<Button type="button" onClick={clearFilters} className="h-9 rounded-lg bg-orange-600 text-xs font-bold text-white hover:bg-orange-700">Clear filters</Button>} /></div>
+          <div className="p-5"><EmptyState icon={<Search className="h-8 w-8 text-orange-400" />} title="No questions match these filters" description="Try a different search, category, or publication status." action={<Button type="button" variant="brand" onClick={clearFilters} className="h-9 rounded-lg text-xs">Clear filters</Button>} /></div>
         ) : (
-          <div className="p-5"><EmptyState icon={<MessageCircleQuestion className="h-8 w-8 text-orange-400" />} title="No predefined questions yet" description="Add a reviewed question and answer for a customer status group." action={<Button type="button" onClick={openNew} className="h-9 rounded-lg bg-orange-600 text-xs font-bold text-white hover:bg-orange-700"><Plus className="mr-1.5 h-4 w-4" /> Add Question</Button>} /></div>
+          <div className="p-5"><EmptyState icon={<MessageCircleQuestion className="h-8 w-8 text-orange-400" />} title="No predefined questions yet" description="Add a reviewed question and answer for a customer status group." action={<Button type="button" variant="brand" onClick={openNew} className="h-9 rounded-lg text-xs"><Plus className="mr-1.5 h-4 w-4" /> Add Question</Button>} /></div>
         )}
       </section>
 
@@ -535,7 +535,7 @@ export function CMSPredefinedQuestionsTab({ onNavigate }: { onNavigate: (tab: st
             </div>
           </div>
           <div className="flex shrink-0 flex-col gap-2 border-t border-slate-100 bg-white px-5 py-3.5 sm:flex-row">
-            <Button type="button" onClick={handleFormSave} className="h-10 flex-1 rounded-lg bg-orange-600 text-xs font-bold text-white hover:bg-orange-700"><Save className="mr-1.5 h-3.5 w-3.5" /> {editingId ? "Apply Changes" : "Add Question"}</Button>
+            <Button type="button" variant="brand" onClick={handleFormSave} className="h-10 flex-1 rounded-lg text-xs"><Save className="mr-1.5 h-3.5 w-3.5" /> {editingId ? "Apply Changes" : "Add Question"}</Button>
             <Button type="button" variant="outline" onClick={() => closeEditor()} className="h-10 rounded-lg border-slate-200 text-xs font-bold"><X className="mr-1.5 h-3.5 w-3.5" /> Cancel</Button>
           </div>
         </DialogContent>

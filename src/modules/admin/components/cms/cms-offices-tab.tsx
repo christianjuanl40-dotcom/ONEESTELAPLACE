@@ -1,11 +1,14 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ChevronDown, DoorOpen, Loader2, Pencil, Plus, Save, Trash2, X } from "lucide-react"
 import { Button } from "@shared/components/ui/button"
 import { Input } from "@shared/components/ui/input"
 import { Textarea } from "@shared/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader } from "@shared/components/ui/table"
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@shared/components/ui/dialog"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@shared/components/ui/alert-dialog"
+import { IconButton } from "@shared/components/ui/icon-button"
 import { useToast } from "@shared/hooks/use-toast"
 import { useCMS, type OfficeRoom } from "@admin/contexts/cms-context"
 import { CMSSectionHeader } from "./cms-section-header"
@@ -54,10 +57,23 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
   const [bulkPreview, setBulkPreview] = useState<string[] | null>(null)
   const [isRoomSaving, setIsRoomSaving] = useState(false)
   const isBusy = isSaving || isRoomSaving
+  const restoreFocusRef = useRef<HTMLElement | null>(null)
 
   const resetForm = () => { setForm(EMPTY_FORM); setEditingId(null); setSelectedOffice(null); setShowRoomForm(false); setEditingRoomId(null); setRoomForm(EMPTY_ROOM_FORM); setConfirmDeleteRoom(null); setShowModal(false) }
-  const openNew = () => { resetForm(); setShowModal(true) }
-  const openEdit = (o: any) => { setSelectedOffice(o); setEditingId(o.id); setForm({ name: o.name || "", capacity: o.capacity || "", price: o.price ?? "", downPaymentPercentage: o.downPaymentPercentage ?? 50, description: o.description || "", detailedDescription: o.detailedDescription || "", image: o.image || "", panoImage: o.panoImage || o.panoramaUrl || o.panorama || o.pano || o.tourImage || "", catalogStatus: getCatalogStatus(o) }); setShowRoomForm(false); setEditingRoomId(null); setRoomForm(EMPTY_ROOM_FORM); setConfirmDeleteRoom(null); setShowModal(true) }
+  const rememberFocus = (target?: HTMLElement) => {
+    restoreFocusRef.current = target || (document.activeElement instanceof HTMLElement ? document.activeElement : null)
+  }
+  useEffect(() => {
+    if (showModal || !restoreFocusRef.current) return
+    const target = restoreFocusRef.current
+    const frame = window.requestAnimationFrame(() => {
+      if (target.isConnected) target.focus()
+      if (restoreFocusRef.current === target) restoreFocusRef.current = null
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [showModal])
+  const openNew = (target?: HTMLElement) => { rememberFocus(target); resetForm(); setShowModal(true) }
+  const openEdit = (o: any, target?: HTMLElement) => { rememberFocus(target); setSelectedOffice(o); setEditingId(o.id); setForm({ name: o.name || "", capacity: o.capacity || "", price: o.price ?? "", downPaymentPercentage: o.downPaymentPercentage ?? 50, description: o.description || "", detailedDescription: o.detailedDescription || "", image: o.image || "", panoImage: o.panoImage || o.panoramaUrl || o.panorama || o.pano || o.tourImage || "", catalogStatus: getCatalogStatus(o) }); setShowRoomForm(false); setEditingRoomId(null); setRoomForm(EMPTY_ROOM_FORM); setConfirmDeleteRoom(null); setShowModal(true) }
 
   const handleSave = async () => {
     if (isBusy) return
@@ -166,7 +182,7 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
     <div>
       <CMSSectionHeader title="Office Spaces"
         currentSection="offices" onNavigate={onNavigate}
-        action={<Button type="button" onClick={openNew} className="h-9 shrink-0 whitespace-nowrap rounded-lg bg-blue-600 px-3.5 text-sm font-bold text-white hover:bg-blue-700"><Plus className="mr-1 h-3.5 w-3.5" /> Add Office</Button>} />
+        action={<Button type="button" variant="brand" onClick={(event) => openNew(event.currentTarget)} className="h-9 shrink-0 whitespace-nowrap rounded-lg px-3.5 text-sm"><Plus className="mr-1 h-3.5 w-3.5" /> Add Office</Button>} />
 
       <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-end gap-3 border-b border-slate-100 px-4 py-2.5">
@@ -220,8 +236,8 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
                       <TableCell className="hidden md:table-cell"><CMSStatusBadge status={getCatalogStatus(o)} /></TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-0.5">
-                          <button type="button" aria-label={`Edit ${o.name || "office"}`} onClick={() => openEdit(o)} className="flex h-9 w-9 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300" title="Edit office"><Pencil className="h-3.5 w-3.5" aria-hidden="true" /></button>
-                          <button type="button" aria-label={`Archive ${o.name || "office"}`} onClick={() => setConfirmDelete(o.id)} className="flex h-9 w-9 items-center justify-center rounded-md text-rose-400 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300" title="Archive office"><Trash2 className="h-3.5 w-3.5" aria-hidden="true" /></button>
+                          <IconButton label={`Edit ${o.name || "office"}`} onClick={(event) => openEdit(o, event.currentTarget)}><Pencil className="h-3.5 w-3.5" aria-hidden="true" /></IconButton>
+                          <IconButton label={`Archive ${o.name || "office"}`} tone="danger" onClick={() => setConfirmDelete(o.id)}><Trash2 className="h-3.5 w-3.5" aria-hidden="true" /></IconButton>
                         </div>
                       </TableCell>
                     </tr>
@@ -235,40 +251,44 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
               icon={statusFilter === "under_renovation" ? undefined : <Plus className="h-8 w-8 text-blue-400" />}
               title={statusFilter === "under_renovation" ? "No offices under renovation." : statusFilter === "published" ? "No published offices." : "No office spaces"}
               description={statusFilter === "all" ? "Add an office to get started." : undefined}
-              action={statusFilter === "under_renovation" ? undefined : <Button type="button" onClick={openNew} className="h-9 rounded-lg bg-blue-600 text-xs font-bold text-white hover:bg-blue-700"><Plus className="mr-1.5 h-4 w-4" /> Add Office</Button>} />
+              action={statusFilter === "under_renovation" ? undefined : <Button type="button" variant="brand" onClick={(event) => openNew(event.currentTarget)} className="h-9 rounded-lg text-xs"><Plus className="mr-1.5 h-4 w-4" /> Add Office</Button>} />
           </div>
         )}
       </section>
 
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-8">
-          <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-xl max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-5 py-3.5">
-              <h2 className="text-base font-black text-slate-950">{editingId ? "Edit Office" : "Add Office"}</h2>
-              <button type="button" onClick={resetForm} disabled={isBusy} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100"><X className="h-4 w-4" /></button>
+      <Dialog open={showModal} onOpenChange={(open) => { if (!open && !isBusy) resetForm() }}>
+        <DialogContent showCloseButton={false} onCloseAutoFocus={(event) => { event.preventDefault(); restoreFocusRef.current?.focus(); restoreFocusRef.current = null }} className="w-[calc(100vw-2rem)] max-w-lg p-0">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-white px-5 py-3.5">
+              <div>
+                <DialogTitle className="text-base font-black text-slate-950">{editingId ? "Edit Office" : "Add Office"}</DialogTitle>
+                <DialogDescription className="sr-only">Create or update the office space catalog record and its rooms.</DialogDescription>
+              </div>
+              <DialogClose asChild><IconButton label="Close office editor" onClick={resetForm} disabled={isBusy}><X className="h-4 w-4" /></IconButton></DialogClose>
             </div>
-            <div className="grid gap-4 p-5">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+              <div className="grid gap-4 p-5">
               <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Office Name</label>
-                  <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Office A" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
+                  <label htmlFor="office-name" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Office Name</label>
+                  <Input id="office-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Office A" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Capacity</label>
-                  <Input value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} placeholder="1-4 pax" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
+                  <label htmlFor="office-capacity" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Capacity</label>
+                  <Input id="office-capacity" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} placeholder="1-4 pax" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Monthly Price (₱)</label>
-                  <Input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="15000" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
+                  <label htmlFor="office-price" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Monthly Price (₱)</label>
+                  <Input id="office-price" type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="15000" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Down Payment (%)</label>
-                  <Input type="number" min="0" max="100" value={form.downPaymentPercentage} onChange={(e) => setForm({ ...form, downPaymentPercentage: e.target.value })} placeholder="50" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
+                  <label htmlFor="office-down-payment" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Down Payment (%)</label>
+                  <Input id="office-down-payment" type="number" min="0" max="100" value={form.downPaymentPercentage} onChange={(e) => setForm({ ...form, downPaymentPercentage: e.target.value })} placeholder="50" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 {editingId && <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Status</label>
+                  <label htmlFor="office-status" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Status</label>
                   <div className="relative mt-1">
-                    <select value={form.catalogStatus} onChange={(e) => setForm({ ...form, catalogStatus: e.target.value as CatalogStatus })}
+                    <select id="office-status" value={form.catalogStatus} onChange={(e) => setForm({ ...form, catalogStatus: e.target.value as CatalogStatus })}
                       className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-white px-4 pr-10 text-sm font-semibold text-slate-700 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100 cursor-pointer">
                       <option value="published">Published</option>
                       <option value="under_renovation">Under Renovation</option>
@@ -299,7 +319,7 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
                   </div>
                   {!showRoomForm && (
                     <div className="mb-3 flex flex-wrap items-center gap-2">
-                      <Button type="button" onClick={openNewRoom} disabled={isBusy} className="h-9 rounded-lg bg-blue-600 px-3.5 text-xs font-bold text-white hover:bg-blue-700">
+                      <Button type="button" variant="brand" onClick={openNewRoom} disabled={isBusy} className="h-9 rounded-lg px-3.5 text-xs">
                         <Plus className="mr-1 h-3.5 w-3.5" /> Add Room
                       </Button>
                       <Button type="button" onClick={openBulkModal} disabled={isBusy} variant="outline" className="h-9 rounded-lg border-slate-200 px-3.5 text-xs font-bold text-slate-700 hover:bg-slate-50">
@@ -311,11 +331,11 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
                     <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
                       <h3 className="text-sm font-bold text-slate-900 mb-3">{editingRoomId ? "Edit Room" : "Add Room"}</h3>
                       <div>
-                        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">Room Name</label>
-                        <Input value={roomForm.name} onChange={(e) => setRoomForm({ ...roomForm, name: e.target.value })} disabled={isBusy} placeholder="Room 1" className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm font-semibold" />
+                        <label htmlFor="office-room-name" className="text-[10px] font-black uppercase tracking-[0.2em] text-black">Room Name</label>
+                        <Input id="office-room-name" value={roomForm.name} onChange={(e) => setRoomForm({ ...roomForm, name: e.target.value })} disabled={isBusy} placeholder="Room 1" className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                       </div>
                       <div className="flex gap-2 mt-3">
-                        <Button type="button" onClick={handleSaveRoom} disabled={isBusy} className="h-9 rounded-lg bg-blue-600 px-3.5 text-xs font-bold text-white hover:bg-blue-700">
+                        <Button type="button" variant="brand" onClick={handleSaveRoom} disabled={isBusy} className="h-9 rounded-lg px-3.5 text-xs">
                           {isRoomSaving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />} {isRoomSaving ? "Saving..." : editingRoomId ? "Save" : "Add"}
                         </Button>
                         <Button type="button" variant="outline" onClick={closeRoomForm} disabled={isBusy} className="h-9 rounded-lg border-slate-200 text-xs font-bold">
@@ -328,7 +348,7 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
                     <div className="text-center py-6">
                       <DoorOpen className="h-8 w-8 text-slate-300 mx-auto mb-2" />
                       <p className="text-sm font-semibold text-slate-500">No rooms yet</p>
-                      <p className="text-xs text-slate-400 mt-1">Click "Add Room" to create the first room.</p>
+                      <p className="text-xs text-slate-400 mt-1">Click &quot;Add Room&quot; to create the first room.</p>
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -342,8 +362,8 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
                             </div>
                           </div>
                           <div className="flex items-center gap-0.5">
-                            <button type="button" onClick={() => openEditRoom(room)} disabled={isBusy} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"><Pencil className="h-3.5 w-3.5" /></button>
-                            <button type="button" onClick={() => setConfirmDeleteRoom(room.id)} disabled={isBusy} className="flex h-7 w-7 items-center justify-center rounded-md text-rose-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 className="h-3.5 w-3.5" /></button>
+                            <IconButton label={`Edit ${room.name || "room"}`} onClick={() => openEditRoom(room)} disabled={isBusy} className="h-8 w-8"><Pencil className="h-3.5 w-3.5" aria-hidden="true" /></IconButton>
+                            <IconButton label={`Archive ${room.name || "room"}`} tone="danger" onClick={() => setConfirmDeleteRoom(room.id)} disabled={isBusy} className="h-8 w-8"><Trash2 className="h-3.5 w-3.5" aria-hidden="true" /></IconButton>
                           </div>
                         </div>
                       ))}
@@ -351,9 +371,10 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
                   )}
                 </div>
               )}
+              </div>
             </div>
-            <div className="sticky bottom-0 flex gap-2 border-t border-slate-100 bg-white px-5 py-3.5">
-              <Button type="button" onClick={handleSave} disabled={isBusy} className="w-full sm:w-auto h-11 flex-1 rounded-lg bg-blue-600 text-xs font-bold text-white hover:bg-blue-700">
+            <div className="flex shrink-0 gap-2 border-t border-slate-100 bg-white px-5 py-3.5">
+              <Button type="button" variant="brand" onClick={handleSave} disabled={isBusy} className="h-11 w-full flex-1 rounded-lg text-xs">
                 {isSaving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />} {isSaving ? "Saving..." : editingId ? "Save Changes" : "Add Office"}
               </Button>
               <Button type="button" variant="outline" onClick={resetForm} disabled={isBusy} className="h-9 rounded-lg border-slate-200 text-xs font-bold">
@@ -361,21 +382,27 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
               </Button>
             </div>
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
-      {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-xs rounded-xl border border-slate-200 bg-white p-5 shadow-xl">
-            <h3 className="text-base font-black text-slate-900">Delete Office?</h3>
-            <p className="mt-1 text-sm font-semibold text-slate-500">This cannot be undone.</p>
-            <div className="mt-4 flex gap-2">
-              <Button type="button" variant="outline" onClick={() => setConfirmDelete(null)} disabled={isBusy} className="h-9 flex-1 rounded-lg border-slate-200 text-xs font-bold">Cancel</Button>
-              <Button type="button" onClick={() => handleDelete(confirmDelete)} disabled={isBusy} className="h-9 flex-1 rounded-lg bg-rose-600 text-xs font-bold text-white hover:bg-rose-700"><Trash2 className="mr-1.5 h-3.5 w-3.5" /> {isSaving ? "Saving..." : "Delete"}</Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AlertDialog open={Boolean(confirmDelete)} onOpenChange={(open) => { if (!open && !isBusy) setConfirmDelete(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Office?</AlertDialogTitle>
+            <AlertDialogDescription>This cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isBusy}
+              onClick={(event) => { event.preventDefault(); if (confirmDelete) void handleDelete(confirmDelete) }}
+              className="bg-rose-600 text-white hover:bg-rose-700"
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" /> {isSaving ? "Saving..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {showBulkModal && selectedOffice && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
@@ -385,8 +412,8 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
 
             {!bulkPreview ? (
               <div className="mt-4">
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black">Number of Rooms</label>
-                <Input type="number" min="1" value={bulkCount} onChange={(e) => setBulkCount(e.target.value)} className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm font-semibold" />
+                <label htmlFor="office-bulk-count" className="text-[10px] font-black uppercase tracking-[0.2em] text-black">Number of Rooms</label>
+                <Input id="office-bulk-count" type="number" min="1" value={bulkCount} onChange={(e) => setBulkCount(e.target.value)} className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm font-semibold" />
               </div>
             ) : (
               <div className="mt-4">
@@ -403,11 +430,11 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
 
             <div className="mt-5 flex gap-2">
               {!bulkPreview ? (
-                <Button type="button" onClick={generateBulkPreview} className="h-9 flex-1 rounded-lg bg-blue-600 text-xs font-bold text-white hover:bg-blue-700">
+                <Button type="button" variant="brand" onClick={generateBulkPreview} className="h-9 flex-1 rounded-lg text-xs">
                   Generate
                 </Button>
               ) : (
-                <Button type="button" onClick={handleBulkConfirm} disabled={isBusy} className="h-9 flex-1 rounded-lg bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-700">
+                <Button type="button" variant="brand" onClick={handleBulkConfirm} disabled={isBusy} className="h-9 flex-1 rounded-lg text-xs">
                   {isRoomSaving ? "Saving..." : "Confirm"}
                 </Button>
               )}
@@ -419,18 +446,24 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
         </div>
       )}
 
-      {confirmDeleteRoom && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-xs rounded-xl border border-slate-200 bg-white p-5 shadow-xl">
-            <h3 className="text-base font-black text-slate-900">Archive Room?</h3>
-            <p className="mt-1 text-sm font-semibold text-slate-500">This room will no longer be bookable. Its identity and booking history will be retained.</p>
-            <div className="mt-4 flex gap-2">
-              <Button type="button" variant="outline" onClick={() => setConfirmDeleteRoom(null)} disabled={isBusy} className="h-9 flex-1 rounded-lg border-slate-200 text-xs font-bold">Cancel</Button>
-              <Button type="button" onClick={() => handleDeleteRoom(confirmDeleteRoom)} disabled={isBusy} className="h-9 flex-1 rounded-lg bg-rose-600 text-xs font-bold text-white hover:bg-rose-700"><Trash2 className="mr-1.5 h-3.5 w-3.5" /> {isRoomSaving ? "Saving..." : "Archive"}</Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AlertDialog open={Boolean(confirmDeleteRoom)} onOpenChange={(open) => { if (!open && !isBusy) setConfirmDeleteRoom(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Archive Room?</AlertDialogTitle>
+            <AlertDialogDescription>This room will no longer be bookable. Its identity and booking history will be retained.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isBusy}
+              onClick={(event) => { event.preventDefault(); if (confirmDeleteRoom) void handleDeleteRoom(confirmDeleteRoom) }}
+              className="bg-rose-600 text-white hover:bg-rose-700"
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" /> {isRoomSaving ? "Saving..." : "Archive"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

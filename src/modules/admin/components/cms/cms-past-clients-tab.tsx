@@ -188,7 +188,7 @@ export function CMSPastClientsTab({ onNavigate }: { onNavigate: (tab: string) =>
         currentSection="pastClients"
         onNavigate={onNavigate}
         action={
-          <Button type="button" onClick={openNew} className="h-9 shrink-0 whitespace-nowrap rounded-lg bg-pink-600 px-3.5 text-sm font-bold text-white hover:bg-pink-700">
+          <Button type="button" variant="brand" onClick={openNew} className="h-9 shrink-0 whitespace-nowrap rounded-lg px-3.5 text-sm">
             <Plus className="mr-1 h-3.5 w-3.5" /> Add Client Booking
           </Button>
         }
@@ -252,7 +252,7 @@ className="h-full w-full object-cover"
               title="No past client bookings yet"
               description="Add client booking testimonials to display on the landing page."
               action={
-                <Button type="button" onClick={openNew} className="h-9 rounded-lg bg-pink-600 text-xs font-bold text-white hover:bg-pink-700">
+                <Button type="button" variant="brand" onClick={openNew} className="h-9 rounded-lg text-xs">
                   <Plus className="mr-1.5 h-3.5 w-3.5" /> Add Client Booking
                 </Button>
               }
@@ -262,48 +262,48 @@ className="h-full w-full object-cover"
       </section>
 
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-8">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-8" role="dialog" aria-modal="true" aria-labelledby="past-client-dialog-title">
           <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-xl max-h-[calc(100dvh-32px)] overflow-y-auto">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-5 py-3.5">
-              <h2 className="text-base font-black text-slate-950">
+              <h2 id="past-client-dialog-title" className="text-base font-black text-slate-950">
                 {editingId ? "Edit Client Booking" : "Add Past Client Booking"}
               </h2>
-              <button type="button" onClick={resetForm} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100">
+              <button type="button" aria-label="Close past client booking editor" onClick={resetForm} className="flex h-9 w-9 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300">
                 <X className="h-4 w-4" />
               </button>
             </div>
             <div className="grid gap-4 p-5">
               <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Client Name</label>
-                  <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Juan Dela Cruz" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
+                  <label htmlFor="past-client-name" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Client Name</label>
+                  <Input id="past-client-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Juan Dela Cruz" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Company Name</label>
-                  <Input value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} placeholder="ABC Corp" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
+                  <label htmlFor="past-client-company" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Company Name</label>
+                  <Input id="past-client-company" value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} placeholder="ABC Corp" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Event Name</label>
-                  <Input value={form.eventName} onChange={(e) => setForm({ ...form, eventName: e.target.value })} placeholder="Santos Birthday" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
+                  <label htmlFor="past-client-event-name" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Event Name</label>
+                  <Input id="past-client-event-name" value={form.eventName} onChange={(e) => setForm({ ...form, eventName: e.target.value })} placeholder="Santos Birthday" className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Event Type</label>
-                  <Input value={form.eventType} onChange={(e) => setForm({ ...form, eventType: e.target.value })} placeholder="Birthday, Wedding, etc." className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
+                  <label htmlFor="past-client-event-type" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Event Type</label>
+                  <Input id="past-client-event-type" value={form.eventType} onChange={(e) => setForm({ ...form, eventType: e.target.value })} placeholder="Birthday, Wedding, etc." className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Event Date</label>
-                  <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
+                  <label htmlFor="past-client-event-date" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Event Date</label>
+                  <Input id="past-client-event-date" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="mt-1 h-11 w-full rounded-lg border-slate-200 text-sm font-semibold" />
                 </div>
                 <div className="flex items-end pb-2">
                   <div className="flex items-center gap-2">
-                    <Switch checked={form.display} onCheckedChange={(v) => setForm({ ...form, display: v })} />
+                    <Switch aria-label="Display past client booking on site" checked={form.display} onCheckedChange={(v) => setForm({ ...form, display: v })} />
                     <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Display on site</label>
                   </div>
                 </div>
               </div>
               <div>
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Testimonial</label>
-                <Textarea value={form.testimonial} onChange={(e) => setForm({ ...form, testimonial: e.target.value })} placeholder="Client testimonial..."
+                <label htmlFor="past-client-testimonial" className="text-[10px] font-black uppercase tracking-[0.2em] text-black sm:text-xs">Testimonial</label>
+                <Textarea id="past-client-testimonial" value={form.testimonial} onChange={(e) => setForm({ ...form, testimonial: e.target.value })} placeholder="Client testimonial..."
                   className="mt-1 w-full min-h-[140px] resize-none rounded-lg border-slate-200 text-sm font-semibold" />
               </div>
 
@@ -320,12 +320,12 @@ className="h-full w-full object-cover"
                         <img src={photo} alt={`Photo ${i + 1}`} className="h-full w-full object-cover"
                           onError={(e) => { e.currentTarget.src = "/placeholder.jpg" }} />
                         <div className="absolute inset-0 flex items-center justify-center gap-1 bg-black/50 opacity-0 transition group-hover:opacity-100">
-                          <button type="button" onClick={() => setAsCover(photo)}
+                          <button type="button" onClick={() => setAsCover(photo)} aria-label={`Set photo ${i + 1} as cover`}
                             className={`flex h-6 w-6 items-center justify-center rounded-full text-white transition ${form.coverPhoto === photo ? "text-yellow-400" : "text-white/70 hover:text-yellow-400"}`}
                             title="Set as cover">
                             <Star className="h-3.5 w-3.5" fill={form.coverPhoto === photo ? "currentColor" : "none"} />
                           </button>
-                          <button type="button" onClick={() => removePhoto(i)}
+                          <button type="button" onClick={() => removePhoto(i)} aria-label={`Remove photo ${i + 1}`}
                             className="flex h-6 w-6 items-center justify-center rounded-full text-white/70 transition hover:text-red-400"
                             title="Remove photo">
                             <X className="h-3.5 w-3.5" />
@@ -354,7 +354,7 @@ className="h-full w-full object-cover"
               </div>
             </div>
             <div className="sticky bottom-0 flex gap-2 border-t border-slate-100 bg-white px-5 py-3.5">
-              <Button type="button" onClick={handleSave} className="w-full sm:w-auto h-11 flex-1 rounded-lg bg-pink-600 text-xs font-bold text-white hover:bg-pink-700">
+              <Button type="button" variant="brand" onClick={handleSave} className="w-full sm:w-auto h-11 flex-1 rounded-lg text-xs">
                 <Save className="mr-1.5 h-3.5 w-3.5" /> {editingId ? "Save Changes" : "Add Client Booking"}
               </Button>
               <Button type="button" variant="outline" onClick={resetForm} className="h-9 rounded-lg border-slate-200 text-xs font-bold">
@@ -366,9 +366,9 @@ className="h-full w-full object-cover"
       )}
 
       {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="alertdialog" aria-modal="true" aria-labelledby="past-client-delete-title">
           <div className="w-full max-w-xs rounded-xl border border-slate-200 bg-white p-5 shadow-xl">
-            <h3 className="text-base font-black text-slate-900">Delete Client Booking?</h3>
+            <h3 id="past-client-delete-title" className="text-base font-black text-slate-900">Delete Client Booking?</h3>
             <p className="mt-1 text-sm font-semibold text-slate-500">This cannot be undone.</p>
             <div className="mt-4 flex gap-2">
               <Button type="button" variant="outline" onClick={() => setConfirmDelete(null)} className="h-9 flex-1 rounded-lg border-slate-200 text-xs font-bold">Cancel</Button>

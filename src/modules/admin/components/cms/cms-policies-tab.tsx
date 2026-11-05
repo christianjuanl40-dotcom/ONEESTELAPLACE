@@ -149,7 +149,8 @@ export function CMSPoliciesTab({ onNavigate }: { onNavigate: (tab: string) => vo
           <Button
             type="button"
             onClick={handleContractSave}
-            className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg bg-orange-600 px-3.5 text-sm font-bold text-white hover:bg-orange-700 sm:w-auto"
+            variant="brand"
+            className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg px-3.5 text-sm sm:w-auto"
           >
             <Save className="mr-1.5 h-3.5 w-3.5" /> Save Changes
           </Button>
@@ -274,7 +275,8 @@ export function CMSPoliciesTab({ onNavigate }: { onNavigate: (tab: string) => vo
                             />
                             <div className="flex items-center gap-2">
                               <Button type="button" onClick={() => handleSave(policy)}
-                                className="w-full sm:w-auto h-11 rounded-lg bg-amber-600 px-4 text-xs font-bold text-white hover:bg-amber-700">
+                                variant="brand"
+                                className="w-full sm:w-auto h-11 rounded-lg px-4 text-xs">
                                 <Save className="mr-1.5 h-3.5 w-3.5" /> Save Changes
                               </Button>
                               <Button type="button" variant="outline" onClick={cancelEdit}

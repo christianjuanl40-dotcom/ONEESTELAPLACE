@@ -187,13 +187,22 @@ export default function AdminPaymentsPage() {
       router.replace("/dashboard")
     }
   }, [user, router])
-  const [paymentPage, setPaymentPage] = useState(1)
+  const [paymentPageState, setPaymentPageState] = useState({ key: "", page: 1 })
   const PAYMENTS_PER_PAGE = 10
   const [paymentSortKey, setPaymentSortKey] = useState<PaymentSortKey>("submittedAt")
   const [paymentSortDirection, setPaymentSortDirection] = useState<TableSortDirection>("desc")
   const [statusFilter, setStatusFilter] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
   const [venueFilter, setVenueFilter] = useState("all")
+  const paymentPageKey = `${paymentSortKey}|${paymentSortDirection}|${statusFilter}|${venueFilter}|${searchQuery}`
+  const paymentPage = paymentPageState.key === paymentPageKey ? paymentPageState.page : 1
+  const setPaymentPage = (next: number | ((page: number) => number)) => {
+    setPaymentPageState((current) => {
+      const currentPage = current.key === paymentPageKey ? current.page : 1
+      const nextPage = typeof next === "function" ? next(currentPage) : next
+      return { key: paymentPageKey, page: nextPage }
+    })
+  }
   const [selectedPayment, setSelectedPayment] = useState<BookingRecord | null>(null)
   const [pendingAction, setPendingAction] = useState<PendingPaymentAction>(null)
   const [isReviewing, setIsReviewing] = useState(false)
@@ -349,20 +358,12 @@ export default function AdminPaymentsPage() {
     [filteredPayments, paymentSortDirection, paymentSortKey],
   )
 
-  useEffect(() => {
-    setPaymentPage(1)
-  }, [paymentSortDirection, paymentSortKey, searchQuery, venueFilter, statusFilter])
-
   const paymentTotalPages = Math.max(1, Math.ceil(sortedPayments.length / PAYMENTS_PER_PAGE))
   const safePaymentPage = Math.min(Math.max(paymentPage, 1), paymentTotalPages)
   const paginatedPayments = sortedPayments.slice(
     (safePaymentPage - 1) * PAYMENTS_PER_PAGE,
     safePaymentPage * PAYMENTS_PER_PAGE,
   )
-
-  useEffect(() => {
-    if (paymentPage !== safePaymentPage) setPaymentPage(safePaymentPage)
-  }, [paymentPage, safePaymentPage])
 
   const uiReadyLoggedRef = useRef(false)
   useEffect(() => {
@@ -818,7 +819,7 @@ export default function AdminPaymentsPage() {
             <Button
               variant="outline"
               disabled={safePaymentPage <= 1}
-              onClick={() => setPaymentPage((p) => Math.max(1, p - 1))}
+              onClick={() => setPaymentPage(Math.max(1, safePaymentPage - 1))}
               className="h-9 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
             >
               Previous
@@ -829,7 +830,7 @@ export default function AdminPaymentsPage() {
             <Button
               variant="outline"
               disabled={safePaymentPage >= paymentTotalPages}
-              onClick={() => setPaymentPage((p) => Math.min(paymentTotalPages, p + 1))}
+              onClick={() => setPaymentPage(Math.min(paymentTotalPages, safePaymentPage + 1))}
               className="h-9 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
             >
               Next

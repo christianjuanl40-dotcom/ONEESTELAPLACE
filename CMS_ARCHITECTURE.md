@@ -1,6 +1,6 @@
 # CMS Architecture
 
-Source reviewed: **2026-11-03**; admin-shell scrolling rechecked **2026-11-04**. The active CMS uses **Cloud Firestore**, with one shared **`cms/data`** document plus a protected predefined-question configuration. See [ARCHITECTURE.md](ARCHITECTURE.md) for the overall system and scheduling invariants. CMS screens remain inside the admin layout's independently scrollable main pane; this presentation behavior does not change CMS persistence or authorization.
+Source reviewed: **2026-11-03**; admin-shell scrolling rechecked **2026-11-04**; shared table scroll chaining rechecked **2026-11-05**. The active CMS uses **Cloud Firestore**, with one shared **`cms/data`** document plus a protected predefined-question configuration. See [ARCHITECTURE.md](ARCHITECTURE.md) for the overall system and scheduling invariants. CMS screens remain inside the admin layout's independently scrollable main pane; this presentation behavior does not change CMS persistence or authorization.
 
 ## Implementation map
 
@@ -9,7 +9,7 @@ Source reviewed: **2026-11-03**; admin-shell scrolling rechecked **2026-11-04**.
 | `src/modules/admin/contexts/cms-context.tsx` | `CMSData` types, defaults, normalization, snapshot subscription, and content mutations |
 | `src/modules/shared/components/global-provider.tsx` | Mounts `CMSProvider` for all route groups |
 | `app/(admin)/dashboard/cms/page.tsx` | CMS entry point at `/dashboard/cms` |
-| `src/modules/admin/components/cms/` | Homepage, venues, offices, FAQs, predefined questions/answers, policies, past clients, contracts, and payment editors |
+| `src/modules/admin/components/cms/` | Homepage, venues, offices/rooms, Virtual Tour, FAQs, predefined questions/answers, policies, past clients, contracts, and payment editors |
 | `src/modules/client/lib/venue-data.ts` | Normalized public catalog and in-memory venue/office cache |
 | `src/modules/shared/lib/resource-identity.ts` | Exact resource IDs/categories, parent-scoped room resolution, and current/legacy aliases for all scheduling records |
 | `src/modules/shared/lib/policies.ts` | Cached published policies and fallback policy text |

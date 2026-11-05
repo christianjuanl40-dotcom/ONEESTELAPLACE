@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import {
   Banknote, Building2, ChevronDown, FileText, HelpCircle, Home, MessageCircleQuestion,
   Newspaper, Tent, Users,
+  Compass,
 } from "lucide-react"
 import type { ReactNode } from "react"
 
@@ -11,6 +12,7 @@ const SECTIONS = [
   { key: "homepage", label: "Homepage", icon: <Home className="h-4 w-4" /> },
   { key: "venues", label: "Event Venues", icon: <Tent className="h-4 w-4" /> },
   { key: "offices", label: "Office Spaces", icon: <Building2 className="h-4 w-4" /> },
+  { key: "virtualTour", label: "Virtual Tour", icon: <Compass className="h-4 w-4" /> },
   { key: "faqs", label: "FAQs", icon: <HelpCircle className="h-4 w-4" /> },
   { key: "predefinedQuestions", label: "Predefined Questions & Answers", icon: <MessageCircleQuestion className="h-4 w-4" /> },
   { key: "policies", label: "Terms & Policies", icon: <Newspaper className="h-4 w-4" /> },
@@ -56,17 +58,21 @@ export function CMSSectionHeader({
             <button
               type="button"
               onClick={() => setMenuOpen(!menuOpen)}
+              aria-expanded={menuOpen}
+              aria-haspopup="menu"
+              aria-controls="cms-section-menu"
               className="inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-800"
             >
               {currentLabel}
               <ChevronDown className={`h-3.5 w-3.5 transition ${menuOpen ? "rotate-180" : ""}`} />
             </button>
             {menuOpen && (
-              <div className="absolute right-0 top-full z-50 mt-1 w-52 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+              <div id="cms-section-menu" role="menu" className="absolute right-0 top-full z-50 mt-1 w-52 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
                 {SECTIONS.map((section) => (
                   <button
                     key={section.key}
                     type="button"
+                    role="menuitem"
                     onClick={() => { onNavigate(section.key); setMenuOpen(false) }}
                     className={`flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-semibold transition ${
                       section.key === currentSection

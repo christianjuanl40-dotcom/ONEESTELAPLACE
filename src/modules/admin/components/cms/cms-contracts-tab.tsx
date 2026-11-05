@@ -279,7 +279,8 @@ export function CMSContractsTab({ onNavigate }: { onNavigate: (tab: string) => v
           <Button
             type="button"
             onClick={handleSave}
-            className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg bg-orange-600 px-3.5 text-sm font-bold text-white hover:bg-orange-700 sm:w-auto"
+            variant="brand"
+            className="h-9 w-full shrink-0 whitespace-nowrap rounded-lg px-3.5 text-sm sm:w-auto"
           >
             <Save className="mr-1.5 h-3.5 w-3.5" /> Save Changes
           </Button>
