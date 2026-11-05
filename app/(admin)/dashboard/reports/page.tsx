@@ -4,12 +4,17 @@ import React, { useEffect, useMemo, useRef, useState } from "react"
 import { flushSync } from "react-dom"
 import { useRouter } from "next/navigation"
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   BarChart3,
   CalendarDays,
   Download,
   Filter,
+  Inbox,
   PieChart as PieChartIcon,
   Printer,
+  RotateCcw,
   Search,
   TrendingUp,
 } from "lucide-react"
@@ -25,6 +30,7 @@ import {
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { useBookingData } from "@/src/modules/client/contexts/booking-context"
 import { useCMS } from "@/src/modules/admin/contexts/cms-context"
+import { Table, TableBody, TableCell, TableHead, TableHeader } from "@/src/modules/shared/components/ui/table"
 import {
   buildReportSummary,
   calculateReportBookingFinancials,
@@ -37,6 +43,14 @@ import {
   resolveResourceSpace,
   type ResourceResolution,
 } from "@/src/modules/shared/lib/resource-identity"
+import {
+  matchesTableSearchTerm,
+  normalizeTableSearchTerm,
+  paginateItems,
+  stableSortBy,
+  type TableSortDirection,
+  type TableSortableValue,
+} from "@/src/modules/shared/lib/report-table-utils"
 import {
   Bar,
   BarChart,
@@ -270,6 +284,7 @@ type EnrichedBooking = BookingRecord & {
 }
 
 type ReportRow = {
+  rowKey: string
   bookingId: string | number
   eventName: string
   client: string
@@ -285,6 +300,21 @@ type ReportRow = {
   processedRefundAmount: number
   netReceivedAmount: number
 }
+
+type ReportSortKey =
+  | "bookingId"
+  | "eventName"
+  | "client"
+  | "date"
+  | "bookingStatus"
+  | "paymentStatus"
+  | "totalBookingValue"
+  | "receivedPayments"
+  | "verifiedPayments"
+  | "outstandingBalance"
+  | "refundStatus"
+  | "processedRefundAmount"
+  | "netReceivedAmount"
 
 function getReportLifecycleLabel(booking: BookingRecord) {
   return getCanonicalBookingLifecycleLabel(booking as ReportBookingLike)
@@ -339,11 +369,13 @@ function formatGeneratedTime(date: Date) {
 }
 
 function buildReportRows(bookings: EnrichedBooking[]): ReportRow[] {
-  return bookings.map((booking) => {
+  return bookings.map((booking, index) => {
     const financials = booking._financials
+    const bookingId = booking.id || "N/A"
 
     return {
-      bookingId: booking.id || "N/A",
+      rowKey: String(bookingId === "N/A" ? `${bookingId}-${index}` : bookingId),
+      bookingId,
       eventName: booking.eventName || booking.eventType || "Untitled Event",
       client: getReportClientName(booking),
       date: getReportDateCell(booking),
@@ -359,6 +391,37 @@ function buildReportRows(bookings: EnrichedBooking[]): ReportRow[] {
       netReceivedAmount: financials.netReceivedAmount,
     }
   })
+}
+
+function getReportSortValue(row: ReportRow, sortKey: ReportSortKey): TableSortableValue {
+  switch (sortKey) {
+    case "bookingId":
+      return String(row.bookingId)
+    case "eventName":
+      return row.eventName
+    case "client":
+      return row.client
+    case "date":
+      return row.date instanceof Date ? row.date : null
+    case "bookingStatus":
+      return row.bookingStatus
+    case "paymentStatus":
+      return row.paymentStatus
+    case "totalBookingValue":
+      return row.totalBookingValue
+    case "receivedPayments":
+      return row.receivedPayments
+    case "verifiedPayments":
+      return row.verifiedPayments
+    case "outstandingBalance":
+      return row.outstandingBalance
+    case "refundStatus":
+      return row.refundStatus
+    case "processedRefundAmount":
+      return row.processedRefundAmount
+    case "netReceivedAmount":
+      return row.netReceivedAmount
+  }
 }
 
 async function loadLogoBase64(url: string) {
@@ -428,6 +491,171 @@ function getStatusBadgeClass(status?: string) {
   }
 
   return "border-slate-200 bg-slate-50 text-slate-700"
+}
+
+function getPaymentStatusBadgeClass(status?: string) {
+  const normalized = normalizeStatus(status)
+
+  if (["paid", "fully paid", "completed", "verified", "received"].includes(normalized)) {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700"
+  }
+
+  if (normalized.includes("review") || normalized.includes("pending") || normalized.includes("incomplete") || normalized.includes("partial")) {
+    return "border-amber-200 bg-amber-50 text-amber-700"
+  }
+
+  if (["rejected", "declined"].includes(normalized)) {
+    return "border-rose-200 bg-rose-50 text-rose-700"
+  }
+
+  return "border-slate-200 bg-slate-50 text-slate-700"
+}
+
+function getRefundStatusBadgeClass(status?: string) {
+  const normalized = normalizeStatus(status).replace(/[\s-]+/g, "_")
+
+  if (["refunded", "refund_claimed"].includes(normalized)) {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700"
+  }
+
+  if (["requested", "pending"].includes(normalized)) {
+    return "border-amber-200 bg-amber-50 text-amber-700"
+  }
+
+  if (normalized === "eligible") {
+    return "border-blue-200 bg-blue-50 text-blue-700"
+  }
+
+  return "border-slate-200 bg-slate-50 text-slate-700"
+}
+
+function ReportSortableHeader({
+  label,
+  sortKey,
+  activeSortKey,
+  direction,
+  onSort,
+  align = "left",
+}: {
+  label: string
+  sortKey: ReportSortKey
+  activeSortKey: ReportSortKey
+  direction: TableSortDirection
+  onSort: (sortKey: ReportSortKey) => void
+  align?: "left" | "right"
+}) {
+  const isActive = sortKey === activeSortKey
+  const ariaSort = isActive ? (direction === "asc" ? "ascending" : "descending") : "none"
+
+  return (
+    <TableHead scope="col" aria-sort={ariaSort} className={align === "right" ? "text-right" : undefined}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={`inline-flex min-h-9 items-center gap-1.5 rounded-md py-1 text-left text-[10px] font-bold uppercase tracking-[0.16em] text-slate-700 transition hover:text-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 ${align === "right" ? "justify-end text-right" : ""}`}
+        aria-label={`Sort by ${label}${isActive ? `, currently ${direction === "asc" ? "ascending" : "descending"}` : ""}`}
+      >
+        <span>{label}</span>
+        {isActive ? (
+          direction === "asc" ? <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        ) : (
+          <ArrowUpDown className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden="true" />
+        )}
+      </button>
+    </TableHead>
+  )
+}
+
+function getReportRowDetailsId(row: ReportRow) {
+  return `report-row-details-${row.rowKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`
+}
+
+function ReportCompactRow({
+  row,
+  expanded,
+  onToggle,
+}: {
+  row: ReportRow
+  expanded: boolean
+  onToggle: (row: ReportRow) => void
+}) {
+  const detailsId = getReportRowDetailsId(row)
+
+  return (
+    <article className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="oe-table-label truncate">{row.bookingId}</p>
+          <p className="oe-table-primary mt-0.5 line-clamp-2">{row.client}</p>
+          <p className="oe-table-secondary mt-0.5 line-clamp-2">{row.eventName}</p>
+        </div>
+        <span className={`oe-status-badge max-w-[46%] shrink-0 whitespace-normal break-words ${getStatusBadgeClass(row.bookingStatus)}`}>
+          {row.bookingStatus}
+        </span>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
+        <div className="min-w-0">
+          <p className="oe-table-label">Total Booking Value</p>
+          <p className="oe-financial-value mt-0.5 tabular-nums">{formatReportMoney(row.totalBookingValue)}</p>
+        </div>
+        <div className="min-w-0">
+          <p className="oe-table-label">Net Received Cash</p>
+          <p className="oe-financial-value mt-0.5 tabular-nums text-emerald-700">{formatReportMoney(row.netReceivedAmount)}</p>
+        </div>
+      </div>
+
+      <div className="mt-3 flex justify-end border-t border-slate-100 pt-3">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => onToggle(row)}
+          aria-expanded={expanded}
+          aria-controls={detailsId}
+          className="oe-table-action h-10 border-slate-300 text-slate-800 hover:bg-slate-50"
+        >
+          {expanded ? "Hide Details" : "View Details"}
+        </Button>
+      </div>
+
+      {expanded && (
+        <dl id={detailsId} className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-slate-100 bg-slate-50/70 pt-3">
+          <div className="min-w-0">
+            <dt className="oe-table-label">Event / Resource</dt>
+            <dd className="oe-table-secondary mt-0.5 break-words">{row.eventName} · {row.venue}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="oe-table-label">Booking Date</dt>
+            <dd className="oe-table-secondary mt-0.5">{formatReportDate(row.date)}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="oe-table-label">Payment Status</dt>
+            <dd className="mt-1"><span className={`oe-status-badge whitespace-normal ${getPaymentStatusBadgeClass(row.paymentStatus)}`}>{row.paymentStatus}</span></dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="oe-table-label">Received Payments</dt>
+            <dd className="oe-financial-value mt-0.5 tabular-nums">{formatReportMoney(row.receivedPayments)}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="oe-table-label">Verified Payments</dt>
+            <dd className="oe-financial-value mt-0.5 tabular-nums">{formatReportMoney(row.verifiedPayments)}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="oe-table-label">Outstanding Balance</dt>
+            <dd className="oe-financial-value mt-0.5 tabular-nums">{formatReportMoney(row.outstandingBalance)}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="oe-table-label">Refund Status</dt>
+            <dd className="mt-1"><span className={`oe-status-badge whitespace-normal ${getRefundStatusBadgeClass(row.refundStatus)}`}>{row.refundStatus}</span></dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="oe-table-label">Processed Refund</dt>
+            <dd className="oe-financial-value mt-0.5 tabular-nums">{formatReportMoney(row.processedRefundAmount)}</dd>
+          </div>
+        </dl>
+      )}
+    </article>
+  )
 }
 
 function useContainerWidth<T extends HTMLElement>() {
@@ -511,7 +739,7 @@ function ReportMonthlyPerformanceChart({
         <Tooltip
           formatter={(value, name) => {
             if (name === "receivedPayments") return [formatReportMoney(Number(value)), "Received Payments"]
-            return [`${value} booking/s`, "Bookings"]
+            return [`${value} booking${Number(value) === 1 ? "" : "s"}`, "Bookings"]
           }}
           contentStyle={{
             borderRadius: "1rem",
@@ -649,7 +877,7 @@ function ReportStatusPieChart({
           ))}
         </Pie>
         <Tooltip
-          formatter={(value) => [`${value} booking/s`, "Total"]}
+          formatter={(value) => [`${value} booking${Number(value) === 1 ? "" : "s"}`, "Booking Status"]}
           contentStyle={{
             borderRadius: "1rem",
             border: "1px solid #e2e8f0",
@@ -691,7 +919,7 @@ function ReportEventTypeChart({
         </YAxis>
         <Tooltip
           cursor={{ fill: "#f8fafc" }}
-          formatter={(value) => [`${value} booking/s`, "Total"]}
+          formatter={(value) => [`${value} booking${Number(value) === 1 ? "" : "s"}`, "Bookings"]}
           contentStyle={{
             borderRadius: "1rem",
             border: "1px solid #e2e8f0",
@@ -727,7 +955,13 @@ export default function ReportsPage() {
   const { user } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
-  const { bookings = [], paymentRecords = [], isLoading: bookingsLoading } = useBookingData({ bookings: true, payments: true })
+  const {
+    bookings = [],
+    paymentRecords = [],
+    isLoading: bookingsLoading,
+    dataError,
+    retryData,
+  } = useBookingData({ bookings: true, payments: true })
   const { cmsData } = useCMS()
   const { ref: statusCardRef, width: statusCardWidth } = useContainerWidth<HTMLDivElement>()
   const isWideLayout = statusCardWidth >= 700
@@ -747,6 +981,9 @@ export default function ReportsPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [reportSortKey, setReportSortKey] = useState<ReportSortKey>("date")
+  const [reportSortDirection, setReportSortDirection] = useState<TableSortDirection>("desc")
+  const [expandedReportRows, setExpandedReportRows] = useState<Set<string>>(() => new Set())
   const [printDate, setPrintDate] = useState<Date | null>(null)
   const isPrinting = printDate !== null
   const generatedBy = user?.fullName || user?.name || user?.email || "System User"
@@ -875,7 +1112,7 @@ export default function ReportsPage() {
   }, [bookingList, filterYear])
 
   const filteredEntries = useMemo(() => {
-    const keyword = searchTerm.trim().toLowerCase()
+    const keyword = normalizeTableSearchTerm(searchTerm)
     const selectedResource = parseResourceFilterValue(effectiveFilterResource)
 
     return classifiedBookings
@@ -926,6 +1163,8 @@ export default function ReportsPage() {
           booking.customerName,
           booking.clientName,
           booking.name,
+          (booking as any).userInfo?.name,
+          getReportClientName(booking),
           booking.venue,
           booking.status,
           booking.paymentStatus,
@@ -944,7 +1183,7 @@ export default function ReportsPage() {
           .join(" ")
           .toLowerCase()
 
-        const matchesSearch = !keyword || searchableText.includes(keyword)
+        const matchesSearch = matchesTableSearchTerm(keyword, [searchableText])
 
         return matchesCategory
           && matchesResource
@@ -953,11 +1192,6 @@ export default function ReportsPage() {
           && matchesMonth
           && matchesStatus
           && matchesSearch
-      })
-      .sort((a, b) => {
-        const dateA = parseBookingDate(a.booking)?.getTime() || 0
-        const dateB = parseBookingDate(b.booking)?.getTime() || 0
-        return dateB - dateA
       })
   }, [classifiedBookings, effectiveFilterResource, effectiveFilterRoom, filterCategory, filterYear, filterMonth, filterStatus, searchTerm])
 
@@ -975,14 +1209,23 @@ export default function ReportsPage() {
     })
   }, [filteredEntries, paymentRecords])
 
-  const reportRows = useMemo(() => buildReportRows(enrichedData), [enrichedData])
+  // Presentation pipeline: filtered source → typed sort → pagination → rows.
+  // Financial projection and report summaries continue to consume enrichedData
+  // before any page slice is applied.
+  const reportRows = useMemo(() => {
+    const rows = buildReportRows(enrichedData)
+    return stableSortBy(rows, (row) => getReportSortValue(row, reportSortKey), reportSortDirection)
+  }, [enrichedData, reportSortDirection, reportSortKey])
 
-  const totalPages = Math.max(1, Math.ceil(filteredData.length / rowsPerPage))
-  const safePage = Math.min(currentPage, totalPages)
-  const paginatedReportRows = useMemo(
-    () => reportRows.slice((safePage - 1) * rowsPerPage, safePage * rowsPerPage),
-    [reportRows, safePage, rowsPerPage],
+  const reportPagination = useMemo(
+    () => paginateItems(reportRows, currentPage, rowsPerPage),
+    [currentPage, reportRows, rowsPerPage],
   )
+  const { items: paginatedReportRows, totalPages, page: safePage } = reportPagination
+
+  useEffect(() => {
+    if (currentPage !== safePage) setCurrentPage(safePage)
+  }, [currentPage, safePage])
 
   const reportSummary = useMemo(
     () => buildReportSummary(
@@ -1116,6 +1359,23 @@ export default function ReportsPage() {
     || effectiveFilterRoom !== "all"
     || searchTerm.trim(),
   )
+  const handleReportSort = (sortKey: ReportSortKey) => {
+    if (sortKey === reportSortKey) {
+      setReportSortDirection((direction) => direction === "asc" ? "desc" : "asc")
+    } else {
+      setReportSortKey(sortKey)
+      setReportSortDirection(sortKey === "date" ? "desc" : "asc")
+    }
+    setCurrentPage(1)
+  }
+  const toggleExpandedReportRow = (row: ReportRow) => {
+    setExpandedReportRows((current) => {
+      const next = new Set(current)
+      if (next.has(row.rowKey)) next.delete(row.rowKey)
+      else next.add(row.rowKey)
+      return next
+    })
+  }
   const resetFilters = () => {
     setFilterYear("all")
     setFilterMonth("all")
@@ -1126,6 +1386,8 @@ export default function ReportsPage() {
     setSearchTerm("")
     setCurrentPage(1)
   }
+  const reportStart = filteredData.length > 0 ? reportPagination.startIndex + 1 : 0
+  const reportEnd = reportPagination.endIndex
   const reportGeneratedAt = printDate ?? new Date()
   const reportSummaryItems: { label: string; value: string }[] = [
     { label: "Total Bookings", value: String(reportSummary.totalBookings) },
@@ -1423,6 +1685,24 @@ export default function ReportsPage() {
         className: "bg-slate-900 text-white",
       })
     }
+  }
+
+  if (dataError) {
+    return (
+      <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <div role="alert" className="flex min-h-[320px] flex-col items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 px-6 py-10 text-center">
+          <div className="rounded-2xl bg-white p-3 text-rose-600 shadow-sm">
+            <Inbox className="h-6 w-6" aria-hidden="true" />
+          </div>
+          <h1 className="mt-4 text-base font-black text-rose-900">Reports could not be loaded</h1>
+          <p className="mt-1 max-w-md text-sm leading-6 text-rose-700">The report data was not available, so financial totals have not been shown as zero. Retry the data read to continue.</p>
+          <Button type="button" onClick={retryData} className="mt-5 h-10 rounded-xl bg-rose-700 px-4 text-xs font-black text-white hover:bg-rose-800">
+            <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+            Retry Report Data
+          </Button>
+        </div>
+      </div>
+    )
   }
 
   if (bookingsLoading && bookingList.length === 0) {
@@ -1953,27 +2233,40 @@ export default function ReportsPage() {
         </div>
 
         <div data-report-print-hidden className="flex w-full min-w-0 flex-col gap-3 print:hidden sm:flex-row sm:flex-wrap sm:items-center sm:justify-end lg:flex-1">
-          <div className="relative w-full sm:w-auto">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-            <input
-              value={searchTerm}
+           <div className="relative w-full sm:w-auto">
+             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+             <label htmlFor="report-search" className="sr-only">Search booking records</label>
+             <input
+               id="report-search"
+               value={searchTerm}
               onChange={(event) => {
                 setSearchTerm(event.target.value)
                 setCurrentPage(1)
               }}
-              placeholder="Search booking..."
-              className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-4 text-xs font-bold text-slate-700 outline-none transition focus:border-orange-300 focus:ring-4 focus:ring-orange-100 sm:w-[230px]"
-            />
-          </div>
+               placeholder="Search booking..."
+               aria-label="Search booking records"
+               className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-16 text-xs font-bold text-slate-700 outline-none transition focus:border-orange-300 focus:ring-4 focus:ring-orange-100 sm:w-[230px]"
+             />
+             {searchTerm && (
+               <button
+                 type="button"
+                 onClick={() => { setSearchTerm(""); setCurrentPage(1) }}
+                 aria-label="Clear booking search"
+                 className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400 transition hover:bg-slate-100 hover:text-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
+               >
+                 Clear
+               </button>
+             )}
+           </div>
 
-          <Select
-            value={filterStatus}
+           <Select
+             value={filterStatus}
             onValueChange={(value) => {
               setFilterStatus(value)
               setCurrentPage(1)
             }}
-          >
-            <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[175px]">
+           >
+             <SelectTrigger aria-label="Booking status filter" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[175px]">
               <SelectValue placeholder="All Status" />
             </SelectTrigger>
 
@@ -2194,7 +2487,7 @@ export default function ReportsPage() {
             <p className="mt-1 text-xs font-semibold text-slate-400">Try adjusting the selected filters.</p>
           </div>
         ) : (
-          <div data-report-print-chart className="h-[280px] sm:h-[320px] w-full">
+           <div data-report-print-chart role="img" aria-label="Monthly performance chart showing booking volume and received payments by month" className="h-[280px] sm:h-[320px] w-full">
             <ReportMonthlyPerformanceChart data={monthlyPerformance} isPrinting={isPrinting} />
           </div>
         )}
@@ -2214,7 +2507,7 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          <div data-report-print-chart className="h-[250px] sm:h-[300px] w-full">
+           <div data-report-print-chart role="img" aria-label="Received payments per venue chart using the canonical received-payment ledger" className="h-[250px] sm:h-[300px] w-full">
              {receivedPaymentsByVenue.length > 0 ? (
                <ReportReceivedPaymentsByVenueChart data={receivedPaymentsByVenue} isPrinting={isPrinting} />
              ) : (
@@ -2248,7 +2541,7 @@ export default function ReportsPage() {
           {statusCounts.length > 0 ? (
             <div data-report-print-status-layout className={isWideLayout ? "flex items-center gap-10" : "flex flex-col gap-6"}>
               <div className={isWideLayout ? "w-[45%] shrink-0" : "w-full"}>
-                <div data-report-print-status-chart className="mx-auto aspect-square w-full max-w-[280px] sm:max-w-[300px]">
+                 <div data-report-print-status-chart role="img" aria-label="Booking status distribution chart" className="mx-auto aspect-square w-full max-w-[280px] sm:max-w-[300px]">
                   <ReportStatusPieChart data={statusCounts} isPrinting={isPrinting} />
                 </div>
               </div>
@@ -2297,7 +2590,7 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        <div data-report-print-chart className="h-[250px] sm:h-[300px] w-full">
+         <div data-report-print-chart role="img" aria-label="Top event types chart showing the most booked venue event categories" className="h-[250px] sm:h-[300px] w-full">
           {eventTypeCounts.length > 0 ? (
             <ReportEventTypeChart data={eventTypeCounts} isPrinting={isPrinting} />
             ) : (
@@ -2312,139 +2605,142 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      <div data-report-print-table className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
-        <div data-report-print-heading className="flex items-center border-b border-slate-100 bg-slate-50 px-6 py-5">
-           <h3 className="text-lg font-bold text-black">Booking Records</h3>
-           <p className="ml-2 text-xs font-normal text-black">({filteredData.length} record{filteredData.length === 1 ? "" : "s"})</p>
-        </div>
+       <div data-report-print-table className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
+         <div data-report-print-heading className="flex flex-col gap-1 border-b border-slate-100 bg-slate-50 px-4 py-4 sm:px-6 sm:py-5">
+           <h3 className="text-lg font-bold text-slate-950">Booking Records</h3>
+           <p className="text-xs font-normal text-slate-600">{filteredData.length} record{filteredData.length === 1 ? "" : "s"} · Sorted by {reportSortKey === "date" ? "booking date" : reportSortKey.replaceAll(/([A-Z])/g, " $1").toLowerCase()} ({reportSortDirection === "asc" ? "ascending" : "descending"})</p>
+         </div>
 
-         <div className="overflow-x-auto print:overflow-visible">
-           <table className="w-full min-w-[1550px] text-left text-sm print:min-w-0">
-            <thead className="border-b border-slate-100 bg-white text-[10px] font-bold uppercase tracking-[0.2em] text-black">
-               <tr>
-                 <th className="p-5 pl-8">Booking ID</th>
-                 <th className="p-5">Event Details</th>
-                 <th className="p-5">Client</th>
-                 <th className="p-5">Date</th>
-                 <th className="p-5">Booking Status</th>
-                 <th className="p-5">Payment Status</th>
-                 <th className="p-5 text-right">Total Booking Value</th>
-                 <th className="p-5 text-right">Received Payments</th>
-                 <th className="p-5 text-right">Verified Payments</th>
-                 <th className="p-5 text-right">Outstanding Balance</th>
-                 <th className="p-5">Refund Status</th>
-                 <th className="p-5 text-right">Processed Refund</th>
-                 <th className="p-5 pr-8 text-right">Net Received Cash</th>
-               </tr>
-            </thead>
-
-            <tbody className="divide-y divide-slate-100">
-               {(isPrinting ? reportRows : paginatedReportRows).map((row, index) => {
-                 return (
-                   <tr key={`${row.bookingId || "booking"}-${index}`} className="transition-colors hover:bg-slate-50">
-                     <td className="p-5 pl-8">
-                        <p className="font-normal text-black">{row.bookingId}</p>
-                     </td>
-
-                     <td className="p-5">
-                        <p className="font-normal text-black">
-                         {row.eventName}
-                       </p>
-                        <p className="mt-1 text-xs font-normal text-black">{row.venue}</p>
-                     </td>
-
-                     <td className="p-5">
-                        <p className="font-normal text-black">{row.client}</p>
-                     </td>
-
-                     <td className="p-5">
-                        <p className="font-normal text-black">{formatReportDate(row.date)}</p>
-                     </td>
-
-                     <td className="p-5">
-                       <span
-                         className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] ${getStatusBadgeClass(
-                           row.bookingStatus
-                         )}`}
-                       >
-                         {row.bookingStatus}
-                       </span>
-                     </td>
-
-                     <td className="p-5">
-                       <span className="font-normal text-black">{row.paymentStatus}</span>
-                     </td>
-
-                     <td className="p-5 text-right">
-                        <p className="font-normal tabular-nums text-black">{formatReportMoney(row.totalBookingValue)}</p>
-                     </td>
-
-                     <td className="p-5 text-right">
-                        <p className="font-normal tabular-nums text-black">{formatReportMoney(row.receivedPayments)}</p>
-                     </td>
-
-                     <td className="p-5 text-right">
-                        <p className="font-normal tabular-nums text-black">{formatReportMoney(row.verifiedPayments)}</p>
-                     </td>
-
-                     <td className="p-5 text-right">
-                        <p className="font-normal tabular-nums text-black">{formatReportMoney(row.outstandingBalance)}</p>
-                     </td>
-
-                     <td className="p-5">
-                       <span className="font-normal text-black">{row.refundStatus}</span>
-                     </td>
-
-                     <td className="p-5 text-right">
-                        <p className="font-normal tabular-nums text-black">{formatReportMoney(row.processedRefundAmount)}</p>
-                     </td>
-
-                     <td className="p-5 pr-8 text-right">
-                        <p className="font-normal tabular-nums text-black">{formatReportMoney(row.netReceivedAmount)}</p>
-                     </td>
+         {filteredData.length === 0 ? (
+           <div className="flex min-h-[230px] flex-col items-center justify-center px-6 py-10 text-center">
+             <Inbox className="mb-3 h-10 w-10 text-slate-300" aria-hidden="true" />
+             <h4 className="text-base font-black text-slate-900">{bookingList.length === 0 ? "No booking records yet" : "No booking records match"}</h4>
+             <p className="mt-1 max-w-md text-sm leading-6 text-slate-500">
+               {bookingList.length === 0
+                 ? "Booking records will appear here once reservations have been created."
+                 : "Try adjusting the category, venue, room, date, status, or search filter."}
+             </p>
+             {hasActiveFilters && (
+               <Button type="button" variant="outline" onClick={resetFilters} className="mt-4 h-10 rounded-xl border-slate-200 text-xs font-black text-slate-700 hover:bg-white hover:text-orange-700">
+                 <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                 Reset Filters
+               </Button>
+             )}
+           </div>
+         ) : (
+           <>
+             <div className="hidden md:block">
+               <Table className="min-w-[1480px] table-fixed xl:min-w-0">
+                 <caption className="sr-only">Filtered booking financial report records</caption>
+                 <colgroup>
+                   <col style={{ width: "9%" }} />
+                   <col style={{ width: "15%" }} />
+                   <col style={{ width: "12%" }} />
+                   <col style={{ width: "9%" }} />
+                   <col style={{ width: "10%" }} />
+                   <col style={{ width: "10%" }} />
+                   <col style={{ width: "9%" }} />
+                   <col style={{ width: "9%" }} />
+                   <col style={{ width: "9%" }} />
+                   <col style={{ width: "10%" }} />
+                   <col style={{ width: "9%" }} />
+                   <col style={{ width: "9%" }} />
+                   <col style={{ width: "10%" }} />
+                 </colgroup>
+                 <TableHeader className="bg-white">
+                   <tr>
+                     <ReportSortableHeader label="Booking ID" sortKey="bookingId" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
+                     <ReportSortableHeader label="Event Details" sortKey="eventName" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
+                     <ReportSortableHeader label="Client" sortKey="client" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
+                     <ReportSortableHeader label="Date" sortKey="date" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
+                     <ReportSortableHeader label="Booking Status" sortKey="bookingStatus" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
+                     <ReportSortableHeader label="Payment Status" sortKey="paymentStatus" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
+                     <ReportSortableHeader label="Total Booking Value" sortKey="totalBookingValue" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} align="right" />
+                     <ReportSortableHeader label="Received Payments" sortKey="receivedPayments" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} align="right" />
+                     <ReportSortableHeader label="Verified Payments" sortKey="verifiedPayments" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} align="right" />
+                     <ReportSortableHeader label="Outstanding Balance" sortKey="outstandingBalance" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} align="right" />
+                     <ReportSortableHeader label="Refund Status" sortKey="refundStatus" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
+                     <ReportSortableHeader label="Processed Refund" sortKey="processedRefundAmount" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} align="right" />
+                     <ReportSortableHeader label="Net Received Cash" sortKey="netReceivedAmount" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} align="right" />
                    </tr>
-                 )
-              })}
+                 </TableHeader>
+                 <TableBody>
+                   {paginatedReportRows.map((row) => (
+                     <tr key={row.rowKey} className="border-b border-slate-100 transition-colors hover:bg-slate-50/70">
+                       <TableCell className="min-w-0 align-top whitespace-normal"><p className="oe-table-label break-words">{row.bookingId}</p></TableCell>
+                       <TableCell className="min-w-0 align-top whitespace-normal"><p className="oe-table-primary line-clamp-2">{row.eventName}</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{row.venue}</p></TableCell>
+                       <TableCell className="min-w-0 align-top whitespace-normal"><p className="oe-table-primary line-clamp-2">{row.client}</p></TableCell>
+                       <TableCell className="min-w-0 align-top whitespace-normal"><p className="oe-table-secondary whitespace-nowrap">{formatReportDate(row.date)}</p></TableCell>
+                       <TableCell className="min-w-0 align-top whitespace-normal"><span className={`oe-status-badge max-w-full whitespace-normal break-words ${getStatusBadgeClass(row.bookingStatus)}`}>{row.bookingStatus}</span></TableCell>
+                       <TableCell className="min-w-0 align-top whitespace-normal"><span className={`oe-status-badge max-w-full whitespace-normal break-words ${getPaymentStatusBadgeClass(row.paymentStatus)}`}>{row.paymentStatus}</span></TableCell>
+                       <TableCell className="min-w-0 align-top text-right"><p className="oe-financial-value tabular-nums whitespace-nowrap">{formatReportMoney(row.totalBookingValue)}</p></TableCell>
+                       <TableCell className="min-w-0 align-top text-right"><p className="oe-financial-value tabular-nums whitespace-nowrap">{formatReportMoney(row.receivedPayments)}</p></TableCell>
+                       <TableCell className="min-w-0 align-top text-right"><p className="oe-financial-value tabular-nums whitespace-nowrap">{formatReportMoney(row.verifiedPayments)}</p></TableCell>
+                       <TableCell className="min-w-0 align-top text-right"><p className="oe-financial-value tabular-nums whitespace-nowrap">{formatReportMoney(row.outstandingBalance)}</p></TableCell>
+                       <TableCell className="min-w-0 align-top whitespace-normal"><span className={`oe-status-badge max-w-full whitespace-normal break-words ${getRefundStatusBadgeClass(row.refundStatus)}`}>{row.refundStatus}</span></TableCell>
+                       <TableCell className="min-w-0 align-top text-right"><p className="oe-financial-value tabular-nums whitespace-nowrap">{formatReportMoney(row.processedRefundAmount)}</p></TableCell>
+                       <TableCell className="min-w-0 align-top text-right"><p className="oe-financial-value tabular-nums whitespace-nowrap">{formatReportMoney(row.netReceivedAmount)}</p></TableCell>
+                     </tr>
+                   ))}
+                 </TableBody>
+               </Table>
+             </div>
 
-               {filteredData.length === 0 && (
-                 <tr>
-                   <td colSpan={13} className="p-12 text-center">
-                    <div className="mx-auto max-w-sm">
-                       <p className="text-base font-normal text-black">No booking records found for the selected filters.</p>
-                       <p className="mt-1 text-sm font-normal text-black">
-                        Try adjusting the category, venue, room, date, status, or search filter.
-                      </p>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+             <div className="space-y-2 p-3 md:hidden">
+               {paginatedReportRows.map((row) => (
+                 <ReportCompactRow
+                   key={row.rowKey}
+                   row={row}
+                   expanded={expandedReportRows.has(row.rowKey)}
+                   onToggle={toggleExpandedReportRow}
+                 />
+               ))}
+             </div>
+           </>
+         )}
 
-        {totalPages > 1 && (
-          <div data-report-print-hidden className="flex items-center justify-center gap-4 border-t border-slate-100 px-6 py-4 print:hidden">
-            <button
-              disabled={safePage <= 1}
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Previous
-            </button>
-             <p className="text-xs font-normal text-black">
-               Page <span className="font-normal text-black">{safePage}</span> of{" "}
-               <span className="font-normal text-black">{totalPages}</span>
-            </p>
-            <button
-              disabled={safePage >= totalPages}
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Next
-            </button>
-          </div>
-        )}
-      </div>
+         <div data-report-print-hidden className="flex flex-col gap-3 border-t border-slate-100 px-4 py-4 print:hidden sm:flex-row sm:items-center sm:justify-between sm:px-6">
+           <p className="text-xs font-semibold text-slate-600" aria-live="polite">
+             {filteredData.length > 0 ? `Showing ${reportStart}–${reportEnd} of ${filteredData.length} records` : "Showing 0 records"}
+           </p>
+           <div className="flex flex-wrap items-center justify-between gap-3 sm:justify-end">
+             <label htmlFor="report-rows-per-page" className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+               Rows per page
+               <select
+                 id="report-rows-per-page"
+                 value={rowsPerPage}
+                 onChange={(event) => { setRowsPerPage(Number(event.target.value)); setCurrentPage(1) }}
+                 className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs font-bold text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+               >
+                 {[10, 25, 50].map((size) => <option key={size} value={size}>{size}</option>)}
+               </select>
+             </label>
+             <div className="flex items-center gap-2">
+               <Button
+                 type="button"
+                 variant="outline"
+                 disabled={safePage <= 1}
+                 onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                 aria-label="Go to previous report page"
+                 className="h-9 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+               >
+                 Previous
+               </Button>
+               <p className="min-w-[88px] text-center text-xs font-semibold text-slate-600">Page {safePage} of {totalPages}</p>
+               <Button
+                 type="button"
+                 variant="outline"
+                 disabled={safePage >= totalPages}
+                 onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                 aria-label="Go to next report page"
+                 className="h-9 rounded-lg border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+               >
+                 Next
+               </Button>
+             </div>
+           </div>
+         </div>
+       </div>
       </div>
     </div>
   )

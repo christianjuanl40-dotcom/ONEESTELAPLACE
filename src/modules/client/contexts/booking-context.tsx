@@ -468,6 +468,7 @@ interface BookingContextType {
   paymentRecords: PaymentRecord[];
   isLoading: boolean;
   dataError: string | null;
+  dataErrors: Partial<Record<BookingDataKey, string>>;
   retryData: () => void;
   _registerDataNeed: (key: BookingDataKey, now: boolean) => void;
 
@@ -3146,6 +3147,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         paymentRecords: scopeIsCurrent ? paymentRecords : [],
         isLoading: Boolean(authLoading || (hasCurrentUser && (!scopeIsCurrent || subscriptionKey !== activeKey || isLoading))),
         dataError,
+        dataErrors: scopeIsCurrent ? dataErrors : {},
         retryData,
         _registerDataNeed: registerDataNeed,
         addBooking,

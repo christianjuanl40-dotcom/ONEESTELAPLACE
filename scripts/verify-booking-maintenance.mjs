@@ -60,6 +60,7 @@ const modules = {
     };
     const reply=(body,status=200)=>{availability.responses.push(body);return new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}})};
     window.fixture={data,event,date,availability,ledger:[],toasts:[],requests:[],unexpected:[],pending:()=>pending.length,
+      subscriptionCount:name=>[...subscriptions].filter(sub=>sub.name===name).length,
       localStatus(day){return calculateAvailabilityForDate(getCatalogAvailabilitySpace(catalog,'venue','venue.A'),date(day),data.bookings).status},
       set(name,rows){data[name]=rows;emit(name)},
       release(name){held.delete(name);emit(name)},
@@ -634,6 +635,7 @@ try {
       const before = await providerRecords(), count = (await requests()).length
       await page.evaluate(() => window.fixture.failMaintenance())
       await modal().getByRole("alert").getByText("Maintenance could not be loaded. Check your connection and retry data loading.", { exact: true }).waitFor()
+      assert.equal(await page.evaluate(() => window.fixture.provider.maintenanceError), "Maintenance could not be loaded. Check your connection and retry data loading.")
       assert.equal(await save().isDisabled(), true)
       assert.equal(await day(21).isDisabled(), true)
       assert.equal(await modal().getByRole("button", { name: "Delete All", exact: true }).isDisabled(), true)
@@ -642,7 +644,13 @@ try {
       await modal().getByText("Selected (1 Date)", { exact: true }).waitFor()
       assert.deepEqual(await providerRecords(), before)
       assert.equal((await requests()).length, count)
-      await modal().getByRole("alert").scrollIntoViewIfNeeded()
+      await modal().getByRole("button", { name: "Retry data loading", exact: true }).click()
+      await page.waitForFunction(() => window.fixture.provider.maintenanceError === null && window.fixture.provider.isMaintenanceLoading === false)
+      assert.equal(await page.evaluate(() => window.fixture.subscriptionCount("maintenanceRecords")), 1)
+      assert.deepEqual(await providerRecords(), before)
+      assert.equal(await reason().inputValue(), "Keep on listener failure")
+      await modal().getByText("Selected (1 Date)", { exact: true }).waitFor()
+      await modal().getByRole("region", { name: "Maintenance content" }).scrollIntoViewIfNeeded()
       await screenshot("listener-error")
     })
     await check("responsive modal fits viewport, scrolls, and has no runtime/live-service errors", async () => {
@@ -666,6 +674,7 @@ try {
       assert.equal(await page.evaluate(() => window.scrollY), backgroundY, "wheel gestures outside the dialog must not scroll the background")
       await modal().getByRole("button", { name: "Close", exact: true }).click()
       await page.waitForFunction(() => !document.body.hasAttribute("data-scroll-locked"))
+      await page.waitForFunction(() => window.fixture.subscriptionCount("maintenanceRecords") === 0)
       assert.notEqual(await page.locator("body").evaluate(el => getComputedStyle(el).overflow), "hidden", "last close restores background scrolling")
       await page.mouse.wheel(0, 400)
       await page.waitForFunction(y => window.scrollY > y, backgroundY)

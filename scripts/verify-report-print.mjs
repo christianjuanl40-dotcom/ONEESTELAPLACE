@@ -14,7 +14,8 @@ const fixtureModules = {
   auth: `export const useAuth=()=>({user:{role:'admin',fullName:'Print Fixture Admin'}})`,
   booking: `export const useBookingData=()=>({bookings:[
      {id:'BK-PRINT-1',bookingCategory:'venue',venueId:'venue-1',spaceId:'venue-1',venue:'Main Hall',eventName:'Fixture Conference',eventType:'Conference',date:'2026-10-01',status:'confirmed',totalPrice:10000,totalAmount:10000,amountPaid:5000,paymentStatus:'partial',refundStatus:'refunded',refundAmount:2000,refundedAmount:2000,userInfo:{name:'Fixture Client'}},
-    {id:'BK-PRINT-2',bookingCategory:'venue',venueId:'venue-1',spaceId:'venue-1',venue:'Main Hall',eventName:'Fixture Workshop',eventType:'Workshop',date:'2026-10-15',status:'pending',totalPrice:7500,totalAmount:7500,amountPaid:0,paymentStatus:'unpaid',userInfo:{name:'Another Client'}}
+     {id:'BK-PRINT-2',bookingCategory:'venue',venueId:'venue-1',spaceId:'venue-1',venue:'Main Hall',eventName:'Fixture Workshop',eventType:'Workshop',date:'2026-10-15',status:'pending',totalPrice:7500,totalAmount:7500,amountPaid:0,paymentStatus:'unpaid',userInfo:{name:'Another Client'}},
+     ...Array.from({length:12},(_,index)=>({id:'BK-TABLE-' + (index + 1),bookingCategory:'venue',venueId:'venue-1',spaceId:'venue-1',venue:'Main Hall',eventName:'Table Fixture ' + (index + 1),eventType:'Workshop',date:'2026-09-01',status:index % 2 === 0 ? 'confirmed' : 'pending',totalPrice:100,totalAmount:100,amountPaid:0,paymentStatus:'unpaid',userInfo:{name:'Table Client ' + (index + 1)}}))
   ],paymentRecords:[],isLoading:false})`,
   cms: `export const useCMS=()=>({cmsData:{venues:[{id:'venue-1',name:'Main Hall',isArchived:false,isHidden:false,isBookable:true}],offices:[]}})`,
   toast: `export const useToast=()=>({toast:()=>{}})`,
@@ -95,7 +96,31 @@ try {
   assert.match(dashboardText, /₱2,000\.00/)
   assert.match(dashboardText, /₱3,000\.00/)
 
-  await page.locator('[aria-label="Year"]').click()
+  await page.locator('#report-search').fill('  Table Client 7  ')
+  await page.locator('[data-report-dashboard] [data-slot="table"] tbody tr').waitFor()
+  assert.match(await page.locator('[data-report-dashboard]').innerText(), /BK-TABLE-7/)
+  assert.doesNotMatch(await page.locator('[data-report-dashboard]').innerText(), /BK-TABLE-8/)
+  await page.getByRole('button', { name: 'Clear booking search', exact: true }).click()
+
+  await page.getByRole('button', { name: /Sort by Total Booking Value/ }).click()
+  const firstSortedRow = await page.locator('[data-report-dashboard] [data-slot="table"] tbody tr').first().innerText()
+  assert.match(firstSortedRow, /BK-TABLE-1/)
+
+  assert.match(await page.locator('[data-report-dashboard]').innerText(), /Page 1 of 2/)
+  await page.getByRole('button', { name: 'Go to next report page', exact: true }).click()
+  assert.match(await page.locator('[data-report-dashboard]').innerText(), /Page 2 of 2/)
+  await page.locator('#report-rows-per-page').selectOption('25')
+  assert.match(await page.locator('[data-report-dashboard]').innerText(), /Page 1 of 1/)
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.locator('[data-report-dashboard] article').first().waitFor()
+  assert.equal(await page.locator('[data-report-dashboard] [data-slot="table"]').isVisible(), false)
+  await page.getByRole('button', { name: 'View Details', exact: true }).first().click()
+  assert.match(await page.locator('[data-report-dashboard]').innerText(), /Outstanding Balance/)
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.locator('#report-rows-per-page').selectOption('10')
+
+   await page.locator('[aria-label="Year"]').click()
   await page.getByRole("option", { name: "2026", exact: true }).click()
   await page.locator('[aria-label="Month"]').click()
   await page.getByRole("option", { name: "Oct", exact: true }).click()

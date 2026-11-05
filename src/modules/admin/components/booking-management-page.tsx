@@ -17,11 +17,15 @@ import {
   XCircle,
   ShieldCheck,
   ArrowRight,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   Bell,
   ChevronLeft,
   ChevronRight,
   Wrench,
   Trash2,
+  RotateCcw,
 } from "lucide-react"
 
 import { Button } from "@/src/modules/shared/components/ui/button"
@@ -77,12 +81,15 @@ import { Textarea } from "@/src/modules/shared/components/ui/textarea"
 import { Label } from "@/src/modules/shared/components/ui/label"
 import { useCMS } from "@/src/modules/admin/contexts/cms-context"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/src/modules/shared/components/ui/tabs"
+import { stableSortBy, type TableSortDirection, type TableSortableValue } from "@/src/modules/shared/lib/report-table-utils"
 
 const adminBookingDetailsActionColors = {
   reminder: "bg-[#FFF7ED] text-[#C2410C] border border-[#FED7AA] hover:bg-[#FFEDD5] hover:text-[#C2410C]",
   onsite: "bg-[#EA580C] bg-none text-white border border-transparent hover:bg-[#C2410C] hover:text-white",
   contract: "bg-[#F1F5F9] text-[#334155] border border-[#CBD5E1] hover:bg-[#E2E8F0] hover:text-[#334155]",
 } as const
+
+type BookingSortKey = "date" | "customer" | "event" | "resource" | "status"
 
 function formatDate(date?: string) {
   if (!date) return "—"
@@ -277,11 +284,60 @@ function isCancellationRequestPending(booking: Booking) {
   )
 }
 
+function getBookingSortValue(booking: Booking, sortKey: BookingSortKey): TableSortableValue {
+  switch (sortKey) {
+    case "date":
+      return booking.date ? new Date(booking.date) : null
+    case "customer":
+      return booking.userInfo?.name || null
+    case "event":
+      return booking.eventName || (booking as any).companyName || (booking as any).natureOfBusiness || null
+    case "resource":
+      return booking.venue || (booking as any).officeSpaceName || (booking as any).officeName || null
+    case "status":
+      return getBookingLifecycleLabel(booking as unknown as Record<string, unknown>)
+  }
+}
+
+function BookingSortableHeader({
+  label,
+  sortKey,
+  activeSortKey,
+  direction,
+  onSort,
+}: {
+  label: string
+  sortKey: BookingSortKey
+  activeSortKey: BookingSortKey
+  direction: TableSortDirection
+  onSort: (sortKey: BookingSortKey) => void
+}) {
+  const isActive = sortKey === activeSortKey
+  return (
+    <TableHead scope="col" aria-sort={isActive ? (direction === "asc" ? "ascending" : "descending") : "none"} className="oe-table-head">
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        aria-label={`Sort bookings by ${label}${isActive ? `, currently ${direction === "asc" ? "ascending" : "descending"}` : ""}`}
+        className="inline-flex min-h-9 items-center gap-1.5 rounded-md py-1 text-left transition hover:text-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
+      >
+        <span>{label}</span>
+        {isActive ? (
+          direction === "asc" ? <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" /> : <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
+        ) : (
+          <ArrowUpDown className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+        )}
+      </button>
+    </TableHead>
+  )
+}
+
 export default function AdminBookingsPage() {
   const { user } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
   const bookingCtx = useBookingData({ bookings: true, payments: true })
+  const bookingDataError = [bookingCtx.dataErrors?.bookings, bookingCtx.dataErrors?.payments].filter(Boolean).join(" ") || null
   const bookings = bookingCtx?.bookings || []
   const { markByBookingId } = useNotifications()
   const ADMIN_BOOKING_TYPES: NotificationType[] = ["booking_submitted", "cancellation_requested", "modification_requested"]
@@ -320,6 +376,8 @@ export default function AdminBookingsPage() {
   const [onsitePaymentTarget, setOnsitePaymentTarget] = useState<Booking | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const ITEMS_PER_PAGE = 10
+  const [bookingSortKey, setBookingSortKey] = useState<BookingSortKey>("date")
+  const [bookingSortDirection, setBookingSortDirection] = useState<TableSortDirection>("desc")
 
   const [showApproveCancellationConfirm, setShowApproveCancellationConfirm] = useState(false)
   const [showDeclineCancellationModal, setShowDeclineCancellationModal] = useState(false)
@@ -373,35 +431,43 @@ export default function AdminBookingsPage() {
         }
         if (venueFilter === "office" && !isOfficeBooking(b)) return false
         if (venueFilter === "event" && isOfficeBooking(b)) return false
-        if (!searchQuery) return true
-        const q = searchQuery.toLowerCase()
+        const q = searchQuery.trim().toLocaleLowerCase()
+        if (!q) return true
         return [b.id, b.eventName, b.venue, b.userInfo?.name, b.userInfo?.email, b.userInfo?.phone, b.paymentMethod]
           .some((f) => f && String(f).toLowerCase().includes(q))
       })
-      .sort((a, b) => {
-        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0
-        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0
-        return (isNaN(bTime) ? 0 : bTime) - (isNaN(aTime) ? 0 : aTime)
-      })
   }, [bookings, statusFilter, venueFilter, searchQuery])
+
+  const sortedBookings = useMemo(
+    () => stableSortBy(
+      filteredBookings,
+      (booking) => getBookingSortValue(booking, bookingSortKey),
+      bookingSortDirection,
+    ),
+    [bookingSortDirection, bookingSortKey, filteredBookings],
+  )
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchQuery, statusFilter, venueFilter])
+  }, [bookingSortDirection, bookingSortKey, searchQuery, statusFilter, venueFilter])
 
-  const totalPages = Math.ceil(filteredBookings.length / ITEMS_PER_PAGE)
-  const safePage = currentPage > totalPages ? Math.max(totalPages, 1) : currentPage
-  const paginatedBookings = filteredBookings.slice(
+  const totalPages = Math.max(1, Math.ceil(sortedBookings.length / ITEMS_PER_PAGE))
+  const safePage = Math.min(Math.max(currentPage, 1), totalPages)
+  const paginatedBookings = sortedBookings.slice(
     (safePage - 1) * ITEMS_PER_PAGE,
     safePage * ITEMS_PER_PAGE,
   )
 
   useEffect(() => {
+    if (currentPage !== safePage) setCurrentPage(safePage)
+  }, [currentPage, safePage])
+
+  useEffect(() => {
     if (bookingCtx.isLoading) return
     console.log(
-      `[DEBUG][ADMIN BOOKINGS] pipeline — raw bookings: ${bookings.length}, after filters: ${filteredBookings.length}, UI rows on page: ${paginatedBookings.length} (status="${statusFilter}", venue="${venueFilter}", search="${searchQuery}")`,
+      `[DEBUG][ADMIN BOOKINGS] pipeline — raw bookings: ${bookings.length}, after filters: ${filteredBookings.length}, sorted rows: ${sortedBookings.length}, UI rows on page: ${paginatedBookings.length} (status="${statusFilter}", venue="${venueFilter}", search="${searchQuery}")`,
     )
-  }, [bookings, filteredBookings, paginatedBookings, bookingCtx.isLoading, statusFilter, venueFilter, searchQuery])
+  }, [bookings, filteredBookings, paginatedBookings, sortedBookings, bookingCtx.isLoading, statusFilter, venueFilter, searchQuery])
 
   const [highlightedBookingId, setHighlightedBookingId] = useState<string | null>(null)
   const highlightHandledRef = useRef(false)
@@ -447,9 +513,9 @@ export default function AdminBookingsPage() {
   }, [highlightedBookingId])
 
   useEffect(() => {
-    if (!highlightedBookingId || filteredBookings.length === 0) return
+    if (!highlightedBookingId || sortedBookings.length === 0) return
     if (highlightHandledRef.current) return
-    const idx = filteredBookings.findIndex((b) => b.id === highlightedBookingId)
+    const idx = sortedBookings.findIndex((b) => b.id === highlightedBookingId)
     if (idx === -1) return
     const page = Math.floor(idx / ITEMS_PER_PAGE) + 1
     if (page !== safePage) {
@@ -468,7 +534,7 @@ export default function AdminBookingsPage() {
         highlightTimeoutRef.current = null
       }
     }
-  }, [highlightedBookingId, filteredBookings, safePage])
+  }, [highlightedBookingId, sortedBookings, safePage])
 
   const confirmApproveCancellation = async () => {
     const id = showApproveCancellationTarget
@@ -607,6 +673,32 @@ export default function AdminBookingsPage() {
     { value: "completed", label: "Completed" },
     { value: "cancelled", label: "Cancelled" },
   ]
+
+  const handleBookingSort = (sortKey: BookingSortKey) => {
+    if (sortKey === bookingSortKey) {
+      setBookingSortDirection((direction) => direction === "asc" ? "desc" : "asc")
+    } else {
+      setBookingSortKey(sortKey)
+      setBookingSortDirection(sortKey === "date" ? "desc" : "asc")
+    }
+    setCurrentPage(1)
+  }
+
+  if (bookingDataError) {
+    return (
+      <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <div role="alert" className="flex min-h-[300px] flex-col items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 px-6 py-10 text-center">
+          <AlertCircle className="h-7 w-7 text-rose-600" aria-hidden="true" />
+          <h1 className="mt-4 text-base font-black text-rose-900">Bookings could not be loaded</h1>
+          <p className="mt-1 max-w-md text-sm leading-6 text-rose-700">The booking list is unavailable, so an empty table has not been shown. Retry the data read to continue.</p>
+          <Button type="button" onClick={bookingCtx.retryData} className="mt-5 h-10 rounded-xl bg-rose-700 px-4 text-xs font-black text-white hover:bg-rose-800">
+            <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+            Retry Booking Data
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   if (bookingCtx?.isLoading && bookings.length === 0) {
     return (
@@ -765,7 +857,7 @@ export default function AdminBookingsPage() {
             </Button>
 
               <Select value={venueFilter} onValueChange={setVenueFilter}>
-                <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[170px]">
+                <SelectTrigger aria-label="Booking resource filter" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[170px]">
                   <div className="flex items-center gap-2">
                     <Filter className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                     <SelectValue placeholder="All Venues" />
@@ -781,7 +873,7 @@ export default function AdminBookingsPage() {
               </Select>
 
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[150px]">
+                <SelectTrigger aria-label="Booking status filter" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[150px]">
                   <div className="flex items-center gap-2">
                     <SelectValue placeholder="All" />
                   </div>
@@ -798,9 +890,11 @@ export default function AdminBookingsPage() {
               <div className="relative w-full sm:w-[300px]">
                 <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                 <Input
+                  id="admin-booking-search"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search bookings..."
+                  aria-label="Search bookings"
                   className="h-10 rounded-xl border-slate-200 bg-white pl-9 pr-16 text-xs focus-visible:ring-orange-600"
                 />
                 {searchQuery && (
@@ -832,6 +926,9 @@ export default function AdminBookingsPage() {
               bookings={paginatedBookings}
               onView={(booking) => { setSelectedBooking(booking); markByBookingId(booking.id, ADMIN_BOOKING_TYPES) }}
               highlightedBookingId={highlightedBookingId}
+              sortKey={bookingSortKey}
+              sortDirection={bookingSortDirection}
+              onSort={handleBookingSort}
             />
           )}
         </section>
@@ -921,10 +1018,16 @@ function AdminBookingTable({
   bookings,
   onView,
   highlightedBookingId,
+  sortKey,
+  sortDirection,
+  onSort,
 }: {
   bookings: Booking[]
   onView: (booking: Booking) => void
   highlightedBookingId: string | null
+  sortKey: BookingSortKey
+  sortDirection: TableSortDirection
+  onSort: (sortKey: BookingSortKey) => void
 }) {
   return (
     <>
@@ -941,11 +1044,11 @@ function AdminBookingTable({
           </colgroup>
           <TableHeader className="bg-slate-50/80">
             <tr>
-              <TableHead className="oe-table-head">Booking / Customer</TableHead>
-              <TableHead className="oe-table-head">Event / Business</TableHead>
-              <TableHead className="oe-table-head">Reserved Space</TableHead>
-              <TableHead className="oe-table-head">Schedule</TableHead>
-              <TableHead className="oe-table-head">Status</TableHead>
+              <BookingSortableHeader label="Booking / Customer" sortKey="customer" activeSortKey={sortKey} direction={sortDirection} onSort={onSort} />
+              <BookingSortableHeader label="Event / Business" sortKey="event" activeSortKey={sortKey} direction={sortDirection} onSort={onSort} />
+              <BookingSortableHeader label="Reserved Space" sortKey="resource" activeSortKey={sortKey} direction={sortDirection} onSort={onSort} />
+              <BookingSortableHeader label="Schedule" sortKey="date" activeSortKey={sortKey} direction={sortDirection} onSort={onSort} />
+              <BookingSortableHeader label="Status" sortKey="status" activeSortKey={sortKey} direction={sortDirection} onSort={onSort} />
               <TableHead className="oe-table-head text-right">Actions</TableHead>
             </tr>
           </TableHeader>

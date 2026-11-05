@@ -5,6 +5,7 @@ import { ChevronDown, DoorOpen, Loader2, Pencil, Plus, Save, Trash2, X } from "l
 import { Button } from "@shared/components/ui/button"
 import { Input } from "@shared/components/ui/input"
 import { Textarea } from "@shared/components/ui/textarea"
+import { Table, TableBody, TableCell, TableHead, TableHeader } from "@shared/components/ui/table"
 import { useToast } from "@shared/hooks/use-toast"
 import { useCMS, type OfficeRoom } from "@admin/contexts/cms-context"
 import { CMSSectionHeader } from "./cms-section-header"
@@ -184,51 +185,50 @@ export function CMSOfficesTab({ onNavigate }: { onNavigate: (tab: string) => voi
         </div>
 
         {filtered.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
+          <Table className="min-w-[760px]">
+              <caption className="sr-only">Office space catalog records</caption>
+              <TableHeader className="bg-slate-50/80">
                 <tr className="border-b border-slate-100 text-left text-[10px] font-bold uppercase tracking-[0.2em] text-black">
-                  <th className="px-4 py-2.5 w-14"></th>
-                  <th className="px-4 py-2.5">Office</th>
-                  <th className="px-4 py-2.5 hidden md:table-cell">Capacity</th>
-                  <th className="px-4 py-2.5">Price</th>
-                  <th className="px-4 py-2.5 hidden md:table-cell">Rooms</th>
-                  <th className="px-4 py-2.5 hidden md:table-cell">Status</th>
-                  <th className="px-4 py-2.5 text-right w-36">Actions</th>
+                  <TableHead scope="col" className="w-14" aria-label="Preview" />
+                  <TableHead scope="col" className="oe-table-head">Office</TableHead>
+                  <TableHead scope="col" className="oe-table-head hidden md:table-cell">Capacity</TableHead>
+                  <TableHead scope="col" className="oe-table-head">Price</TableHead>
+                  <TableHead scope="col" className="oe-table-head hidden md:table-cell">Rooms</TableHead>
+                  <TableHead scope="col" className="oe-table-head hidden md:table-cell">Status</TableHead>
+                  <TableHead scope="col" className="oe-table-head w-36 text-right">Actions</TableHead>
                 </tr>
-              </thead>
-              <tbody>
+              </TableHeader>
+              <TableBody>
                 {filtered.map((o: any) => {
                   const roomCount = getOfficeRooms(o.id).length
                   return (
                     <tr key={o.id} className="border-b border-slate-50 text-sm transition hover:bg-slate-50/50">
-                      <td className="px-4 py-2.5">
+                      <TableCell className="align-middle">
                         <div className="h-10 w-14 overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
                           <img src={getImageSource(o.image)} alt="" className="h-full w-full object-cover"
                             onError={(e) => { e.currentTarget.src = "/placeholder.jpg" }} />
                         </div>
-                      </td>
-                      <td className="px-4 py-2.5 font-bold text-slate-900">{o.name || "Untitled"}</td>
-                      <td className="px-4 py-2.5 text-slate-600 hidden md:table-cell">{o.capacity || "—"}</td>
-                      <td className="px-4 py-2.5 font-semibold text-slate-800">₱{toPrice(o.price).toLocaleString("en-PH")}</td>
-                      <td className="px-4 py-2.5 hidden md:table-cell">
+                      </TableCell>
+                      <TableCell className="font-bold text-slate-900">{o.name || "Untitled"}</TableCell>
+                      <TableCell className="hidden text-slate-600 md:table-cell">{o.capacity || "—"}</TableCell>
+                      <TableCell className="font-semibold tabular-nums text-slate-800">₱{toPrice(o.price).toLocaleString("en-PH")}</TableCell>
+                      <TableCell className="hidden md:table-cell">
                         <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-600">
                           <DoorOpen className="h-3 w-3" /> {roomCount}
                         </span>
-                      </td>
-                      <td className="px-4 py-2.5 hidden md:table-cell"><CMSStatusBadge status={getCatalogStatus(o)} /></td>
-                      <td className="px-4 py-2.5 text-right">
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell"><CMSStatusBadge status={getCatalogStatus(o)} /></TableCell>
+                      <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-0.5">
-                          <button type="button" onClick={() => openEdit(o)} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700" title="Edit Office"><Pencil className="h-3.5 w-3.5" /></button>
-                          <button type="button" onClick={() => setConfirmDelete(o.id)} className="flex h-7 w-7 items-center justify-center rounded-md text-rose-400 hover:bg-rose-50 hover:text-rose-600" title="Delete Office"><Trash2 className="h-3.5 w-3.5" /></button>
+                          <button type="button" aria-label={`Edit ${o.name || "office"}`} onClick={() => openEdit(o)} className="flex h-9 w-9 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300" title="Edit office"><Pencil className="h-3.5 w-3.5" aria-hidden="true" /></button>
+                          <button type="button" aria-label={`Archive ${o.name || "office"}`} onClick={() => setConfirmDelete(o.id)} className="flex h-9 w-9 items-center justify-center rounded-md text-rose-400 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300" title="Archive office"><Trash2 className="h-3.5 w-3.5" aria-hidden="true" /></button>
                         </div>
-                      </td>
+                      </TableCell>
                     </tr>
                   )
                 })}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+          </Table>
         ) : (
           <div className="p-5">
             <EmptyState

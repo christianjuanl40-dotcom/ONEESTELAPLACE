@@ -142,7 +142,7 @@ The four booking/payment list surfaces—Admin Booking Management, Admin Payment
 | `node scripts/verify-booking-maintenance.mjs` | Local-only Chromium maintenance regressions using the actual admin bookings page/provider at 1366×768, 1280×720, 390×844, and 320×568; override temporary artifacts with `BOOKING_MAINTENANCE_TEMP_DIR` |
 | `node scripts/verify-office-availability.mjs` | Chromium occupied/reserved room disabling, Rooms 2–8 selection, lease transitions, full-term maintenance, refresh/error, bounded-search, and nested-dialog checks at the same four sizes; override temporary artifacts with `OFFICE_AVAILABILITY_TEMP_DIR` |
 | `node scripts/verify-booking-details.mjs` | Real customer/admin Booking Details office/event, document grouping, cancellation/refund, one-region scrolling, action handlers, and conditional footer checks at 1366×768, 1280×720, 768×1024, 640×960, 390×844, and 320×568; use `--no-screenshots` for DOM/layout checks only; override artifacts with `BOOKING_DETAILS_TEMP_DIR` |
-| `node scripts/verify-report-print.mjs` | Local Chromium report checks for financial row/summary values, Excel column/totals/filter parity, selected year/month print metadata, print typography, dashboard exclusion, and generated PDF |
+| `node scripts/verify-report-print.mjs` | Local Chromium report checks for financial row/summary values, display-name search, typed sorting, pagination/page-size behavior, mobile disclosure details, Excel column/totals/filter parity, selected year/month print metadata, print typography, dashboard exclusion, and generated PDF |
 
 There is no `npm test` script. Tests live in `src/modules/shared/lib/__tests__/`.
 

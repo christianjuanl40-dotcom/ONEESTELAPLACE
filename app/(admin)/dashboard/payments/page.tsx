@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation"
 import {
   AlertCircle,
   Banknote,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   CheckCircle2,
   Eye,
   FileImage,
@@ -18,6 +21,7 @@ import {
   ShieldCheck,
   X,
   XCircle,
+  RotateCcw,
 } from "lucide-react"
 
 import {
@@ -52,6 +56,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader } from "@/src/modul
 import { useBookingData } from "@/src/modules/client/contexts/booking-context"
 import type { PaymentRecord } from "@/src/modules/client/contexts/booking-context"
 import { cn } from "@/src/modules/shared/lib/utils"
+import { stableSortBy, type TableSortDirection, type TableSortableValue } from "@/src/modules/shared/lib/report-table-utils"
 import { normalizeBookingLifecycleStatus } from "@/src/modules/shared/lib/booking-helpers"
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
 import type { NotificationType } from "@/src/modules/shared/lib/notifications"
@@ -89,6 +94,7 @@ const VENUE_OPTIONS = [
 
 type PaymentAction = "verify" | "reject" | "incomplete"
 type BookingRecord = any
+type PaymentSortKey = "submittedAt" | "customer" | "venue" | "status"
 
 type PendingPaymentAction = {
   type: PaymentAction
@@ -97,6 +103,54 @@ type PendingPaymentAction = {
   note?: string
   paymentRecordId?: string
 } | null
+
+function getAdminPaymentSortValue(payment: BookingRecord, sortKey: PaymentSortKey): TableSortableValue {
+  switch (sortKey) {
+    case "submittedAt": {
+      const submission = getLatestSubmission(payment)
+      return submission?.submittedAt ? new Date(submission.submittedAt) : null
+    }
+    case "customer":
+      return payment?.userInfo?.name || null
+    case "venue":
+      return payment?.venue || payment?.venueName || null
+    case "status":
+      return payment?.paymentStatus || null
+  }
+}
+
+function PaymentSortableHeader({
+  label,
+  sortKey,
+  activeSortKey,
+  direction,
+  onSort,
+}: {
+  label: string
+  sortKey: PaymentSortKey
+  activeSortKey: PaymentSortKey
+  direction: TableSortDirection
+  onSort: (sortKey: PaymentSortKey) => void
+}) {
+  const isActive = sortKey === activeSortKey
+  return (
+    <TableHead scope="col" aria-sort={isActive ? (direction === "asc" ? "ascending" : "descending") : "none"} className="oe-table-head">
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        aria-label={`Sort payments by ${label}${isActive ? `, currently ${direction === "asc" ? "ascending" : "descending"}` : ""}`}
+        className="inline-flex min-h-9 items-center gap-1.5 rounded-md py-1 text-left transition hover:text-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
+      >
+        <span>{label}</span>
+        {isActive ? (
+          direction === "asc" ? <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" /> : <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
+        ) : (
+          <ArrowUpDown className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+        )}
+      </button>
+    </TableHead>
+  )
+}
 
 export default function AdminPaymentsPage() {
   const { user, isLoading: authLoading } = useAuth()
@@ -135,6 +189,8 @@ export default function AdminPaymentsPage() {
   }, [user, router])
   const [paymentPage, setPaymentPage] = useState(1)
   const PAYMENTS_PER_PAGE = 10
+  const [paymentSortKey, setPaymentSortKey] = useState<PaymentSortKey>("submittedAt")
+  const [paymentSortDirection, setPaymentSortDirection] = useState<TableSortDirection>("desc")
   const [statusFilter, setStatusFilter] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
   const [venueFilter, setVenueFilter] = useState("all")
@@ -267,7 +323,7 @@ export default function AdminPaymentsPage() {
         .join(" ")
         .toLowerCase()
 
-      const matchesSearch = searchText.includes(searchQuery.toLowerCase())
+      const matchesSearch = searchText.includes(searchQuery.trim().toLocaleLowerCase())
       const matchesVenue =
         venueFilter === "all" ||
         String(booking?.venue || "").includes(venueFilter)
@@ -284,16 +340,29 @@ export default function AdminPaymentsPage() {
     })
   }, [paymentBookings, searchQuery, venueFilter, statusFilter])
 
+  const sortedPayments = useMemo(
+    () => stableSortBy(
+      filteredPayments,
+      (payment) => getAdminPaymentSortValue(payment, paymentSortKey),
+      paymentSortDirection,
+    ),
+    [filteredPayments, paymentSortDirection, paymentSortKey],
+  )
+
   useEffect(() => {
     setPaymentPage(1)
-  }, [searchQuery, venueFilter, statusFilter])
+  }, [paymentSortDirection, paymentSortKey, searchQuery, venueFilter, statusFilter])
 
-  const paymentTotalPages = Math.ceil(filteredPayments.length / PAYMENTS_PER_PAGE)
-  const safePaymentPage = paymentPage > paymentTotalPages ? Math.max(paymentTotalPages, 1) : paymentPage
-  const paginatedPayments = filteredPayments.slice(
+  const paymentTotalPages = Math.max(1, Math.ceil(sortedPayments.length / PAYMENTS_PER_PAGE))
+  const safePaymentPage = Math.min(Math.max(paymentPage, 1), paymentTotalPages)
+  const paginatedPayments = sortedPayments.slice(
     (safePaymentPage - 1) * PAYMENTS_PER_PAGE,
     safePaymentPage * PAYMENTS_PER_PAGE,
   )
+
+  useEffect(() => {
+    if (paymentPage !== safePaymentPage) setPaymentPage(safePaymentPage)
+  }, [paymentPage, safePaymentPage])
 
   const uiReadyLoggedRef = useRef(false)
   useEffect(() => {
@@ -348,9 +417,9 @@ export default function AdminPaymentsPage() {
   }, [highlightedPaymentId])
 
   useEffect(() => {
-    if (!highlightedPaymentId || filteredPayments.length === 0) return
+    if (!highlightedPaymentId || sortedPayments.length === 0) return
     if (paymentHighlightHandledRef.current) return
-    const idx = filteredPayments.findIndex(
+    const idx = sortedPayments.findIndex(
       (p) => p.id === highlightedPaymentId
     )
     if (idx === -1) return
@@ -371,7 +440,7 @@ export default function AdminPaymentsPage() {
         paymentHighlightTimeoutRef.current = null
       }
     }
-  }, [highlightedPaymentId, filteredPayments, safePaymentPage])
+  }, [highlightedPaymentId, sortedPayments, safePaymentPage])
 
   const openActionModal = (payment: BookingRecord, type: PaymentAction, submission?: PaymentRecord | null) => {
     if (!submission?.id) {
@@ -529,6 +598,32 @@ export default function AdminPaymentsPage() {
     }
   }
 
+  const handlePaymentSort = (sortKey: PaymentSortKey) => {
+    if (sortKey === paymentSortKey) {
+      setPaymentSortDirection((direction) => direction === "asc" ? "desc" : "asc")
+    } else {
+      setPaymentSortKey(sortKey)
+      setPaymentSortDirection(sortKey === "submittedAt" ? "desc" : "asc")
+    }
+    setPaymentPage(1)
+  }
+
+  if (bookingCtx?.dataError) {
+    return (
+      <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <div role="alert" className="flex min-h-[300px] flex-col items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 px-6 py-10 text-center">
+          <AlertCircle className="h-7 w-7 text-rose-600" aria-hidden="true" />
+          <h1 className="mt-4 text-base font-black text-rose-900">Payments could not be loaded</h1>
+          <p className="mt-1 max-w-md text-sm leading-6 text-rose-700">The payment list is unavailable, so an empty table has not been shown. Retry the data read to continue.</p>
+          <Button type="button" onClick={bookingCtx.retryData} className="mt-5 h-10 rounded-xl bg-rose-700 px-4 text-xs font-black text-white hover:bg-rose-800">
+            <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+            Retry Payment Data
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   if (bookingCtx?.isLoading) {
     return (
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
@@ -635,7 +730,7 @@ export default function AdminPaymentsPage() {
           </div>
           <div className="flex w-full flex-col items-stretch gap-2 sm:ml-auto sm:w-fit sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
               <Select value={venueFilter} onValueChange={setVenueFilter}>
-                <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[170px]">
+                <SelectTrigger aria-label="Payment resource filter" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[170px]">
                   <div className="flex items-center gap-2">
                     <Filter className="h-3.5 w-3.5 text-slate-400" />
                     <SelectValue placeholder="All Venues" />
@@ -656,7 +751,7 @@ export default function AdminPaymentsPage() {
               </Select>
 
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[150px]">
+                <SelectTrigger aria-label="Payment status filter" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[150px]">
                   <div className="flex items-center gap-2">
                     <SelectValue placeholder="All" />
                   </div>
@@ -678,9 +773,11 @@ export default function AdminPaymentsPage() {
                 <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
 
                 <Input
+                  id="admin-payment-search"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                   placeholder="Search payment..."
+                  aria-label="Search payments"
                   className="h-10 rounded-xl border-slate-200 bg-white pl-9 pr-16 text-xs focus-visible:ring-orange-600"
                 />
 
@@ -709,6 +806,9 @@ export default function AdminPaymentsPage() {
               payments={paginatedPayments}
               onView={(payment) => { setSelectedPayment(payment); const p = payment as any; markByBookingId(p.bookingId || p.id, ADMIN_PAYMENT_TYPES) }}
               highlightedPaymentId={highlightedPaymentId}
+              sortKey={paymentSortKey}
+              sortDirection={paymentSortDirection}
+              onSort={handlePaymentSort}
             />
           )}
         </section>
@@ -924,10 +1024,16 @@ function PaymentVerificationTable({
   payments,
   onView,
   highlightedPaymentId,
+  sortKey,
+  sortDirection,
+  onSort,
 }: {
   payments: BookingRecord[]
   onView: (payment: BookingRecord) => void
   highlightedPaymentId: string | null
+  sortKey: PaymentSortKey
+  sortDirection: TableSortDirection
+  onSort: (sortKey: PaymentSortKey) => void
 }) {
   return (
     <>
@@ -943,10 +1049,10 @@ function PaymentVerificationTable({
           </colgroup>
           <TableHeader className="bg-slate-50/80">
             <tr>
-              <TableHead className="oe-table-head">Booking / Customer</TableHead>
-              <TableHead className="oe-table-head">Reserved Space</TableHead>
-              <TableHead className="oe-table-head">Payment Submission</TableHead>
-              <TableHead className="oe-table-head">Review Status</TableHead>
+              <PaymentSortableHeader label="Booking / Customer" sortKey="customer" activeSortKey={sortKey} direction={sortDirection} onSort={onSort} />
+              <PaymentSortableHeader label="Reserved Space" sortKey="venue" activeSortKey={sortKey} direction={sortDirection} onSort={onSort} />
+              <PaymentSortableHeader label="Payment Submission" sortKey="submittedAt" activeSortKey={sortKey} direction={sortDirection} onSort={onSort} />
+              <PaymentSortableHeader label="Review Status" sortKey="status" activeSortKey={sortKey} direction={sortDirection} onSort={onSort} />
               <TableHead className="oe-table-head text-right">Actions</TableHead>
             </tr>
           </TableHeader>

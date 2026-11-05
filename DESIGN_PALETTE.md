@@ -150,6 +150,8 @@ Default responsive breakpoints are `sm: 640px`, `md: 768px`, `lg: 1024px`, `xl: 
 
 These classes are presentation-only and must not replace the canonical status, payment, booking, or permission helpers. The shared Button and Badge primitives provide the common orange keyboard-focus ring and disabled affordance, while the Table primitive provides readable cell spacing, wrapped content, row hover states, and contained horizontal scrolling. Preserve the mobile renderer's labeled compact-row layout rather than forcing page-wide table overflow.
 
+The Reports financial table and CMS venue/office/tour catalog tables use the shared Table primitive where their specialized behavior permits it. Reports retain the same financial row projection for desktop cells and mobile disclosure details; sortable headers, page controls, and status badges remain presentation concerns.
+
 ### Reusable styling recipes
 
 Import primitives from `src/modules/shared/components/ui/` and compose classes with `cn()` from `src/modules/shared/lib/utils.ts`.
