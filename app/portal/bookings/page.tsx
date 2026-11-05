@@ -2790,15 +2790,17 @@ export default function MyBookingsPage() {
             </div>
           </div>
           <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
-            <TooltipProvider delayDuration={400}>
+                <TooltipProvider delayDuration={400}>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <ReserveDialog>
-                      <Button className="flex h-11 items-center justify-center gap-2 rounded-xl bg-orange-600 px-5 font-bold text-white shadow-sm transition-all hover:bg-orange-700">
-                        <Plus className="h-4 w-4" />
-                        New Booking
-                      </Button>
-                    </ReserveDialog>
+                    <span className="inline-flex">
+                      <ReserveDialog>
+                        <Button className="flex h-11 items-center justify-center gap-2 rounded-xl bg-orange-600 px-5 font-bold text-white shadow-sm transition-all hover:bg-orange-700">
+                          <Plus className="h-4 w-4" />
+                          New Booking
+                        </Button>
+                      </ReserveDialog>
+                    </span>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="text-[10px] font-semibold">
                     Create a new reservation

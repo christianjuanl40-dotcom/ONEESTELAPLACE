@@ -7,6 +7,7 @@ import { cn } from "../lib/utils"
 import { useNotifications } from "../contexts/notification-context"
 import type { NotificationType } from "../lib/notifications"
 import { useEffect, useRef } from "react"
+import { formatManilaDateTime, toValidDate } from "../lib/time-format"
 
 const typeIcons: Record<NotificationType, typeof Bell> = {
   booking_submitted: Calendar,
@@ -38,20 +39,17 @@ function formatNotificationLabel(type: string): string {
     .join(" ")
 }
 
-function formatTimestamp(ts: any): string {
-  if (!ts) return ""
-  const date = ts?.toDate ? ts.toDate() : new Date(ts)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-
-  if (diffMins < 1) return "Just now"
-  if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays < 7) return `${diffDays}d ago`
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+function getSafeInternalDestination(value: unknown): string | null {
+  if (typeof value !== "string") return null
+  const link = value.trim()
+  if (!link || !link.startsWith("/") || link.startsWith("//")) return null
+  try {
+    const destination = new URL(link, window.location.origin)
+    if (destination.origin !== window.location.origin) return null
+    return `${destination.pathname}${destination.search}${destination.hash}`
+  } catch {
+    return null
+  }
 }
 
 interface Props {
@@ -61,7 +59,15 @@ interface Props {
 
 export function NotificationDropdown({ open, onClose }: Props) {
   const router = useRouter()
-  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications()
+  const {
+    notifications,
+    unreadCount,
+    isLoading,
+    error,
+    retryNotifications,
+    markAsRead,
+    markAllAsRead,
+  } = useNotifications()
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -76,6 +82,15 @@ export function NotificationDropdown({ open, onClose }: Props) {
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [open, onClose])
 
+  useEffect(() => {
+    if (!open) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose()
+    }
+    document.addEventListener("keydown", handleKeyDown)
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [open, onClose])
+
   if (!open) return null
 
   return (
@@ -83,6 +98,8 @@ export function NotificationDropdown({ open, onClose }: Props) {
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div
         ref={ref}
+        role="dialog"
+        aria-label="Notifications"
         className="fixed left-2 right-2 top-[72px] z-50 mx-auto flex max-h-[70vh] w-auto max-w-[360px] flex-col border border-slate-200 bg-white shadow-2xl rounded-xl sm:absolute sm:left-auto sm:right-0 sm:top-[calc(100%+12px)] sm:mx-0 sm:w-80 sm:max-w-none"
       >
         {/* Sticky Header */}
@@ -104,7 +121,18 @@ export function NotificationDropdown({ open, onClose }: Props) {
 
         {/* Scrollable Body */}
         <div className="flex-1 overflow-y-auto overscroll-contain">
-          {notifications.length === 0 ? (
+          {isLoading ? (
+            <div className="flex min-h-40 items-center justify-center px-4 py-10 text-center" role="status">
+              <p className="text-sm font-medium text-slate-500">Loading notifications…</p>
+            </div>
+          ) : error ? (
+            <div className="flex min-h-40 flex-col items-center justify-center gap-3 px-4 py-10 text-center" role="alert">
+              <p className="max-w-[260px] text-sm font-medium text-rose-700">{error}</p>
+              <Button variant="outline" size="sm" onClick={retryNotifications}>
+                Retry notifications
+              </Button>
+            </div>
+          ) : notifications.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
               <div className="rounded-full bg-slate-50 p-4">
                 <Bell className="h-8 w-8 text-slate-300" />
@@ -118,13 +146,16 @@ export function NotificationDropdown({ open, onClose }: Props) {
                 
                 const notificationTitle = n.title || formatNotificationLabel(n.type)
 
-                return (
-                  <button
-                    key={n.id}
-                     onClick={() => {
-                       if (n.bookingId) {
-                         const isPayment = n.link.includes("/dashboard/payments")
-                         if (isPayment) {
+                 const timestampLabel = formatManilaDateTime(n.createdAt)
+                 const destination = getSafeInternalDestination(n.link)
+
+                 return (
+                   <button
+                     key={n.id}
+                      onClick={() => {
+                        if (n.bookingId && destination) {
+                          const isPayment = destination.includes("/dashboard/payments")
+                          if (isPayment) {
                            sessionStorage.setItem(
                              "admin_payment_highlight",
                              n.bookingId
@@ -134,7 +165,7 @@ export function NotificationDropdown({ open, onClose }: Props) {
                                detail: { paymentId: n.bookingId },
                              })
                            )
-                         } else if (n.link.includes("/portal/payments")) {
+                          } else if (destination.includes("/portal/payments")) {
                            sessionStorage.setItem(
                              "client_payment_highlight",
                              n.bookingId
@@ -144,7 +175,7 @@ export function NotificationDropdown({ open, onClose }: Props) {
                                detail: { bookingId: n.bookingId },
                              })
                            )
-                         } else if (n.link.includes("/dashboard")) {
+                          } else if (destination.includes("/dashboard")) {
                            sessionStorage.setItem(
                              "admin_booking_highlight",
                              n.bookingId
@@ -165,11 +196,11 @@ export function NotificationDropdown({ open, onClose }: Props) {
                              })
                            )
                          }
-                       }
-                       if (n.id) markAsRead(n.id)
-                       router.push(n.link)
-                       onClose()
-                     }}
+                        }
+                        if (n.id) void markAsRead(n.id)
+                        if (destination) router.push(destination)
+                        onClose()
+                      }}
                     className={cn(
                       "group flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-slate-50 focus:bg-slate-50 focus:outline-none sm:py-3",
                       !n.isRead && "bg-blue-50/40"
@@ -197,7 +228,9 @@ export function NotificationDropdown({ open, onClose }: Props) {
                           {notificationTitle}
                         </p>
                         <p className="shrink-0 whitespace-nowrap text-[10px] font-medium tabular-nums text-slate-400">
-                          {formatTimestamp(n.createdAt)}
+                           <time dateTime={toValidDate(n.createdAt)?.toISOString()} title={timestampLabel || "Timestamp unavailable"}>
+                             {timestampLabel || "Time unavailable"}
+                           </time>
                         </p>
                       </div>
 

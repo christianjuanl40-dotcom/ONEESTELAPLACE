@@ -53,8 +53,8 @@ export default function ClientLayout({
   const { toast } = useToast()
 
   const { user, isLoading, initializationError, logout } = useAuth()
-  const { unreadMessages } = useChat()
-  const { notifications, unreadCount: notificationUnread } = useNotifications()
+  const { unreadMessages, unreadError: chatUnreadError } = useChat()
+  const { notifications, unreadCount: notificationUnread, error: notificationError } = useNotifications()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [chatUnread, setChatUnread] = useState(0)
@@ -165,10 +165,14 @@ export default function ClientLayout({
               size="icon"
               className="relative h-9 w-9 shrink-0 rounded-full text-white hover:bg-white/15"
               onClick={() => setShowNotifications(!showNotifications)}
-              aria-label="Notifications"
+               aria-label={notificationError ? "Notifications unavailable" : "Notifications"}
             >
               <Bell className="h-5 w-5 shrink-0" />
-              {notificationUnread > 0 && (
+              {notificationError ? (
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-amber-400 px-1 text-[9px] font-black text-slate-950 shadow-md ring-2 ring-orange-700" aria-label="Notifications unavailable">
+                  !
+                </span>
+              ) : notificationUnread > 0 && (
                 <span className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-black tabular-nums text-white shadow-md ring-2 ring-orange-700">
                   {notificationUnread > 99 ? "99+" : notificationUnread}
                 </span>
@@ -222,11 +226,11 @@ export default function ClientLayout({
                 item.href === "/portal"
                   ? pathname === "/portal"
                   : pathname.startsWith(item.href)
-              const showChatBadge = item.key === "chat" && chatUnread > 0
+              const showChatBadge = item.key === "chat" && (chatUnread > 0 || Boolean(chatUnreadError))
               const showBookingBadge = item.key === "bookings" && myBookingUnread > 0
               const showTransactionBadge = item.key === "transactions" && myPaymentUnread > 0
-              let badgeCount = 0
-              if (item.key === "chat") badgeCount = chatUnread
+              let badgeCount: number | string = 0
+              if (item.key === "chat") badgeCount = chatUnreadError ? "!" : chatUnread
               if (item.key === "bookings") badgeCount = myBookingUnread
               if (item.key === "transactions") badgeCount = myPaymentUnread
               const showBadge = showChatBadge || showBookingBadge || showTransactionBadge
@@ -264,7 +268,7 @@ export default function ClientLayout({
                           : "bg-rose-500 text-white",
                       )}
                     >
-                      {badgeCount > 99 ? "99+" : badgeCount}
+                      {typeof badgeCount === "number" && badgeCount > 99 ? "99+" : badgeCount}
                     </span>
                   )}
                 </Link>
@@ -321,7 +325,7 @@ export default function ClientLayout({
             pathname === "/portal/chat" ? "p-0" : "p-3 pb-28 sm:p-4 sm:pb-8 md:p-6 md:pb-10 lg:p-8"
           }`}
         >
-          <DataLoadNotice />
+          {pathname !== "/portal" && <DataLoadNotice />}
           {children}
         </main>
       </div>

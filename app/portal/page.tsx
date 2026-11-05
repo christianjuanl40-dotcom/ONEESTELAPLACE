@@ -32,6 +32,9 @@ import {
   getPaymentRecordTime,
   getRecordsForBooking,
 } from "@/src/modules/shared/lib/payment-calculations"
+import { calculateClientPaymentOverview } from "@/src/modules/shared/lib/dashboard-calculations"
+import { getDashboardDataReadiness } from "@/src/modules/shared/lib/dashboard-data-readiness"
+import { DashboardDataUnavailable } from "@/src/modules/shared/components/dashboard-data-unavailable"
 import { getPaymentStatusPresentationClass } from "@/src/modules/shared/lib/status-presentation"
 
 function isOfficeBooking(booking: Booking) {
@@ -153,6 +156,10 @@ function getRemainingDuration(endDate?: string, startDate?: string) {
 function formatDate(date?: string) {
   if (!date) return "No date"
   return formatBookingDate(date)
+}
+
+function formatPesos(value: number) {
+  return `₱${Number(value || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 function getOfficeStatusDisplay(booking: Booking) {
@@ -278,7 +285,9 @@ function getOfficeStatusDisplay(booking: Booking) {
 
 export default function ClientDashboardPage() {
   const { user } = useAuth()
-  const { getUserBookings, bookings, paymentRecords } = useBookingData({ bookings: true, payments: true })
+  const bookingData = useBookingData({ bookings: true, payments: true })
+  const readiness = getDashboardDataReadiness(bookingData)
+  const { getUserBookings, bookings, paymentRecords } = bookingData
   const [presentationNow, setPresentationNow] = useState(() => new Date())
 
   useEffect(() => {
@@ -361,6 +370,7 @@ export default function ClientDashboardPage() {
   }, [sortedBookings, excludedIds])
 
   const recentPayments = useMemo(() => {
+    if (readiness.status !== "ready") return []
     return [...myBookings]
       .map((booking) => {
         const records = getRecordsForBooking(paymentRecords, booking)
@@ -380,7 +390,27 @@ export default function ClientDashboardPage() {
       .filter((entry) => entry.hasActivity)
       .sort((a, b) => b.activityTime - a.activityTime)
       .slice(0, 3)
-  }, [myBookings, paymentRecords])
+  }, [myBookings, paymentRecords, readiness.status])
+
+  const paymentOverview = useMemo(
+    () => readiness.status === "ready" ? calculateClientPaymentOverview(myBookings, paymentRecords) : null,
+    [myBookings, paymentRecords, readiness.status],
+  )
+
+  if (readiness.status === "loading") {
+    return (
+      <div className="mx-auto flex min-h-[50vh] w-full max-w-7xl items-center justify-center px-4 sm:px-6 lg:px-8" role="status">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-orange-600" />
+          <p className="text-sm font-semibold text-slate-500">Loading your dashboard…</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (readiness.status === "unavailable" || !paymentOverview) {
+    return <DashboardDataUnavailable error={readiness.error} onRetry={bookingData.retryData} />
+  }
 
   return (
     <TooltipProvider delayDuration={400}>
@@ -400,6 +430,38 @@ export default function ClientDashboardPage() {
         </div>
 
         <div className="space-y-6">
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="oe-section-heading">Payment Overview</h2>
+              <Button variant="link" className="h-auto p-0 text-xs font-bold text-orange-600" asChild>
+                <Link href="/portal/payments">View transactions <ArrowRight className="ml-1 h-3 w-3" /></Link>
+              </Button>
+            </div>
+            <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
+              <CardContent className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4 sm:p-5">
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Booking value</p>
+                  <p className="mt-1 text-base font-black tabular-nums text-slate-900">{formatPesos(paymentOverview.totalBookingValue)}</p>
+                </div>
+                <div className="rounded-xl bg-emerald-50 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-emerald-700">Received</p>
+                  <p className="mt-1 text-base font-black tabular-nums text-emerald-900">{formatPesos(paymentOverview.receivedPayments)}</p>
+                </div>
+                <div className="rounded-xl bg-amber-50 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-amber-700">Pending verification</p>
+                  <p className="mt-1 text-base font-black tabular-nums text-amber-900">{formatPesos(paymentOverview.pendingVerification)}</p>
+                </div>
+                <div className="rounded-xl bg-orange-50 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-orange-700">Outstanding</p>
+                  <p className="mt-1 text-base font-black tabular-nums text-orange-900">{formatPesos(paymentOverview.outstandingBalance)}</p>
+                </div>
+              </CardContent>
+              <p className="px-4 pb-4 text-[10px] font-medium leading-4 text-slate-500 sm:px-5 sm:pb-5">
+                Pending submissions are shown separately and do not count as received payments.
+              </p>
+            </Card>
+          </div>
+
           {activeRental && (
             <div>
               <h2 className="oe-section-heading mb-3">

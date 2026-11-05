@@ -67,8 +67,8 @@ export default function AdminLayout({
   const pathname = usePathname()
   const router = useRouter()
   const { user, isLoading, initializationError, logout } = useAuth()
-  const { unreadMessages } = useChat()
-  const { notifications, unreadCount: notificationUnread } = useNotifications()
+  const { unreadMessages, unreadError: chatUnreadError } = useChat()
+  const { notifications, unreadCount: notificationUnread, error: notificationError } = useNotifications()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [chatUnread, setChatUnread] = useState(0)
@@ -194,10 +194,14 @@ export default function AdminLayout({
                 size="icon"
                 className="relative shrink-0 rounded-full text-white hover:bg-white/15"
                 onClick={() => setShowNotifications(!showNotifications)}
-                aria-label="Notifications"
+                 aria-label={notificationError ? "Notifications unavailable" : "Notifications"}
               >
                 <Bell className="h-5 w-5 shrink-0 overflow-hidden" />
-                {notificationUnread > 0 && (
+                 {notificationError ? (
+                   <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-amber-400 px-1 text-[9px] font-black text-slate-950 shadow-md ring-2 ring-orange-700" aria-label="Notifications unavailable">
+                     !
+                   </span>
+                 ) : notificationUnread > 0 && (
                   <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-black tabular-nums text-white shadow-md ring-2 ring-orange-700">
                     {notificationUnread > 99 ? "99+" : notificationUnread}
                   </span>
@@ -250,11 +254,11 @@ export default function AdminLayout({
                 const isActive = item.exact
                   ? pathname === item.href
                   : pathname.startsWith(item.href)
-                const showChatBadge = item.key === "chat" && chatUnread > 0
+                const showChatBadge = item.key === "chat" && (chatUnread > 0 || Boolean(chatUnreadError))
                 const showBookingBadge = item.key === "bookings" && bookingUnread > 0
                 const showPaymentBadge = item.key === "payments" && paymentUnread > 0
-                let badgeCount = 0
-                if (item.key === "chat") badgeCount = chatUnread
+                let badgeCount: number | string = 0
+                if (item.key === "chat") badgeCount = chatUnreadError ? "!" : chatUnread
                 if (item.key === "bookings") badgeCount = bookingUnread
                 if (item.key === "payments") badgeCount = paymentUnread
                 const showBadge = showChatBadge || showBookingBadge || showPaymentBadge
@@ -291,7 +295,7 @@ export default function AdminLayout({
                             : "bg-rose-500 text-white",
                         )}
                       >
-                        {badgeCount > 99 ? "99+" : badgeCount}
+                        {typeof badgeCount === "number" && badgeCount > 99 ? "99+" : badgeCount}
                       </span>
                     )}
                   </Link>
@@ -314,7 +318,7 @@ export default function AdminLayout({
 
           <main className="oe-light-surface min-h-0 min-w-0 flex-1 overflow-y-auto bg-slate-50 print:overflow-visible print:bg-white">
             <StaffProvider>
-              <DataLoadNotice />
+              {pathname !== "/dashboard" && <DataLoadNotice />}
               {children}
             </StaffProvider>
           </main>

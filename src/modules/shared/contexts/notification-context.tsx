@@ -22,8 +22,11 @@ interface NotificationContextValue {
   notifications: NotificationItem[]
   unreadCount: number
   moduleUnreadCount: number
-  markAsRead: (id: string) => void
-  markAllAsRead: () => void
+  isLoading: boolean
+  error: string | null
+  retryNotifications: () => void
+  markAsRead: (id: string) => Promise<void>
+  markAllAsRead: () => Promise<void>
   markByBookingId: (bookingId: string, types?: NotificationType[]) => Promise<void>
 }
 
@@ -33,6 +36,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const { user } = useAuth()
   const [storedNotifications, setNotifications] = useState<NotificationItem[]>([])
   const [loadedScope, setLoadedScope] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [retryAttempt, setRetryAttempt] = useState(0)
   const userRole = user?.role
   const currentUserId = user?.id
 
@@ -62,8 +68,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     setNotifications([])
     setLoadedScope(scope)
+    setError(null)
     if (!userId) {
       setNotifications([])
+      setIsLoading(false)
       return
     }
 
@@ -71,8 +79,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     let activeUnsub: (() => void) | null = null
     let retryTimer: ReturnType<typeof setTimeout> | null = null
-    let fallbackTimer: ReturnType<typeof setTimeout> | null = null
     let destroyed = false
+    setIsLoading(true)
 
     console.log("[Notification Listener START]", { userId })
     perfListener("Notifications", "START")
@@ -127,25 +135,31 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         (snapshot) => {
           if (destroyed) return
           const items = sortDesc(mapSnapshot(snapshot))
-          if (firstSnapshot) {
+           if (firstSnapshot) {
             firstSnapshot = false
             perfListener("Notifications", "FIRST_SNAPSHOT", items.length)
           } else {
             perfListener("Notifications", "SNAPSHOT", items.length)
-          }
-          setNotifications(items)
+           }
+           setError(null)
+           setIsLoading(false)
+           setNotifications(items)
         },
         (error) => {
           if (destroyed) return
           perfListener("Notifications", "ERROR")
-          if (error.code === "failed-precondition") {
+            if (error.code === "failed-precondition") {
             if (destroyed) return
             activeUnsub?.()
             startFallback()
             scheduleRetry()
-          } else {
-            console.error("[Notifications snapshot error]", { code: error.code, message: error.message })
-          }
+            } else {
+              console.error("[Notifications snapshot error]", { code: error.code, message: error.message })
+              setError(error.code === "permission-denied"
+                ? "Notifications are not authorized for this account."
+                : "Notifications could not be loaded. Check your connection and retry.")
+              setIsLoading(false)
+            }
         },
       )
     }
@@ -160,18 +174,24 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         (snapshot) => {
           if (destroyed) return
           const items = sortDesc(mapSnapshot(snapshot))
-          if (firstSnapshot) {
+           if (firstSnapshot) {
             firstSnapshot = false
             perfListener("Notifications", "FIRST_SNAPSHOT", items.length)
           } else {
             perfListener("Notifications", "SNAPSHOT", items.length)
-          }
-          setNotifications(items)
+           }
+           setError(null)
+           setIsLoading(false)
+           setNotifications(items)
         },
         (error) => {
           if (destroyed) return
-          perfListener("Notifications", "ERROR")
-          console.error("[Notifications fallback snapshot error]", { code: error.code, message: error.message })
+         perfListener("Notifications", "ERROR")
+         console.error("[Notifications fallback snapshot error]", { code: error.code, message: error.message })
+          setError(error.code === "permission-denied"
+            ? "Notifications are not authorized for this account."
+            : "Notifications could not be loaded. Check your connection and retry.")
+          setIsLoading(false)
         },
       )
     }
@@ -191,11 +211,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       destroyed = true
       activeUnsub?.()
       if (retryTimer) clearTimeout(retryTimer)
-      if (fallbackTimer) clearTimeout(fallbackTimer)
       perfListener("Notifications", "STOP")
       console.log("[Notification Listener STOP]", { userId })
     }
-  }, [currentUserId, userId, adminNotificationTypes, userRole, scope])
+  }, [currentUserId, userId, adminNotificationTypes, userRole, scope, retryAttempt])
 
   const unreadCount = useMemo(() => {
     const count = notifications.filter((n) => !n.isRead).length
@@ -209,28 +228,53 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     return count
   }, [notifications])
 
-  const markAsRead = useCallback((id: string) => {
+  const retryNotifications = useCallback(() => {
+    setError(null)
+    setRetryAttempt((attempt) => attempt + 1)
+  }, [])
+
+  const markAsRead = useCallback(async (id: string) => {
+    if (!id) return
+    const previous = storedNotifications.find((notification) => notification.id === id)
+    setNotifications((current) => current.map((notification) => (
+      notification.id === id
+        ? { ...notification, isRead: true, moduleRead: true }
+        : notification
+    )))
     try {
       // Sync BOTH read flags: the bell badge counts isRead while the admin
       // sidebar badges count moduleRead. Writing only one leaves the other
       // badge stuck, so they are always updated together.
-      updateDoc(doc(db, "notifications", id), { isRead: true, moduleRead: true })
+      await updateDoc(doc(db, "notifications", id), { isRead: true, moduleRead: true })
     } catch (error) {
       console.error("[Notifications] Failed to mark as read:", error)
+      if (previous) {
+        setNotifications((current) => current.map((notification) => notification.id === id ? previous : notification))
+      }
+      setError("Notification read state could not be saved. Retry and try again.")
     }
-  }, [])
+  }, [storedNotifications])
 
-  const markAllAsRead = useCallback(() => {
-    notifications
-      .filter((n) => !n.isRead && n.id)
-      .forEach((n) => {
-        try {
-          updateDoc(doc(db, "notifications", n.id!), { isRead: true, moduleRead: true })
-        } catch (error) {
-          console.error("[Notifications] Failed to mark as read:", error)
-        }
-      })
-  }, [notifications])
+  const markAllAsRead = useCallback(async () => {
+    const unread = storedNotifications.filter((notification) => !notification.isRead && notification.id)
+    if (unread.length === 0) return
+    const previous = new Map(storedNotifications.map((notification) => [notification.id, notification]))
+    setNotifications((current) => current.map((notification) => (
+      unread.some((item) => item.id === notification.id)
+        ? { ...notification, isRead: true, moduleRead: true }
+        : notification
+    )))
+    try {
+      await Promise.all(unread.map((notification) => updateDoc(
+        doc(db, "notifications", notification.id!),
+        { isRead: true, moduleRead: true },
+      )))
+    } catch (error) {
+      console.error("[Notifications] Failed to mark all as read:", error)
+      setNotifications((current) => current.map((notification) => previous.get(notification.id) || notification))
+      setError("Notification read state could not be saved. Retry and try again.")
+    }
+  }, [storedNotifications])
 
   const markByBookingId = useCallback(async (bookingId: string, types?: NotificationType[]) => {
     if (!currentUserId || !userId) return
@@ -246,13 +290,20 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       }
       const q = query(collection(db, "notifications"), ...constraints)
       const snapshot = await getDocs(q)
-      snapshot.forEach((docSnap) => {
+      await Promise.all(snapshot.docs.map((docSnap) => {
         // Sync BOTH read flags (see markAsRead): viewing the booking must
         // clear the sidebar badge AND the bell badge for those notifications.
-        updateDoc(doc(db, "notifications", docSnap.id), { moduleRead: true, isRead: true })
-      })
+        return updateDoc(doc(db, "notifications", docSnap.id), { moduleRead: true, isRead: true })
+      }))
+      const updatedIds = new Set(snapshot.docs.map((docSnap) => docSnap.id))
+      setNotifications((current) => current.map((notification) => (
+        updatedIds.has(notification.id || "")
+          ? { ...notification, moduleRead: true, isRead: true }
+          : notification
+      )))
     } catch (error) {
       console.error("[Notifications] Failed to markByBookingId:", error)
+      setError("Notification read state could not be saved. Retry and try again.")
     }
   }, [currentUserId, userId])
 
@@ -262,6 +313,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         notifications,
         unreadCount,
         moduleUnreadCount,
+        isLoading,
+        error,
+        retryNotifications,
         markAsRead,
         markAllAsRead,
         markByBookingId,

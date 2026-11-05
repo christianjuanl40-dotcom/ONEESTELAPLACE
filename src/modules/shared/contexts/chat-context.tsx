@@ -18,6 +18,7 @@ import {
   limit,
   getDocs,
 } from "firebase/firestore"
+import { sortChatMessages } from "../lib/chat-presentation"
 
 export interface ChatMessageItem {
   id?: string
@@ -65,6 +66,9 @@ interface ChatContextValue {
   isOpen: boolean
   currentClientId: string | null
   isChatLoaded: boolean
+  isChatLoading: boolean
+  chatError: string | null
+  unreadError: string | null
   newMessageNotifications: string[]
   unreadMessages: number
   loadChat: () => void
@@ -78,8 +82,8 @@ interface ChatContextValue {
     imageUrl?: string
   ) => Promise<void>
   sendPredefinedQuestion: (questionId: string) => Promise<void>
-  markAsRead: (clientId: string) => void
-  markAsReadByClient: (clientId: string) => void
+  markAsRead: (clientId: string) => Promise<void>
+  markAsReadByClient: (clientId: string) => Promise<void>
   markAdminAsRead: () => void
   toggleChat: () => void
   startTyping: (userId: string) => void
@@ -87,10 +91,11 @@ interface ChatContextValue {
   getChatHistory: () => ChatMessageItem[]
   getUnreadCount: () => number
   clearNotifications: () => void
+  retryChat: () => void
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null)
-const messagesRef = collection(db, "chatMessages")
+const chatMessagesRef = collection(db, "chatMessages")
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
@@ -102,7 +107,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [newMessageNotifications, setNewMessageNotifications] = useState<string[]>([])
   const [isMessagesActive, setIsMessagesActive] = useState(false)
   const [unreadMessages, setUnreadMessages] = useState(0)
+  const [isChatLoading, setIsChatLoading] = useState(false)
+  const [chatError, setChatError] = useState<string | null>(null)
+  const [unreadError, setUnreadError] = useState<string | null>(null)
+  const [chatRetryAttempt, setChatRetryAttempt] = useState(0)
   const initialLoadDone = useRef(false)
+  const messagesStateRef = useRef<ChatMessageItem[]>([])
+
+  useEffect(() => {
+    messagesStateRef.current = messages
+  }, [messages])
 
   const currentClientId = user?.id ?? null
   const currentUserId = user?.id
@@ -114,17 +128,31 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [loadedScope, setLoadedScope] = useState("")
   const scopeIsCurrent = Boolean(currentUserId) && loadedScope === scope
 
-  useEffect(() => {
-    setLoadedScope(scope)
+  const resetChatScope = useCallback((nextScope: string) => {
+    // Account/permission changes are a lifecycle boundary. Clear the old
+    // conversation before the new listener can publish data for this scope.
+    setLoadedScope(nextScope)
     setMessages([])
     setIsChatLoaded(false)
-    setIsMessagesActive(false)
     setTypingIndicators([])
     setUserStatuses({})
     setNewMessageNotifications([])
     setUnreadMessages(0)
+    setChatError(null)
+    setUnreadError(null)
     initialLoadDone.current = false
-  }, [currentUserId, currentUserRole, canAccessChat, scope])
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    // Defer the lifecycle reset until the effect batch has finished. The
+    // scope guard already hides the previous account synchronously, while
+    // the queued transition avoids a cascading render during effect setup.
+    queueMicrotask(() => {
+      if (active) resetChatScope(scope)
+    })
+    return () => { active = false }
+  }, [resetChatScope, scope])
 
   // Lightweight scoped unread listener (always on while signed in).
   // Powers the chat badges WITHOUT loading the full conversation.
@@ -135,9 +163,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       return
     }
     const unreadQuery = isAdminScope
-      ? query(messagesRef, where("sender", "==", "client"), where("isRead", "==", false), limit(500))
-      : query(
-          messagesRef,
+       ? query(chatMessagesRef, where("sender", "==", "client"), where("isRead", "==", false), limit(500))
+       : query(
+           chatMessagesRef,
           where("clientId", "==", currentUserId),
           where("sender", "==", "admin"),
           where("isReadByClient", "==", false),
@@ -150,14 +178,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       unreadQuery,
       (snapshot) => {
         if (disposed) return
-        perfListener("ChatUnread", "FIRST_SNAPSHOT", snapshot.size)
-        setUnreadMessages(snapshot.size)
-      },
+         perfListener("ChatUnread", "FIRST_SNAPSHOT", snapshot.size)
+         setUnreadMessages(snapshot.size)
+         setUnreadError(null)
+       },
       (error) => {
         if (disposed) return
-        perfListener("ChatUnread", "ERROR")
-        console.error("[ChatUnread snapshot error]", { code: error.code, message: error.message, error })
-        setUnreadMessages(0)
+         perfListener("ChatUnread", "ERROR")
+         console.error("[ChatUnread snapshot error]", { code: error.code, message: error.message, error })
+         setUnreadError("Unread messages could not be refreshed. Retry chat loading to try again.")
       },
     )
     return () => {
@@ -166,7 +195,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       perfListener("ChatUnread", "STOP")
       unsub()
     }
-  }, [currentUserId, currentUserRole, canAccessChat])
+  }, [currentUserId, currentUserRole, canAccessChat, chatRetryAttempt])
 
   // Full conversation listener — lazy. Only starts when a chat surface is
   // opened (widget open, /portal/chat, /dashboard/chat) via loadChat().
@@ -176,10 +205,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     if (currentUserRole === "staff" && !isAdminScope) return
     console.log("[Firestore Listener START] Chat")
     let disposed = false
+    initialLoadDone.current = false
     perfListener("Chat", "START")
     const messagesQuery = isAdminScope
-      ? query(messagesRef, orderBy("timestamp", "asc"), limit(500))
-      : query(messagesRef, where("clientId", "==", currentUserId), orderBy("timestamp", "asc"), limit(500))
+       ? query(chatMessagesRef, orderBy("timestamp", "asc"), limit(500))
+       : query(chatMessagesRef, where("clientId", "==", currentUserId), orderBy("timestamp", "asc"), limit(500))
     const unsub = onSnapshot(messagesQuery, (snapshot) => {
       if (disposed) return
       const loaded: ChatMessageItem[] = []
@@ -199,7 +229,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           clientProfilePicture: data.clientProfilePicture || "",
           targetId: data.targetId,
           recipientId: data.recipientId,
-          timestamp: data.timestamp?.toDate?.()?.toISOString() || data.timestamp || new Date().toISOString(),
+          timestamp: data.timestamp?.toDate?.()?.toISOString() || data.timestamp || null,
           time: data.time,
           imageUrl: data.imageUrl || null,
           isRead: data.isRead ?? false,
@@ -212,8 +242,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           escalated: data.escalated,
         })
       })
-      setMessages(loaded)
+      setMessages(sortChatMessages(loaded))
       perfListener("Chat", "FIRST_SNAPSHOT", loaded.length)
+      setIsChatLoading(false)
+      setChatError(null)
       if (!initialLoadDone.current) {
         initialLoadDone.current = true
         setIsChatLoaded(true)
@@ -222,6 +254,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (disposed) return
       perfListener("Chat", "ERROR")
       console.error("[Chat snapshot error]", { code: error.code, message: error.message, error })
+      setIsChatLoading(false)
+      setChatError(error.code === "permission-denied"
+        ? "Chat is not authorized for this account."
+        : "Chat messages could not be loaded. Check your connection and retry.")
     })
 
     return () => {
@@ -230,9 +266,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       perfListener("Chat", "STOP")
       unsub()
     }
-  }, [currentUserId, currentUserRole, canAccessChat, isMessagesActive])
+  }, [currentUserId, currentUserRole, canAccessChat, isMessagesActive, chatRetryAttempt])
 
   const loadChat = useCallback(() => {
+    setIsChatLoading(true)
+    setChatError(null)
     setIsMessagesActive(true)
   }, [])
 
@@ -241,7 +279,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setIsChatLoaded(false)
     setMessages([])
     setNewMessageNotifications([])
+    setIsChatLoading(false)
+    setChatError(null)
     initialLoadDone.current = false
+  }, [])
+
+  const retryChat = useCallback(() => {
+    setIsChatLoading(true)
+    setChatError(null)
+    setUnreadError(null)
+    setChatRetryAttempt((attempt) => attempt + 1)
   }, [])
 
   const sendMessage: ChatContextValue["sendMessage"] = useCallback(
@@ -289,10 +336,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         isBot: isBot,
       }
 
-      await addDoc(messagesRef, messageData)
+      const savedMessage = await addDoc(chatMessagesRef, messageData)
 
       if (normalizedRole === "user" || normalizedRole === "client") {
-        setNewMessageNotifications((notif) => [...notif, String(Date.now())])
+        setNewMessageNotifications((notif) => notif.includes(savedMessage.id) ? notif : [...notif, savedMessage.id])
       }
     },
     [user]
@@ -300,6 +347,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const predefinedRequestKeys = useRef(new Map<string, string>())
   const predefinedRequests = useRef(new Map<string, Promise<void>>())
+  useEffect(() => {
+    predefinedRequestKeys.current.clear()
+    predefinedRequests.current.clear()
+  }, [scope])
   const sendPredefinedQuestion: ChatContextValue["sendPredefinedQuestion"] = useCallback((questionId) => {
     if (!user || user.role !== "client") return Promise.reject(new Error("Authentication is required."))
     const existingRequest = predefinedRequests.current.get(questionId)
@@ -336,6 +387,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const markAsRead = useCallback(async (clientId: string) => {
     if (!user || (user.role === "client" && clientId !== user.id) || (user.role === "staff" && user.permissions?.chat !== true)) return
+    const previousMessages = messagesStateRef.current
     setMessages((prev) =>
       prev.map((m) =>
         m.clientId === clientId && m.sender === "client"
@@ -344,21 +396,28 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       )
     )
     const q = query(
-      messagesRef,
+      chatMessagesRef,
       where("clientId", "==", clientId),
       where("sender", "==", "client"),
       where("isRead", "==", false)
     )
-    const snapshot = await getDocs(q)
-    const updates: Promise<void>[] = []
-    snapshot.forEach((docSnap) => {
-      updates.push(updateDoc(doc(db, "chatMessages", docSnap.id), { isRead: true }))
-    })
-    await Promise.all(updates)
+    try {
+      const snapshot = await getDocs(q)
+      const updates: Promise<void>[] = []
+      snapshot.forEach((docSnap) => {
+        updates.push(updateDoc(doc(db, "chatMessages", docSnap.id), { isRead: true }))
+      })
+      await Promise.all(updates)
+    } catch (error) {
+      console.error("[Chat] Failed to mark admin messages as read", error)
+      setMessages(previousMessages)
+      setChatError("Messages could not be marked as read. Retry chat loading to try again.")
+    }
   }, [user])
 
   const markAsReadByClient = useCallback(async (clientId: string) => {
     if (!user || user.role !== "client" || clientId !== user.id) return
+    const previousMessages = messagesStateRef.current
     setMessages((prev) =>
       prev.map((m) =>
         m.clientId === clientId && m.sender === "admin"
@@ -367,17 +426,23 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       )
     )
     const q = query(
-      messagesRef,
+      chatMessagesRef,
       where("clientId", "==", clientId),
       where("sender", "==", "admin"),
       where("isReadByClient", "==", false)
     )
-    const snapshot = await getDocs(q)
-    const updates: Promise<void>[] = []
-    snapshot.forEach((docSnap) => {
-      updates.push(updateDoc(doc(db, "chatMessages", docSnap.id), { isReadByClient: true }))
-    })
-    await Promise.all(updates)
+    try {
+      const snapshot = await getDocs(q)
+      const updates: Promise<void>[] = []
+      snapshot.forEach((docSnap) => {
+        updates.push(updateDoc(doc(db, "chatMessages", docSnap.id), { isReadByClient: true }))
+      })
+      await Promise.all(updates)
+    } catch (error) {
+      console.error("[Chat] Failed to mark client messages as read", error)
+      setMessages(previousMessages)
+      setChatError("Messages could not be marked as read. Retry chat loading to try again.")
+    }
   }, [user])
 
   const markAdminAsRead = useCallback(() => {
@@ -413,10 +478,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       messages: scopeIsCurrent ? messages : [],
       typingIndicators: scopeIsCurrent ? typingIndicators : [],
       userStatuses: scopeIsCurrent ? userStatuses : {},
-      isConnected: true,
+       isConnected: !chatError && !unreadError,
       isOpen,
-      currentClientId,
-      isChatLoaded: scopeIsCurrent && isChatLoaded,
+       currentClientId,
+       isChatLoaded: scopeIsCurrent && isChatLoaded,
+       isChatLoading: scopeIsCurrent && isChatLoading,
+       chatError: scopeIsCurrent ? chatError : null,
+       unreadError: scopeIsCurrent ? unreadError : null,
       newMessageNotifications: scopeIsCurrent ? newMessageNotifications : [],
       unreadMessages: scopeIsCurrent ? unreadMessages : 0,
       loadChat,
@@ -430,8 +498,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       startTyping,
       stopTyping,
       getChatHistory: scopeIsCurrent ? getChatHistory : () => [],
-      getUnreadCount: scopeIsCurrent ? getUnreadCount : () => 0,
-      clearNotifications,
+       getUnreadCount: scopeIsCurrent ? getUnreadCount : () => 0,
+       clearNotifications,
+       retryChat,
     }),
     [
       messages,
@@ -439,8 +508,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       typingIndicators,
       userStatuses,
       isOpen,
-      currentClientId,
-      isChatLoaded,
+       currentClientId,
+       isChatLoaded,
+       isChatLoading,
+       chatError,
+       unreadError,
       newMessageNotifications,
       unreadMessages,
       loadChat,
@@ -454,8 +526,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       startTyping,
       stopTyping,
       getChatHistory,
-      getUnreadCount,
-      clearNotifications,
+       getUnreadCount,
+       clearNotifications,
+       retryChat,
     ]
   )
 

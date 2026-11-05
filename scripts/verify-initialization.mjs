@@ -104,7 +104,7 @@ const modules = {
     import {LoginDialog} from '@/src/modules/shared/auth/login-dialog';
     import ClientLayout from '@/app/portal/layout';import AdminLayout from '@/app/(admin)/layout';
     import {useSpaceAvailability} from '@/src/modules/shared/hooks/use-space-availability';
-    import {usePathname} from 'virtual:init-state';import '@/app/globals.css';
+     import {usePathname} from 'virtual:init-state';import {DataLoadNotice} from '@/src/modules/shared/components/data-load-notice';import '@/app/globals.css';
     function Observe(){const auth=useAuth(),data=useBookings();window.fixture.authContext=auth;window.fixture.data=data;
       return <output data-testid="session">{JSON.stringify({uid:auth.user?.id||null,loading:auth.isLoading,authLoading:auth.authLoading,profileLoading:auth.profileLoading,error:auth.initializationError})}</output>}
     function Extra(){useBookingData({bookings:true});return null}
@@ -114,7 +114,7 @@ const modules = {
       const second=useSpaceAvailability(true,{...space},new Date(2030,state.month,1),'','6_months');window.fixture.calendar=first;
       return <output data-testid="calendar">{JSON.stringify({loading:first.loading,error:first.error,days:Object.keys(first.days),secondLoading:second.loading})}</output>}
     function Page(){const data=useBookingData({bookings:true,payments:true});const [extra,setExtra]=useState(false);return <>
-      <output data-testid="data">{JSON.stringify({loading:data.isLoading,books:data.bookings.map(row=>row.id),payments:data.paymentRecords.map(row=>row.id),error:data.dataError})}</output>
+       <DataLoadNotice/><output data-testid="data">{JSON.stringify({loading:data.isLoading,books:data.bookings.map(row=>row.id),payments:data.paymentRecords.map(row=>row.id),error:data.dataError})}</output>
       <button onClick={()=>setExtra(value=>!value)}>Toggle extra subscriber</button>{extra&&<Extra/>}
       {location.search.includes('calendar')&&<Calendar/>}</>}
     function App(){const path=usePathname();return <>{<Observe/>}{path==='/'?<LoginDialog/>:path.startsWith('/dashboard')?<AdminLayout><Page/></AdminLayout>:<ClientLayout><Page/></ClientLayout>}</>}

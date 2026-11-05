@@ -29,6 +29,9 @@ import {
   getRecordsForBooking,
   type PaymentRecordLike,
 } from "@/src/modules/shared/lib/payment-calculations"
+import { calculateAdminDashboardMetrics } from "@/src/modules/shared/lib/dashboard-calculations"
+import { getDashboardDataReadiness } from "@/src/modules/shared/lib/dashboard-data-readiness"
+import { DashboardDataUnavailable } from "@/src/modules/shared/components/dashboard-data-unavailable"
 import { formatBookingDate, getBookingLifecycleStatus } from "@/src/modules/shared/lib/booking-helpers"
 import { Button } from "@/src/modules/shared/components/ui/button"
 import {
@@ -57,7 +60,10 @@ import {
 } from "@/src/modules/admin/components/booking-management-page"
 
 interface DashboardStats {
-  totalRevenue: number
+  bookedValue: number
+  receivedPayments: number
+  pendingPaymentTotal: number
+  outstandingBalance: number
   pending: number
   verifying: number
   confirmed: number
@@ -72,26 +78,21 @@ interface DashboardStats {
 // one realtime source without creating duplicate booking/payment listeners.
 function useDashboardData() {
   const bookingCtx = useBookingData({ bookings: true, payments: true })
+  const readiness = getDashboardDataReadiness(bookingCtx)
   const paymentReviewQueue = useMemo<PaymentReviewQueueEntry[]>(
-    () => buildPaymentReviewQueue(bookingCtx.bookings, bookingCtx.paymentRecords),
-    [bookingCtx.bookings, bookingCtx.paymentRecords],
+    () => readiness.status === "ready"
+      ? buildPaymentReviewQueue(bookingCtx.bookings, bookingCtx.paymentRecords)
+      : [],
+    [bookingCtx.bookings, bookingCtx.paymentRecords, readiness.status],
   )
-  const stats = useMemo<DashboardStats>(() => {
-    const bookings = bookingCtx.bookings
-
-    return {
-      totalRevenue: bookings
-        .filter((booking) => ["confirmed", "completed"].includes(String(booking.status || "").toLowerCase()))
-        .reduce((total, booking) => total + getSafePrice(booking.totalPrice), 0),
-      pending: bookings.filter((booking) => ["pending", "verifying"].includes(String(booking.status || "").toLowerCase())).length,
-      verifying: paymentReviewQueue.length,
-      confirmed: bookings.filter((booking) => String(booking.status || "").toLowerCase() === "confirmed").length,
-      cancelled: bookings.filter((booking) => ["cancelled", "declined"].includes(String(booking.status || "").toLowerCase())).length,
-      cancellationRequests: bookings.filter((booking) => String(booking.status || "").toLowerCase() === "cancellation_requested").length,
-      modificationRequests: bookings.filter((booking) => String(booking.status || "").toLowerCase() === "modification_under_review").length,
-      total: bookings.length,
-    }
-  }, [bookingCtx.bookings, paymentReviewQueue])
+  const stats = useMemo<DashboardStats | null>(() => readiness.status === "ready"
+    ? calculateAdminDashboardMetrics(
+      bookingCtx.bookings,
+      bookingCtx.paymentRecords,
+      paymentReviewQueue.length,
+    )
+    : null,
+  [bookingCtx.bookings, bookingCtx.paymentRecords, paymentReviewQueue.length, readiness.status])
 
   const recentBookings = useMemo(() => (
     [...bookingCtx.bookings]
@@ -99,7 +100,7 @@ function useDashboardData() {
       .slice(0, 50)
   ), [bookingCtx.bookings])
 
-  return { stats, recentBookings, paymentReviewQueue, ready: !bookingCtx.isLoading, bookingCtx }
+  return { stats, recentBookings, paymentReviewQueue, readiness, bookingCtx }
 }
 
 type DashboardQueueMode = "pending" | "requests"
@@ -115,7 +116,7 @@ export default function AdminDashboardPage() {
   const { user } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
-  const { stats, recentBookings, paymentReviewQueue, ready, bookingCtx } = useDashboardData()
+  const { stats, recentBookings, paymentReviewQueue, readiness, bookingCtx } = useDashboardData()
   const bookings = bookingCtx.bookings
   const canManageBookings = user?.role === "admin" || user?.permissions?.bookings === true
   const [queueOpen, setQueueOpen] = useState(false)
@@ -368,14 +369,19 @@ export default function AdminDashboardPage() {
     }
   }
 
-  if (!ready) {
+  if (readiness.status === "loading") {
     return (
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
-        <div className="flex min-h-[50vh] items-center justify-center">
+        <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-center" role="status" aria-live="polite">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-orange-600" />
+          <p className="text-sm font-semibold text-slate-500">Loading dashboard data…</p>
         </div>
       </div>
     )
+  }
+
+  if (readiness.status === "unavailable" || !stats) {
+    return <DashboardDataUnavailable error={readiness.error} onRetry={bookingCtx.retryData} />
   }
 
   return (
@@ -498,9 +504,9 @@ export default function AdminDashboardPage() {
           <StatCard
             href={ROUTES.reports}
             icon={<TrendingUp className="h-4 w-4" />}
-            label="Revenue"
-            value={formatCurrency(stats.totalRevenue)}
-            description="Reports"
+             label="Booked Value"
+             value={formatCurrency(stats.bookedValue)}
+             description="Confirmed / completed"
             tone="orange"
           />
           <StatCard
@@ -609,13 +615,33 @@ export default function AdminDashboardPage() {
                   value={stats.verifying}
                   tone="purple"
                 />
-                <ActionItem
-                  onClick={openRequestQueue}
-                  icon={<AlertCircle className="h-4 w-4" />}
-                  label="Cancellation / modification requests"
-                  value={stats.cancellationRequests + stats.modificationRequests}
-                  tone="rose"
-                />
+               <ActionItem
+                 onClick={openRequestQueue}
+                 icon={<AlertCircle className="h-4 w-4" />}
+                 label="Cancellation / modification requests"
+                 value={stats.cancellationRequests + stats.modificationRequests}
+                 tone="rose"
+               />
+              </div>
+              <div className="mt-5 border-t border-slate-100 pt-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Payment position</p>
+                <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <div className="rounded-xl bg-emerald-50 p-3">
+                    <dt className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">Credited</dt>
+                    <dd className="mt-1 text-sm font-black tabular-nums text-emerald-900">{formatCurrency(stats.receivedPayments)}</dd>
+                  </div>
+                  <div className="rounded-xl bg-amber-50 p-3">
+                    <dt className="text-[10px] font-bold uppercase tracking-wide text-amber-700">Pending verification</dt>
+                    <dd className="mt-1 text-sm font-black tabular-nums text-amber-900">{formatCurrency(stats.pendingPaymentTotal)}</dd>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Outstanding</dt>
+                    <dd className="mt-1 text-sm font-black tabular-nums text-slate-900">{formatCurrency(stats.outstandingBalance)}</dd>
+                  </div>
+                </dl>
+                <p className="mt-2 text-[10px] font-medium leading-4 text-slate-500">
+                  Credited amounts use the canonical payment ledger; pending submissions are not counted as received.
+                </p>
               </div>
             </div>
 
@@ -642,18 +668,18 @@ export default function AdminDashboardPage() {
   )
 }
 
-function getSafePrice(value: unknown) {
-  if (typeof value === "number") return value
-  const safePrice = String(value || "0").replace(/\D/g, "")
-  return Number(safePrice) || 0
-}
-
 function getDateTime(value: unknown) {
   const raw = value && typeof value === "object" && "toDate" in value && typeof (value as { toDate?: unknown }).toDate === "function"
     ? (value as { toDate: () => Date }).toDate()
     : value
   const time = new Date(String(raw || 0)).getTime()
   return Number.isFinite(time) ? time : 0
+}
+
+function getSafePrice(value: unknown) {
+  if (typeof value === "number") return value
+  const safePrice = String(value || "0").replace(/\D/g, "")
+  return Number(safePrice) || 0
 }
 
 function formatCurrency(value: number) {

@@ -10,11 +10,26 @@ import { ChatSuggestionPills } from "@/src/modules/shared/components/chat-sugges
 import { useChatSuggestions } from "@/src/modules/shared/hooks/use-chat-suggestions"
 import type { ChatSuggestion } from "@/src/modules/shared/lib/chat-suggestions"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
+import { useChatScroll } from "@/src/modules/shared/hooks/use-chat-scroll"
+import { sortChatMessages, shouldGroupChatMessage } from "../lib/chat-presentation"
+import { formatManilaDateTime, formatManilaDayLabel, formatManilaTime, isSameManilaDay, toValidDate } from "../lib/time-format"
 
 export function ClientChatWidget() {
   const pathname = usePathname()
   const { user } = useAuth()
-  const { messages, sendMessage, sendPredefinedQuestion, isChatLoaded, markAsReadByClient, loadChat, unloadChat, unreadMessages } = useChat()
+  const {
+    messages,
+    sendMessage,
+    sendPredefinedQuestion,
+    isChatLoaded,
+    isChatLoading,
+    chatError,
+    retryChat,
+    markAsReadByClient,
+    loadChat,
+    unloadChat,
+    unreadMessages,
+  } = useChat()
   const { toast } = useToast()
 
   const [isOpen, setIsOpen] = useState(false)
@@ -24,10 +39,16 @@ export function ClientChatWidget() {
   const [isSending, setIsSending] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const chatEndRef = useRef<HTMLDivElement>(null)
   const sendInProgress = useRef(false)
 
-  const myMessages = messages.filter((m: any) => m.clientId === user?.id)
+  const myMessages = sortChatMessages(messages.filter((m: any) => m.clientId === user?.id))
+  const {
+    containerRef,
+    endRef,
+    handleScroll,
+    isNearBottom,
+    scrollToBottom,
+  } = useChatScroll(myMessages.length, isOpen ? user?.id || null : null)
   const unreadCount = unreadMessages
   const { suggestions, context: suggestionContext, dismiss: dismissSuggestions } = useChatSuggestions({
     visible: isOpen && pathname !== "/portal/chat",
@@ -43,12 +64,8 @@ export function ClientChatWidget() {
   }, [isOpen, pathname, loadChat, unloadChat])
 
   useEffect(() => {
-    if (isOpen && unreadCount > 0 && user?.id) { markAsReadByClient(user.id) }
+      if (isOpen && unreadCount > 0 && user?.id) { void markAsReadByClient(user.id) }
   }, [isOpen, unreadCount, user?.id, markAsReadByClient])
-
-  useEffect(() => {
-    if (isOpen) chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [isOpen, myMessages.length])
 
   const shouldShowWidget = pathname !== "/portal/chat" && user;
   if (!shouldShowWidget) return null;
@@ -62,6 +79,7 @@ export function ClientChatWidget() {
       setInputValue("")
       setImagePreview(null)
       if (fileInputRef.current) fileInputRef.current.value = ""
+       scrollToBottom()
       return true
     } catch (error) {
       console.error("[ClientChatWidget] message send failed", error)
@@ -101,28 +119,47 @@ export function ClientChatWidget() {
                 <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div><p className="text-[10px] text-orange-100 font-semibold uppercase tracking-wider">Online</p></div>
               </div>
             </div>
-            <button onClick={() => setIsOpen(false)} className="hover:bg-white/20 p-1.5 rounded-full transition-colors active:scale-95"><X className="w-5 h-5" /></button>
+           <button type="button" aria-label="Close chat support" onClick={() => setIsOpen(false)} className="hover:bg-white/20 p-1.5 rounded-full transition-colors active:scale-95"><X className="w-5 h-5" /></button>
           </div>
 
-          <div className="flex-1 overflow-y-auto bg-slate-50 flex flex-col p-4 space-y-4">
-            {myMessages.map((msg: any) => (
-              <div key={msg.id} className={`flex flex-col gap-1 max-w-[85%] ${msg.sender === "client" ? "self-end items-end" : "self-start items-start"}`}>
-                {msg.sender === "admin" && <span className="px-1 text-[9px] font-bold text-slate-500">{msg.isBot ? "One Estela Place Support · Automated reply" : msg.senderName || "Support"}</span>}
-                <div className={`shadow-sm text-[13px] leading-relaxed flex flex-col gap-1 ${msg.sender === "client" ? "items-end" : "items-start"}`}>
-                  {msg.imageUrl && (<div className="p-1 bg-white rounded-xl border border-slate-200 shadow-sm cursor-zoom-in hover:opacity-90 transition-opacity" onClick={() => setFullScreenImage(msg.imageUrl)}><img src={msg.imageUrl} alt="attached" className="max-w-full rounded-lg object-cover" /></div>)}
-                  {msg.text && (<div className={`px-4 py-2.5 ${msg.sender === "client" ? "bg-[#ea580c] text-white rounded-2xl rounded-tr-sm" : "bg-white border border-slate-200 text-slate-700 rounded-2xl rounded-tl-sm"}`}>{msg.text}</div>)}
-                </div>
-                <span className="text-[9px] text-slate-400 font-bold px-1 uppercase">{msg.time}</span>
-              </div>
-            ))}
-            <div ref={chatEndRef} className="h-2 shrink-0" />
-          </div>
+           <div ref={containerRef} onScroll={handleScroll} className="relative flex-1 overflow-y-auto bg-slate-50 flex flex-col p-4 space-y-2">
+             {chatError && (
+               <div className="mb-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800" role="alert">
+                 <p>{chatError}</p>
+                 <Button type="button" variant="outline" size="sm" className="mt-2 h-8 text-xs" onClick={retryChat}>Retry chat</Button>
+               </div>
+             )}
+             {isChatLoading && isChatLoaded && <p className="p-3 text-center text-[11px] font-semibold text-slate-500" role="status">Refreshing messages…</p>}
+             {!isChatLoaded && !chatError && <p className="p-6 text-center text-xs font-medium text-slate-500" role="status">Loading messages…</p>}
+             {myMessages.map((msg: any, index: number) => {
+               const previousMessage = myMessages[index - 1]
+               const isGrouped = shouldGroupChatMessage(previousMessage, msg)
+               const showDateSeparator = index === 0 || !isSameManilaDay(previousMessage?.timestamp, msg.timestamp)
+               const dateLabel = formatManilaDayLabel(msg.timestamp)
+               const messageTime = formatManilaTime(msg.timestamp)
+               const fullTimestamp = formatManilaDateTime(msg.timestamp)
+               const timestampDate = toValidDate(msg.timestamp)
+               return (
+               <div key={msg.id || msg.firestoreId || `${index}-${msg.text}`} className={`flex flex-col gap-1 max-w-[85%] ${isGrouped ? "mt-0" : "mt-2"} ${msg.sender === "client" ? "self-end items-end" : "self-start items-start"}`}>
+                 {showDateSeparator && dateLabel && <div className="flex w-full items-center gap-2 py-2"><div className="h-px flex-1 bg-slate-200" /><span className="shrink-0 text-[10px] font-semibold text-slate-400">{dateLabel}</span><div className="h-px flex-1 bg-slate-200" /></div>}
+                 {!isGrouped && msg.sender === "admin" && <span className="px-1 text-[9px] font-bold text-slate-500">{msg.isBot ? "One Estela Place Support · Automated reply" : msg.senderName || "Support"}</span>}
+                 <div className={`shadow-sm text-[13px] leading-relaxed flex flex-col gap-1 ${msg.sender === "client" ? "items-end" : "items-start"}`}>
+                   {msg.imageUrl && (<button type="button" aria-label="View attached image" className={`p-1 bg-white rounded-xl border border-slate-200 shadow-sm cursor-zoom-in hover:opacity-90 transition-opacity ${msg.sender === "client" ? "rounded-tr-sm" : "rounded-tl-sm"}`} onClick={() => setFullScreenImage(msg.imageUrl)}><img src={msg.imageUrl} alt="attached" className="max-w-full rounded-lg object-cover" /></button>)}
+                   {msg.text && (<div className={`break-words whitespace-pre-wrap px-4 py-2.5 ${msg.sender === "client" ? `bg-[#ea580c] text-white rounded-2xl ${isGrouped ? "rounded-tr-md" : "rounded-tr-sm"}` : `bg-white border border-slate-200 text-slate-700 rounded-2xl ${isGrouped ? "rounded-tl-md" : "rounded-tl-sm"}`}`}>{msg.text}</div>)}
+                 </div>
+                 {messageTime && <time dateTime={timestampDate?.toISOString()} title={fullTimestamp || undefined} aria-label={fullTimestamp || messageTime} className="text-[9px] text-slate-400 font-bold px-1">{messageTime}</time>}
+               </div>
+               )
+             })}
+             <div ref={endRef} className="h-2 shrink-0" />
+             {!isNearBottom && myMessages.length > 0 && <button type="button" onClick={() => scrollToBottom("auto")} className="sticky bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-full border border-orange-200 bg-white px-3 py-2 text-xs font-bold text-orange-700 shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">Jump to latest</button>}
+           </div>
 
           <div className="p-3 bg-white border-t border-slate-100 shrink-0">
             {imagePreview && (
               <div className="relative mb-3 w-fit animate-in zoom-in-75">
                 <img src={imagePreview} alt="preview" className="h-20 w-auto rounded-xl border-2 border-slate-100 shadow-md" />
-                <button onClick={() => { setImagePreview(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} className="absolute -top-2 -right-2 bg-slate-800 text-white rounded-full p-1 shadow-lg hover:scale-110 transition-transform"><X className="w-3 h-3" /></button>
+                 <button type="button" aria-label="Remove image attachment" onClick={() => { setImagePreview(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} className="absolute -top-2 -right-2 bg-slate-800 text-white rounded-full p-1 shadow-lg hover:scale-110 transition-transform"><X className="w-3 h-3" /></button>
               </div>
             )}
             <ChatSuggestionPills
@@ -132,11 +169,11 @@ export function ClientChatWidget() {
               onDismiss={dismissSuggestions}
               disabled={isSending}
             />
-            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-full pl-3 pr-1.5 py-1.5 focus-within:ring-2 focus-within:ring-orange-500/20 focus-within:border-orange-500 transition-all">
-              <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={(e) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = (ev) => setImagePreview(ev.target?.result as string); reader.readAsDataURL(file); } }} />
-              <button onClick={() => fileInputRef.current?.click()} className="text-slate-400 hover:text-orange-600 p-1.5 transition-colors"><Paperclip className="w-4 h-4 sm:w-5 sm:h-5" /></button>
-              <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void handleSend() }} placeholder="Message admin..." className="flex-1 bg-transparent border-none focus:outline-none text-[13px] sm:text-[14px] h-11 placeholder:text-slate-400" />
-              <Button onClick={() => void handleSend()} disabled={isSending} className="w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-[#ea580c] hover:bg-[#c2410c] text-white p-0 shrink-0 shadow-sm active:scale-90 transition-transform disabled:cursor-not-allowed disabled:opacity-60"><Send className="w-4 h-4 sm:w-4 sm:h-4 ml-0.5" /></Button>
+             <div className="flex items-end gap-2 bg-slate-50 border border-slate-200 rounded-2xl pl-3 pr-1.5 py-1.5 focus-within:ring-2 focus-within:ring-orange-500/20 focus-within:border-orange-500 transition-all">
+               <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={(e) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = (ev) => setImagePreview(ev.target?.result as string); reader.readAsDataURL(file); } }} />
+               <button type="button" aria-label="Attach an image" onClick={() => fileInputRef.current?.click()} className="mb-2 text-slate-400 hover:text-orange-600 p-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"><Paperclip className="w-4 h-4 sm:w-5 sm:h-5" /></button>
+               <textarea aria-label="Message admin" rows={1} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSend() } }} placeholder="Message admin..." disabled={isSending} className="flex-1 max-h-28 min-h-11 resize-y bg-transparent border-none focus:outline-none text-[13px] sm:text-[14px] py-2 placeholder:text-slate-400" />
+               <Button type="button" onClick={() => void handleSend()} disabled={isSending || (!inputValue.trim() && !imagePreview)} aria-label="Send message" className="mb-0 w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-[#ea580c] hover:bg-[#c2410c] text-white p-0 shrink-0 shadow-sm active:scale-90 transition-transform disabled:cursor-not-allowed disabled:opacity-60"><Send className="w-4 h-4 sm:w-4 sm:h-4 ml-0.5" /></Button>
             </div>
           </div>
         </div>
@@ -145,6 +182,8 @@ export function ClientChatWidget() {
       {/* ✨ INALIS NATIN YUNG "relative" NA CLASS DITO AT GINAWANG z-[99999] PARA LUTANG NA LUTANG ✨ */}
       {!isOpen && (
         <button 
+          type="button"
+          aria-label={unreadCount > 0 ? `Open chat support, ${unreadCount} unread messages` : "Open chat support"}
           onClick={() => setIsOpen(true)} 
           className="fixed bottom-5 right-5 sm:bottom-6 sm:right-6 w-14 h-14 sm:w-14 sm:h-14 bg-[#ea580c] hover:bg-[#c2410c] text-white rounded-full shadow-[0_10px_30px_rgba(234,88,12,0.4)] flex items-center justify-center z-50 transition-all hover:scale-110 active:scale-95 group"
         >
@@ -161,7 +200,7 @@ export function ClientChatWidget() {
 
       {fullScreenImage && (
         <div className="fixed inset-0 z-[10001] bg-black/90 flex items-center justify-center p-4 sm:p-8 animate-in fade-in duration-200 backdrop-blur-sm" onClick={() => setFullScreenImage(null)}>
-          <button className="absolute top-6 right-6 text-white/70 hover:text-white transition-colors bg-white/10 hover:bg-white/20 p-2 rounded-full" onClick={(e) => { e.stopPropagation(); setFullScreenImage(null); }}><X className="w-6 h-6 sm:w-8 sm:h-8" /></button>
+           <button type="button" aria-label="Close image preview" className="absolute top-6 right-6 text-white/70 hover:text-white transition-colors bg-white/10 hover:bg-white/20 p-2 rounded-full" onClick={(e) => { e.stopPropagation(); setFullScreenImage(null); }}><X className="w-6 h-6 sm:w-8 sm:h-8" /></button>
           <img src={fullScreenImage} alt="Fullscreen view" className="max-w-full max-h-full rounded-lg object-contain shadow-2xl animate-in zoom-in-95" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
