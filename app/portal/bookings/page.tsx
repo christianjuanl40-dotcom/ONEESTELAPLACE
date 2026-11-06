@@ -2215,7 +2215,7 @@ export default function MyBookingsPage() {
   const router = useRouter()
   const { user } = useAuth()
   const { getUserBookings, requestCancellation, issueReceipt, requestModification, bookings, paymentRecords, isLoading, dataError, retryData } =
-    useBookingData({ bookings: true, maintenance: true, payments: true })
+    useBookingData({ bookings: true, payments: true })
   const { toast } = useToast()
 
   const { markByBookingId } = useNotifications()
@@ -2247,6 +2247,8 @@ export default function MyBookingsPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [showHistory, setShowHistory] = useState(false)
   const [presentationNow, setPresentationNow] = useState(() => new Date())
+  const [isReserveDialogOpen, setIsReserveDialogOpen] = useState(false)
+  const newBookingIntentHandledRef = useRef(false)
 
   useEffect(() => {
     const timer = window.setInterval(() => setPresentationNow(new Date()), 60_000)
@@ -2273,6 +2275,18 @@ export default function MyBookingsPage() {
   }, [user, myBookings])
 
   const searchParams = useSearchParams()
+
+  useEffect(() => {
+    if (newBookingIntentHandledRef.current || searchParams.get("newBooking") !== "1") return
+
+    newBookingIntentHandledRef.current = true
+    setIsReserveDialogOpen(true)
+
+    const nextParams = new URLSearchParams(searchParams.toString())
+    nextParams.delete("newBooking")
+    const nextQuery = nextParams.toString()
+    router.replace(`/portal/bookings${nextQuery ? `?${nextQuery}` : ""}`, { scroll: false })
+  }, [router, searchParams])
 
   useEffect(() => {
     const bookingId = searchParams.get("bookingId")
@@ -2664,13 +2678,22 @@ export default function MyBookingsPage() {
   const historyEmpty = filteredHistory.length === 0
   const hasHistoryRecords = historyBookings.length > 0
   const hasOtherActive = otherActiveBookings.length > 0
+  const openReserveDialog = () => setIsReserveDialogOpen(true)
+  const newBookingButton = (
+    <Button type="button" onClick={openReserveDialog} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-orange-600 px-5 font-bold text-white shadow-sm transition-all hover:bg-orange-700">
+      <Plus className="h-4 w-4" />
+      New Booking
+    </Button>
+  )
 
-  if (isLoading || dataError) {
-    return (
+  const pageContent = isLoading || dataError ? (
       <div className="w-full min-w-0 max-w-full overflow-x-hidden">
         <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
           <p className="oe-page-kicker">Client Portal</p>
-          <h1 className="oe-page-title mt-1">My Bookings</h1>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <h1 className="oe-page-title mt-1">My Bookings</h1>
+            {newBookingButton}
+          </div>
           {isLoading ? (
             <section className="mt-6" aria-busy="true" aria-live="polite">
               <p className="mb-3 text-sm font-semibold text-slate-600">Loading your bookings…</p>
@@ -2684,10 +2707,7 @@ export default function MyBookingsPage() {
           )}
         </div>
       </div>
-    )
-  }
-
-  return (
+    ) : (
     <div className="w-full min-w-0 max-w-full overflow-x-hidden">
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 animate-in fade-in duration-500">
         <WriteReviewModal
@@ -2790,18 +2810,13 @@ export default function MyBookingsPage() {
             </div>
           </div>
           <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
-                <TooltipProvider delayDuration={400}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex">
-                      <ReserveDialog>
-                        <Button className="flex h-11 items-center justify-center gap-2 rounded-xl bg-orange-600 px-5 font-bold text-white shadow-sm transition-all hover:bg-orange-700">
-                          <Plus className="h-4 w-4" />
-                          New Booking
-                        </Button>
-                      </ReserveDialog>
-                    </span>
-                  </TooltipTrigger>
+                 <TooltipProvider delayDuration={400}>
+                 <Tooltip>
+                   <TooltipTrigger asChild>
+                     <span className="inline-flex">
+                       {newBookingButton}
+                     </span>
+                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="text-[10px] font-semibold">
                     Create a new reservation
                   </TooltipContent>
@@ -2863,12 +2878,10 @@ export default function MyBookingsPage() {
               You don&apos;t have any upcoming or active reservations. Once you make a new
               booking, it will appear here.
             </p>
-            <ReserveDialog>
-              <Button className="mt-4 h-9 rounded-xl bg-orange-600 px-4 text-xs font-bold text-white shadow-sm hover:bg-orange-700">
-                <Plus className="mr-1.5 h-3.5 w-3.5" />
-                Book Now
-              </Button>
-            </ReserveDialog>
+             <Button type="button" onClick={openReserveDialog} className="mt-4 h-9 rounded-xl bg-orange-600 px-4 text-xs font-bold text-white shadow-sm hover:bg-orange-700">
+               <Plus className="mr-1.5 h-3.5 w-3.5" />
+               Book Now
+             </Button>
           </div>
         )}
       </section>
@@ -3016,6 +3029,17 @@ export default function MyBookingsPage() {
       )}
       </div>
     </div>
+  )
+
+  return (
+    <>
+      <ReserveDialog
+        open={isReserveDialogOpen}
+        onOpenChange={setIsReserveDialogOpen}
+        hideTrigger
+      />
+      {pageContent}
+    </>
   )
 }
 

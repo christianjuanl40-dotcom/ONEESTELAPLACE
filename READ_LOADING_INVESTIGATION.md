@@ -4,6 +4,8 @@
 
 **Follow-up note (2026-11-04):** Protected portal/admin page scrolling was corrected independently of the loading and availability paths by preserving shrinkable flex ancestors around the existing scroll panes. The investigation measurements and service-boundary conclusions below are unchanged.
 
+**Follow-up note (2026-11-06):** The current working tree rechecked the client `/portal` and `/portal/bookings` DOM with controlled authoritative-empty, listener-failure, permission-denied, failed-precondition, retry, account-switch, refresh, and reservation-entry fixtures. The provider already bounded initial listener readiness and exposed keyed errors; this follow-up adds a synchronous listener/query exception guard, changes Dashboard New Booking/Book Now to navigate with a one-time `/portal/bookings?newBooking=1` intent, and keeps one controlled existing `ReserveDialog` mounted on My Bookings during loading or read-error branches. My Bookings no longer requests its unrelated maintenance dataset merely to render the list. The existing financial dashboard remains fail-closed when booking/payment reads are incomplete. These checks are local fixture/emulator-boundary evidence only; no authenticated Vercel deployment or production Firebase data was accessed, so deployed reproduction and acceptance remain outstanding.
+
 ## Evidence and causes
 
 | Finding | Evidence | Resolution |

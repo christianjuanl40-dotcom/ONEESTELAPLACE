@@ -141,6 +141,9 @@ export default function ClientLayout({
             size="icon"
             className="-ml-2 shrink-0 text-white hover:bg-white/15 lg:hidden"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            aria-label={isMobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+            aria-expanded={isMobileMenuOpen}
+            aria-controls="client-navigation"
           >
             <Menu className="h-5 w-5 shrink-0 overflow-hidden" />
           </Button>
@@ -167,7 +170,10 @@ export default function ClientLayout({
               size="icon"
               className="relative h-9 w-9 shrink-0 rounded-full text-white hover:bg-white/15"
               onClick={() => setShowNotifications(!showNotifications)}
-               aria-label={notificationError ? "Notifications unavailable" : "Notifications"}
+              aria-label={notificationError ? "Notifications unavailable" : "Notifications"}
+              aria-expanded={showNotifications}
+              aria-haspopup="dialog"
+              aria-controls="client-notifications"
             >
               <Bell className="h-5 w-5 shrink-0" />
               {notificationError ? (
@@ -181,6 +187,7 @@ export default function ClientLayout({
               )}
             </Button>
             <NotificationDropdown
+              id="client-notifications"
               open={showNotifications}
               onClose={() => setShowNotifications(false)}
             />
@@ -217,6 +224,7 @@ export default function ClientLayout({
         )}
 
         <aside
+          id="client-navigation"
           className={`absolute inset-y-0 left-0 z-50 flex h-full w-64 flex-col border-r border-slate-200 bg-white shadow-2xl transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 lg:shadow-none ${
             isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
           }`}

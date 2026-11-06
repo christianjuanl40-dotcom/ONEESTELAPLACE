@@ -473,7 +473,7 @@ export default function StaffManagementPage() {
           }}
         >
           <DialogTrigger asChild>
-            <Button className="h-10 rounded-full bg-orange-600 px-6 text-sm font-black text-white shadow-sm hover:bg-orange-700">
+            <Button variant="brand" className="h-10 rounded-full px-6 text-sm font-black shadow-sm">
               <Plus className="mr-2 h-4 w-4" />
               Add Staff
             </Button>

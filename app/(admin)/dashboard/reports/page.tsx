@@ -21,6 +21,16 @@ import {
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { Button } from "@/src/modules/shared/components/ui/button"
 import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/src/modules/shared/components/ui/dialog"
+import { RadioGroup, RadioGroupItem } from "@/src/modules/shared/components/ui/radio-group"
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -316,6 +326,8 @@ type ReportSortKey =
   | "refundStatus"
   | "processedRefundAmount"
   | "netReceivedAmount"
+
+type ReportPrintMode = "with-charts" | "without-charts"
 
 function getReportLifecycleLabel(booking: BookingRecord) {
   return getCanonicalBookingLifecycleLabel(booking as ReportBookingLike)
@@ -944,6 +956,9 @@ export default function ReportsPage() {
   const [reportSortDirection, setReportSortDirection] = useState<TableSortDirection>("desc")
   const [expandedReportRows, setExpandedReportRows] = useState<Set<string>>(() => new Set())
   const [printDate, setPrintDate] = useState<Date | null>(null)
+  const [printMode, setPrintMode] = useState<ReportPrintMode>("with-charts")
+  const [printDialogOpen, setPrintDialogOpen] = useState(false)
+  const [dialogPrintMode, setDialogPrintMode] = useState<ReportPrintMode>("with-charts")
   const isPrinting = printDate !== null
   const generatedBy = user?.fullName || user?.name || user?.email || "System User"
   const reportPageKey = `${filterYear}|${filterMonth}|${filterStatus}|${filterCategory}|${filterResource}|${filterRoom}|${searchTerm}|${rowsPerPage}|${reportSortKey}|${reportSortDirection}`
@@ -959,7 +974,12 @@ export default function ReportsPage() {
   useEffect(() => {
     // Commit print dimensions and all filtered rows before the browser snapshots
     // the page; ResizeObserver alone can update responsive charts too late.
-    const beforePrint = () => flushSync(() => setPrintDate(new Date()))
+    const beforePrint = () => flushSync(() => {
+      // A direct Ctrl/Cmd+P should use the current mode and never leave the
+      // options dialog mounted behind the browser's print preview.
+      setPrintDialogOpen(false)
+      setPrintDate(new Date())
+    })
     const afterPrint = () => setPrintDate(null)
     const printMedia = window.matchMedia("print")
     const onPrintMediaChange = (event: MediaQueryListEvent) => {
@@ -1367,11 +1387,20 @@ export default function ReportsPage() {
     { label: "Outstanding Balance", value: formatReportMoney(reportSummary.outstandingBalance) },
   ]
 
+  const openPrintOptions = () => {
+    setDialogPrintMode(printMode)
+    setPrintDialogOpen(true)
+  }
+
   const printReport = () => {
     // Commit fixed chart dimensions and the complete filtered row set before
     // the browser starts its print snapshot. Ctrl/Cmd+P is still covered by
     // the beforeprint listener above.
-    flushSync(() => setPrintDate(new Date()))
+    flushSync(() => {
+      setPrintMode(dialogPrintMode)
+      setPrintDialogOpen(false)
+      setPrintDate(new Date())
+    })
     window.print()
   }
 
@@ -1998,7 +2027,96 @@ export default function ReportsPage() {
         }
       `}</style>
 
-      <section data-report-print-report className="hidden" aria-label="Printable booking records report">
+      <Dialog open={printDialogOpen} onOpenChange={setPrintDialogOpen}>
+        <DialogContent
+          data-report-print-options-dialog
+          aria-describedby="report-print-options-description"
+          className="w-[calc(100vw-2rem)] max-w-md rounded-2xl border-slate-200 bg-white p-0 shadow-2xl"
+        >
+          <DialogHeader className="border-b border-slate-100 px-5 pb-4 pt-5 pr-12 text-left">
+            <DialogTitle className="text-lg font-black text-slate-950">Print Options</DialogTitle>
+            <DialogDescription id="report-print-options-description" className="text-xs font-medium leading-5 text-slate-500">
+              Choose whether the printable report should include its visual charts. Financial summaries and all filtered records remain unchanged.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="px-5 py-4">
+            <RadioGroup
+              value={dialogPrintMode}
+              onValueChange={(value) => setDialogPrintMode(value as ReportPrintMode)}
+              aria-label="Print report options"
+              className="gap-2"
+            >
+              <div
+                data-report-print-option="with-charts"
+                className={`flex items-start gap-3 rounded-xl border p-3 transition-colors ${
+                  dialogPrintMode === "with-charts"
+                    ? "border-orange-300 bg-orange-50/70"
+                    : "border-slate-200 bg-white"
+                }`}
+              >
+                <RadioGroupItem
+                  id="report-print-with-charts"
+                  value="with-charts"
+                  className="mt-0.5 border-slate-300 text-orange-600 data-[state=checked]:border-orange-600"
+                />
+                <label htmlFor="report-print-with-charts" className="min-w-0 cursor-pointer">
+                  <span className="block text-sm font-black text-slate-900">WITH Charts</span>
+                  <span className="mt-0.5 block text-xs font-medium leading-5 text-slate-500">
+                    Include the existing visual analytics and legends.
+                  </span>
+                </label>
+              </div>
+
+              <div
+                data-report-print-option="without-charts"
+                className={`flex items-start gap-3 rounded-xl border p-3 transition-colors ${
+                  dialogPrintMode === "without-charts"
+                    ? "border-orange-300 bg-orange-50/70"
+                    : "border-slate-200 bg-white"
+                }`}
+              >
+                <RadioGroupItem
+                  id="report-print-without-charts"
+                  value="without-charts"
+                  className="mt-0.5 border-slate-300 text-orange-600 data-[state=checked]:border-orange-600"
+                />
+                <label htmlFor="report-print-without-charts" className="min-w-0 cursor-pointer">
+                  <span className="block text-sm font-black text-slate-900">WITHOUT Charts</span>
+                  <span className="mt-0.5 block text-xs font-medium leading-5 text-slate-500">
+                    Print the summaries and complete filtered table only.
+                  </span>
+                </label>
+              </div>
+            </RadioGroup>
+          </div>
+
+          <DialogFooter className="border-t border-slate-100 px-5 py-4 sm:flex-row">
+            <DialogClose asChild>
+              <Button type="button" variant="outline" className="h-10 rounded-xl border-slate-200 text-xs font-black text-slate-700">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button
+              type="button"
+              variant="brand"
+              data-report-print-confirm
+              onClick={printReport}
+              className="h-10 rounded-xl px-4 text-xs font-black"
+            >
+              <Printer className="h-3.5 w-3.5" aria-hidden="true" />
+              Print Report
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <section
+        data-report-print-report
+        data-report-print-mode={printMode}
+        className="hidden"
+        aria-label={`Printable booking records report ${printMode === "with-charts" ? "with charts" : "without charts"}`}
+      >
         <header data-report-print-banner>
           <h1>ONE ESTELA PLACE</h1>
           <p>Event Management System</p>
@@ -2008,6 +2126,7 @@ export default function ReportsPage() {
           <h2>Venue Booking Financial Report</h2>
           <p>Reporting Period: {reportPeriod}</p>
           <p>Applied Filters: {activeReportFilters.length > 0 ? activeReportFilters.join(" | ") : "None"}</p>
+          <p data-report-print-mode-label>Print Layout: {printMode === "with-charts" ? "With Charts" : "Without Charts"}</p>
         </div>
 
         <div data-report-print-selection>
@@ -2049,7 +2168,8 @@ export default function ReportsPage() {
           </div>
         </section>
 
-        <section data-report-print-analytics aria-label="Visual analytics">
+        {printMode === "with-charts" && (
+          <section data-report-print-analytics aria-label="Visual analytics">
           <h3 data-report-print-analytics-heading>VISUAL ANALYTICS</h3>
           <div data-report-print-chart-grid>
             <article data-report-print-chart-card data-report-print-chart-card-wide>
@@ -2113,7 +2233,8 @@ export default function ReportsPage() {
               </article>
             )}
           </div>
-        </section>
+          </section>
+        )}
 
         <section data-report-print-table aria-label="Booking records table">
           <h3 data-report-print-table-heading>BOOKING RECORDS</h3>
@@ -2255,7 +2376,7 @@ export default function ReportsPage() {
           <Button
             type="button"
             variant="outline"
-            onClick={printReport}
+            onClick={openPrintOptions}
             className="h-10 w-full rounded-xl border-slate-200 bg-white px-4 text-xs font-black text-slate-900 shadow-none hover:bg-slate-50 hover:text-slate-900 dark:border-slate-200 dark:bg-white dark:hover:bg-slate-50 sm:w-auto"
           >
             <Printer className="mr-1.5 h-3.5 w-3.5" />

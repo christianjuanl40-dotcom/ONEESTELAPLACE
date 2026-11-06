@@ -54,11 +54,12 @@ function getSafeInternalDestination(value: unknown): string | null {
 }
 
 interface Props {
+  id?: string
   open: boolean
   onClose: () => void
 }
 
-export function NotificationDropdown({ open, onClose }: Props) {
+export function NotificationDropdown({ id, open, onClose }: Props) {
   const router = useRouter()
   const {
     notifications,
@@ -98,6 +99,7 @@ export function NotificationDropdown({ open, onClose }: Props) {
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div
+        id={id}
         ref={ref}
         role="dialog"
         aria-label="Notifications"
@@ -108,6 +110,7 @@ export function NotificationDropdown({ open, onClose }: Props) {
            <h3 className="text-sm font-bold text-slate-800">Notifications</h3>
           {unreadCount > 0 && (
             <Button
+              type="button"
               variant="ghost"
               size="sm"
               className="h-7 shrink-0 gap-1.5 px-2 text-[11px] font-bold text-slate-500 hover:text-slate-800"
@@ -151,8 +154,9 @@ export function NotificationDropdown({ open, onClose }: Props) {
                  const destination = getSafeInternalDestination(n.link)
 
                  return (
-                   <button
-                     key={n.id}
+                    <button
+                      type="button"
+                      key={n.id}
                       onClick={() => {
                         if (n.bookingId && destination) {
                           const isPayment = destination.includes("/dashboard/payments")
@@ -203,7 +207,7 @@ export function NotificationDropdown({ open, onClose }: Props) {
                         onClose()
                       }}
                     className={cn(
-                      "group flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-slate-50 focus:bg-slate-50 focus:outline-none sm:py-3",
+                      "group flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-slate-50 focus:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-orange-500 sm:py-3",
                       !n.isRead && "bg-blue-50/40"
                     )}
                    >

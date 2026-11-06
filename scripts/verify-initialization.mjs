@@ -51,13 +51,13 @@ const modules = {
       if(typeof options==='function'){error=next;next=options}
       const stream={ref,next,error,uid:auth.currentUser?.uid};streams.add(stream);window.fixture.starts.push({path:ref.path,filters:ref.filters});
       queueMicrotask(()=>{if(streams.has(stream)){
-        if((window.fixture.datasetFailures[ref.path]||0)>0){window.fixture.datasetFailures[ref.path]--;error({code:'unavailable'});return}
+        if((window.fixture.datasetFailures[ref.path]||0)>0){window.fixture.datasetFailures[ref.path]--;const key=ref.path==='bookings'?'bookings':ref.path==='payments'?'payments':ref.path;error({code:window.fixture.datasetFailureCodes[key]||'unavailable'});return}
         next(snapshot(ref,window.fixture.cacheOnly));
       }});
       return()=>{streams.delete(stream);retired.push(stream);window.fixture.stops++};
     }
     export const getDocs=async ref=>{window.fixture.extraReads.push(ref.path);return snapshot(ref)};
-    window.fixture={profileReads:[],extraReads:[],starts:[],stops:0,routes:[],toasts:[],unexpected:[],requests:[],profiles,profileFailure:null,datasetFailures:{},cacheOnly:false,currentUid:()=>auth.currentUser?.uid,
+    window.fixture={profileReads:[],extraReads:[],starts:[],stops:0,routes:[],toasts:[],unexpected:[],requests:[],profiles,profileFailure:null,datasetFailures:{},datasetFailureCodes:{},cacheOnly:false,currentUid:()=>auth.currentUser?.uid,
       emitAuth(uid){auth.currentUser=uid?identity(uid):null;subscribers.forEach(fn=>fn(auth.currentUser))},
       pendingProfiles:()=>profilePending.map(item=>item.uid),
       releaseProfile(uid){const selected=profilePending.filter(item=>item.uid===uid);for(const item of selected){profilePending.splice(profilePending.indexOf(item),1);item.resolve({exists:()=>!!profiles[uid],data:()=>({fullName:'Fixture '+uid,status:'active',createdAt:'2099-01-01',...profiles[uid]})})}},
@@ -239,6 +239,18 @@ try {
     await page.screenshot({path:join(output,'data-loading-error.png'),fullPage:true})
     await page.getByRole('button',{name:'Retry data loading',exact:true}).click();await waitReady()
     assert.equal(await page.getByRole('button',{name:'Retry data loading',exact:true}).count(),0)
+
+    await page.evaluate(()=>{window.fixture.datasetFailures.bookings=1;window.fixture.datasetFailureCodes.bookings='permission-denied';window.fixture.data.retryData()})
+    await page.getByRole('button',{name:'Retry data loading',exact:true}).waitFor()
+    assert.match(await page.getByRole('alert').innerText(), /authorized/i)
+    await page.evaluate(()=>{window.fixture.datasetFailureCodes.bookings='unavailable'})
+    await page.getByRole('button',{name:'Retry data loading',exact:true}).click();await waitReady()
+
+    await page.evaluate(()=>{window.fixture.datasetFailures.bookings=1;window.fixture.datasetFailureCodes.bookings='failed-precondition';window.fixture.data.retryData()})
+    await page.getByRole('button',{name:'Retry data loading',exact:true}).waitFor()
+    assert.match(await page.getByRole('alert').innerText(), /index configuration/i)
+    await page.evaluate(()=>{window.fixture.datasetFailureCodes.bookings='unavailable'})
+    await page.getByRole('button',{name:'Retry data loading',exact:true}).click();await waitReady()
 
     await open('?returning=Admin&path=/dashboard')
     await page.waitForFunction(()=>window.fixture.pendingProfiles().includes('Admin'))

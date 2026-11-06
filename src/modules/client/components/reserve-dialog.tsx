@@ -400,9 +400,10 @@ interface ReserveDialogProps {
   children?: React.ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
 }
 
-export function ReserveDialog({ children, open: controlledOpen, onOpenChange: setControlledOpen }: ReserveDialogProps) {
+export function ReserveDialog({ children, open: controlledOpen, onOpenChange: setControlledOpen, hideTrigger = false }: ReserveDialogProps) {
   const [internalOpen, setInternalOpen] = useState(false)
   const isOpen = controlledOpen !== undefined ? controlledOpen : internalOpen
   const setIsOpen = setControlledOpen || setInternalOpen
@@ -1761,7 +1762,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
   return (
     <>
     <Dialog open={isOpen} onOpenChange={(open) => { setIsOpen(open); if (!open) setTimeout(resetState, 300); }}>
-      <DialogTrigger asChild>{children || <Button className="bg-[#ea580c] text-white">Book Now</Button>}</DialogTrigger>
+      {!hideTrigger && <DialogTrigger asChild>{children || <Button className="bg-[#ea580c] text-white">Book Now</Button>}</DialogTrigger>}
       
       <DialogContent aria-describedby={undefined} showCloseButton={false} className={cn(
         "!flex !flex-col !gap-0 !p-0 overflow-hidden bg-white rounded-none sm:rounded-[2rem] border-0 shadow-2xl transition-all duration-300 ease-in-out w-full sm:max-h-[calc(100dvh-48px)]",

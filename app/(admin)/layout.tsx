@@ -168,6 +168,9 @@ export default function AdminLayout({
               size="icon"
               className="-ml-2 text-white hover:bg-white/15 lg:hidden"
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              aria-label={isMobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+              aria-expanded={isMobileMenuOpen}
+              aria-controls="admin-navigation"
             >
               <Menu className="h-5 w-5 shrink-0 overflow-hidden" />
             </Button>
@@ -197,7 +200,10 @@ export default function AdminLayout({
                 size="icon"
                 className="relative shrink-0 rounded-full text-white hover:bg-white/15"
                 onClick={() => setShowNotifications(!showNotifications)}
-                 aria-label={notificationError ? "Notifications unavailable" : "Notifications"}
+                aria-label={notificationError ? "Notifications unavailable" : "Notifications"}
+                aria-expanded={showNotifications}
+                aria-haspopup="dialog"
+                aria-controls="admin-notifications"
               >
                 <Bell className="h-5 w-5 shrink-0 overflow-hidden" />
                  {notificationError ? (
@@ -211,6 +217,7 @@ export default function AdminLayout({
                 )}
               </Button>
               <NotificationDropdown
+                id="admin-notifications"
                 open={showNotifications}
                 onClose={() => setShowNotifications(false)}
               />
@@ -247,6 +254,7 @@ export default function AdminLayout({
           )}
 
           <aside
+            id="admin-navigation"
             className={`absolute inset-y-0 left-0 z-50 flex h-full w-64 flex-col border-r border-slate-200 bg-white shadow-2xl transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 lg:shadow-none print:hidden ${
               isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
             }`}

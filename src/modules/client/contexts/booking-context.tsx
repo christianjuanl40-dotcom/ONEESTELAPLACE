@@ -1098,7 +1098,9 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         if (destroyed || stopped) return;
         console.error(`[${label}] Data read failed`, { code });
         setError(code === "permission-denied"
-          ? `${label} could not be authorized. Retry account loading or contact an administrator.`
+          ? `${label} could not be authorized. Retry data loading or contact an administrator.`
+          : code === "failed-precondition"
+            ? `${label} query could not be completed. Check the deployed Firestore index configuration and retry data loading.`
           : `${label} could not be loaded. Check your connection and retry data loading.`);
         if (loadedKey === "maintenance") setIsMaintenanceLoading(false);
         markLoaded(loadedKey);
@@ -1107,40 +1109,45 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       const start = () => {
         if (destroyed || stopped) return;
         perfListener(label, "START");
-        unsubscribe = onSnapshot(
-          query(ref, ...buildConstraints()), { includeMetadataChanges: true },
-          (snapshot) => {
-            if (destroyed || stopped) return;
-            // An empty local-cache event is not an authoritative empty database.
-            if (snapshot.metadata?.fromCache) return;
-            let loaded: T[];
-            try { loaded = snapshot.docs.map(mapDoc); }
-            catch { fail("data/invalid-record"); return; }
-            const time = (row: any) => {
-              const raw = loadedKey === "payments" ? row.submittedAt : row.createdAt;
-              return new Date(raw?.toDate?.() || raw || 0).getTime() || 0;
-            };
-            loaded.sort((a, b) => (bookingAdminScope && loadedKey !== "payments" ? 1 : -1) * (time(a) - time(b)));
-            if (firstSnapshot) {
-              firstSnapshot = false;
-              perfListener(label, "FIRST_SNAPSHOT", loaded.length);
-            } else {
-              perfListener(label, "SNAPSHOT", loaded.length);
-            }
-            clearTimeout(deadline);
-            setError();
-            setter(loaded);
-            if (loadedKey === "maintenance") setIsMaintenanceLoading(false);
-            markLoaded(loadedKey);
-          },
-          (error: any) => {
-            if (destroyed || stopped) return;
-            perfListener(label, "ERROR");
-            if (retries++ === 0 && ["unavailable", "deadline-exceeded", "aborted"].includes(error?.code)) {
-              queueMicrotask(() => { if (!destroyed && !stopped) { unsubscribe?.(); start(); } });
-            } else { clearTimeout(deadline); fail(error?.code || "unknown"); }
-          },
-        );
+        try {
+          unsubscribe = onSnapshot(
+            query(ref, ...buildConstraints()), { includeMetadataChanges: true },
+            (snapshot) => {
+              if (destroyed || stopped) return;
+              // An empty local-cache event is not an authoritative empty database.
+              if (snapshot.metadata?.fromCache) return;
+              let loaded: T[];
+              try { loaded = snapshot.docs.map(mapDoc); }
+              catch { fail("data/invalid-record"); return; }
+              const time = (row: any) => {
+                const raw = loadedKey === "payments" ? row.submittedAt : row.createdAt;
+                return new Date(raw?.toDate?.() || raw || 0).getTime() || 0;
+              };
+              loaded.sort((a, b) => (bookingAdminScope && loadedKey !== "payments" ? 1 : -1) * (time(a) - time(b)));
+              if (firstSnapshot) {
+                firstSnapshot = false;
+                perfListener(label, "FIRST_SNAPSHOT", loaded.length);
+              } else {
+                perfListener(label, "SNAPSHOT", loaded.length);
+              }
+              clearTimeout(deadline);
+              setError();
+              setter(loaded);
+              if (loadedKey === "maintenance") setIsMaintenanceLoading(false);
+              markLoaded(loadedKey);
+            },
+            (error: any) => {
+              if (destroyed || stopped) return;
+              perfListener(label, "ERROR");
+              if (retries++ === 0 && ["unavailable", "deadline-exceeded", "aborted"].includes(error?.code)) {
+                queueMicrotask(() => { if (!destroyed && !stopped) { unsubscribe?.(); start(); } });
+              } else { clearTimeout(deadline); fail(error?.code || "unknown"); }
+            },
+          );
+        } catch (error: any) {
+          clearTimeout(deadline);
+          fail(error?.code || "query/invalid");
+        }
       };
       start();
       return () => { stopped = true; clearTimeout(deadline); unsubscribe?.(); };

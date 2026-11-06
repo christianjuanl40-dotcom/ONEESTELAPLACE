@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
+import { useRouter } from "next/navigation"
 import { Card, CardContent } from "@/src/modules/shared/components/ui/card"
 import { Badge } from "@/src/modules/shared/components/ui/badge"
 import { Button } from "@/src/modules/shared/components/ui/button"
@@ -36,7 +37,6 @@ import { calculateClientPaymentOverview } from "@/src/modules/shared/lib/dashboa
 import { getDashboardDataReadiness } from "@/src/modules/shared/lib/dashboard-data-readiness"
 import { DashboardDataUnavailable } from "@/src/modules/shared/components/dashboard-data-unavailable"
 import { getPaymentStatusPresentationClass } from "@/src/modules/shared/lib/status-presentation"
-import { ReserveDialog } from "@/src/modules/client/components/reserve-dialog"
 
 function isOfficeBooking(booking: Booking) {
   return isOfficeResourceBooking(booking as unknown as Record<string, unknown>)
@@ -286,6 +286,7 @@ function getOfficeStatusDisplay(booking: Booking) {
 
 export default function ClientDashboardPage() {
   const { user } = useAuth()
+  const router = useRouter()
   const bookingData = useBookingData({ bookings: true, payments: true })
   const readiness = getDashboardDataReadiness(bookingData)
   const { getUserBookings, bookings, paymentRecords } = bookingData
@@ -397,20 +398,30 @@ export default function ClientDashboardPage() {
     () => readiness.status === "ready" ? calculateClientPaymentOverview(myBookings, paymentRecords) : null,
     [myBookings, paymentRecords, readiness.status],
   )
+  const openNewBooking = () => router.push("/portal/bookings?newBooking=1")
+  const newBookingAction = (
+    <Button type="button" onClick={openNewBooking} className="h-11 shrink-0 rounded-xl bg-orange-600 px-5 text-sm font-semibold text-white shadow-sm transition-transform hover:bg-orange-700 active:scale-[0.97]">
+      <Plus className="mr-1.5 h-4 w-4" /> New Booking
+    </Button>
+  )
 
   if (readiness.status === "loading") {
     return (
-      <div className="mx-auto flex min-h-[50vh] w-full max-w-7xl items-center justify-center px-4 sm:px-6 lg:px-8" role="status">
-        <div className="flex flex-col items-center gap-3 text-center">
+      <div className="mx-auto flex min-h-[50vh] w-full max-w-7xl flex-col items-center justify-center gap-6 px-4 sm:px-6 lg:px-8" aria-busy="true">
+        <div className="flex flex-col items-center gap-3 text-center" role="status" aria-live="polite">
+          <h1 className="oe-page-title">Dashboard</h1>
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-orange-600" />
           <p className="text-sm font-semibold text-slate-500">Loading your dashboard…</p>
+        </div>
+        <div role="group" aria-label="Booking actions">
+          {newBookingAction}
         </div>
       </div>
     )
   }
 
   if (readiness.status === "unavailable" || !paymentOverview) {
-    return <DashboardDataUnavailable error={readiness.error} onRetry={bookingData.retryData} />
+    return <DashboardDataUnavailable error={readiness.error} onRetry={bookingData.retryData} action={newBookingAction} />
   }
 
   return (
@@ -425,11 +436,7 @@ export default function ClientDashboardPage() {
               A clear view of your current reservations and payment activity.
             </p>
           </div>
-          <ReserveDialog>
-            <Button type="button" className="h-11 shrink-0 rounded-xl bg-orange-600 px-5 text-sm font-semibold text-white shadow-sm transition-transform hover:bg-orange-700 active:scale-[0.97]">
-              <Plus className="mr-1.5 h-4 w-4" /> New Booking
-            </Button>
-          </ReserveDialog>
+          {newBookingAction}
         </div>
 
         <div className="space-y-6">
@@ -643,11 +650,9 @@ export default function ClientDashboardPage() {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span className="inline-flex">
-                        <ReserveDialog>
-                          <Button type="button" className="mt-4 h-9 rounded-xl bg-orange-600 px-4 text-xs font-bold text-white shadow-sm hover:bg-orange-700 active:scale-[0.97] transition-transform">
-                            <Plus className="mr-1.5 h-3.5 w-3.5" /> Book Now
-                          </Button>
-                        </ReserveDialog>
+                        <Button type="button" onClick={openNewBooking} className="mt-4 h-9 rounded-xl bg-orange-600 px-4 text-xs font-bold text-white shadow-sm hover:bg-orange-700 active:scale-[0.97] transition-transform">
+                          <Plus className="mr-1.5 h-3.5 w-3.5" /> Book Now
+                        </Button>
                       </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="text-[10px] font-semibold">

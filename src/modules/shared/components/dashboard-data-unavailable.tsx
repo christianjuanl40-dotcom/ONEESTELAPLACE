@@ -1,14 +1,17 @@
 "use client"
 
+import type { ReactNode } from "react"
 import { AlertCircle, RotateCcw } from "lucide-react"
 import { Button } from "./ui/button"
 
 export function DashboardDataUnavailable({
   error,
   onRetry,
+  action,
 }: {
   error: string | null
   onRetry: () => void
+  action?: ReactNode
 }) {
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
@@ -33,6 +36,7 @@ export function DashboardDataUnavailable({
           <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
           Retry dashboard data
         </Button>
+        {action}
       </section>
     </div>
   )

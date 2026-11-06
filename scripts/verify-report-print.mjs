@@ -118,6 +118,15 @@ try {
   await page.getByRole('button', { name: 'View Details', exact: true }).first().click()
   assert.match(await page.locator('[data-report-dashboard]').innerText(), /Outstanding Balance/)
   await page.setViewportSize({ width: 1440, height: 1000 })
+  for (const width of [320, 375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: width < 768 ? 844 : 1000 })
+    assert.equal(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      true,
+      `report dashboard should not create page-level horizontal overflow at ${width}px`,
+    )
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 })
   await page.locator('#report-rows-per-page').selectOption('10')
 
    await page.locator('[aria-label="Year"]').click()
@@ -163,20 +172,136 @@ try {
   assert.equal(excelRows.get("BK-PRINT-1")[12], 2000)
   assert.equal(excelRows.get("BK-PRINT-1")[13], 3000)
 
+  await page.evaluate(() => {
+    window.__reportPrintCalls = 0
+    window.print = () => { window.__reportPrintCalls += 1 }
+  })
+
+  const printButton = page.getByRole("button", { name: "Print Report", exact: true })
+  await page.setViewportSize({ width: 320, height: 568 })
+  await printButton.click()
+  const printDialog = page.locator("[data-report-print-options-dialog]")
+  await printDialog.waitFor({ state: "visible" })
+  const dialogBox = await printDialog.boundingBox()
+  assert.ok(dialogBox && dialogBox.width <= 288 && dialogBox.x >= 0, "print dialog should fit the 320px viewport")
+  assert.equal(await printDialog.getAttribute("role"), "dialog")
+  assert.equal(await page.getByRole("dialog", { name: "Print Options", exact: true }).count(), 1)
+  assert.equal(await printDialog.getByRole("radio").count(), 2, "print choices should expose two accessible radio controls")
+  assert.equal(await printDialog.getByRole("radio", { name: /WITH Charts/ }).count(), 1)
+  assert.equal(await printDialog.getByRole("radio", { name: /WITHOUT Charts/ }).count(), 1)
+  assert.equal(
+    await page.evaluate(() => Boolean(document.activeElement?.closest("[data-report-print-options-dialog]"))),
+    true,
+    "dialog focus should remain inside the print options dialog",
+  )
+  assert.equal(
+    await printDialog.locator('[data-report-print-option="with-charts"] [data-slot="radio-group-item"]').getAttribute("data-state"),
+    "checked",
+    "print options should default to charts",
+  )
+  assert.equal(await printDialog.getByRole("button", { name: "Cancel", exact: true }).isVisible(), true)
+
+  const reportUrlBeforePrintOptions = page.url()
+  const selectedYearBeforeCancel = await page.locator('[aria-label="Year"]').innerText()
+  await printDialog.getByRole("button", { name: "Cancel", exact: true }).click()
+  await printDialog.waitFor({ state: "hidden" })
+  assert.equal(await page.evaluate(() => window.__reportPrintCalls), 0, "cancel should not invoke browser printing")
+  assert.equal(await page.locator('[aria-label="Year"]').innerText(), selectedYearBeforeCancel, "cancel should preserve filters")
+  assert.equal(page.url(), reportUrlBeforePrintOptions, "print options should not navigate away from the report")
+
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await printButton.click()
+  await printDialog.waitFor({ state: "visible" })
+  await printDialog.locator('[data-report-print-option="without-charts"] [data-slot="radio-group-item"]').click()
+  assert.equal(
+    await printDialog.locator('[data-report-print-option="without-charts"] [data-slot="radio-group-item"]').getAttribute("data-state"),
+    "checked",
+  )
+  await printDialog.getByRole("button", { name: "Print Report", exact: true }).click()
+  await printDialog.waitFor({ state: "hidden" })
   await page.emulateMedia({ media: "print" })
   await page.evaluate(() => window.dispatchEvent(new Event("beforeprint")))
   await page.locator('[data-report-print-report]').waitFor({ state: "visible" })
-  const printText = await page.locator('[data-report-print-report]').innerText()
-  assert.match(printText, /Reporting Period: Oct 2026/)
-  assert.match(printText, /Applied Filters: Year: 2026 \| Month: Oct/)
-  assert.match(printText, /Total Booking Value/i)
-  assert.match(printText, /Received Payments/i)
-  assert.match(printText, /Net Received Cash/i)
-  assert.match(printText, /₱17,500\.00/)
-  assert.match(printText, /₱10,000\.00/)
-  assert.match(printText, /₱5,000\.00/)
-  assert.match(printText, /₱2,000\.00/)
-  assert.match(printText, /₱3,000\.00/)
+
+  const withoutChartsReport = page.locator('[data-report-print-report]')
+  const withoutChartsText = await withoutChartsReport.innerText()
+  const withoutChartsSummary = await page.locator('[data-report-print-summary]').innerText()
+  const withoutChartsSelection = await page.locator('[data-report-print-selection]').innerText()
+  const withoutChartsRows = await withoutChartsReport.locator('[data-report-print-table] tbody tr').allInnerTexts()
+  assert.equal(await withoutChartsReport.getAttribute("data-report-print-mode"), "without-charts")
+  assert.equal(await page.locator('[data-report-print-analytics]').count(), 0, "chart-free output should omit analytics")
+  assert.equal(await withoutChartsReport.locator('[data-report-print-chart-card]').count(), 0, "chart-free output should not leave chart cards")
+  assert.equal(withoutChartsRows.length, 2, "chart-free output should include every filtered record")
+  assert.match(withoutChartsText, /Reporting Period: Oct 2026/)
+  assert.match(withoutChartsText, /Applied Filters: Year: 2026 \| Month: Oct/)
+  assert.match(withoutChartsText, /Print Layout: Without Charts/)
+  assert.match(withoutChartsText, /Total Booking Value/i)
+  assert.match(withoutChartsText, /Received Payments/i)
+  assert.match(withoutChartsText, /Net Received Cash/i)
+  assert.match(withoutChartsText, /₱17,500\.00/)
+  assert.match(withoutChartsText, /₱10,000\.00/)
+  assert.match(withoutChartsText, /₱5,000\.00/)
+  assert.match(withoutChartsText, /₱2,000\.00/)
+  assert.match(withoutChartsText, /₱3,000\.00/)
+  const withoutChartsPdf = await page.pdf({
+    path: join(output, "report-without-charts.pdf"),
+    format: "A4",
+    landscape: true,
+    printBackground: true,
+  })
+  assert.ok(withoutChartsPdf.length > 10_000, "chart-free print preview should produce a non-empty PDF")
+
+  await page.evaluate(() => window.dispatchEvent(new Event("afterprint")))
+  await page.emulateMedia({ media: "screen" })
+  await printButton.click()
+  await printDialog.waitFor({ state: "visible" })
+  await printDialog.locator('[data-report-print-option="with-charts"] [data-slot="radio-group-item"]').click()
+  await printDialog.getByRole("button", { name: "Print Report", exact: true }).click()
+  await printDialog.waitFor({ state: "hidden" })
+  await page.emulateMedia({ media: "print" })
+  await page.evaluate(() => window.dispatchEvent(new Event("beforeprint")))
+  await page.locator('[data-report-print-report]').waitFor({ state: "visible" })
+
+  const withChartsReport = page.locator('[data-report-print-report]')
+  const withChartsText = await withChartsReport.innerText()
+  const withChartsSummary = await page.locator('[data-report-print-summary]').innerText()
+  const withChartsSelection = await page.locator('[data-report-print-selection]').innerText()
+  const withChartsRows = await withChartsReport.locator('[data-report-print-table] tbody tr').allInnerTexts()
+  assert.equal(await withChartsReport.getAttribute("data-report-print-mode"), "with-charts")
+  assert.equal(await page.locator('[data-report-print-analytics]').count(), 1, "chart-inclusive output should include analytics")
+  assert.equal(await page.locator('[data-report-print-chart-card]').count(), 4)
+  assert.equal(withChartsRows.length, withoutChartsRows.length, "both modes should include the same filtered row count")
+  assert.deepEqual(withChartsRows, withoutChartsRows, "both modes should include the same filtered table rows")
+  assert.equal(withChartsSummary, withoutChartsSummary, "both modes should preserve identical financial summaries")
+  assert.equal(withChartsSelection, withoutChartsSelection, "both modes should preserve identical report selection metadata")
+  assert.match(withChartsText, /Print Layout: With Charts/)
+  assert.match(withChartsText, /VISUAL ANALYTICS/)
+  assert.match(withChartsText, /Reporting Period: Oct 2026/)
+  assert.match(withChartsText, /Applied Filters: Year: 2026 \| Month: Oct/)
+
+  const withChartsPdf = await page.pdf({
+    path: join(output, "report-with-charts.pdf"),
+    format: "A4",
+    landscape: true,
+    printBackground: true,
+  })
+  assert.ok(withChartsPdf.length > 10_000, "chart-inclusive print preview should produce a non-empty PDF")
+
+  await page.evaluate(() => window.dispatchEvent(new Event("afterprint")))
+  await page.emulateMedia({ media: "screen" })
+  await page.getByRole("button", { name: "Reset Filters", exact: true }).click()
+  await page.getByRole("button", { name: "Print Report", exact: true }).click()
+  await printDialog.waitFor({ state: "visible" })
+  await printDialog.locator('[data-report-print-option="without-charts"] [data-slot="radio-group-item"]').click()
+  await printDialog.getByRole("button", { name: "Print Report", exact: true }).click()
+  await printDialog.waitFor({ state: "hidden" })
+  await page.emulateMedia({ media: "print" })
+  await page.evaluate(() => window.dispatchEvent(new Event("beforeprint")))
+  await page.locator('[data-report-print-report]').waitFor({ state: "visible" })
+  const unpaginatedRows = await page.locator('[data-report-print-report] [data-report-print-table] tbody tr').allInnerTexts()
+  assert.equal(unpaginatedRows.length, 14, "printing should use the full filtered dataset rather than the visible page")
+  assert.match(unpaginatedRows.join("\n"), /BK-TABLE-12/)
+
   const typography = await page.evaluate(() => {
     const read = selector => {
       const element = document.querySelector(selector)
@@ -202,10 +327,8 @@ try {
   assert.equal(typography.tableValue.weight, "400")
   assert.equal(typography.tableValue.color, "rgb(0, 0, 0)")
   assert.equal(typography.dashboardDisplay, "none")
-
-  const pdf = await page.pdf({ format: "A4", landscape: true, printBackground: true })
-  assert.ok(pdf.length > 10_000, "print preview should produce a non-empty PDF")
-  console.log(`Report print checks passed. PDF bytes: ${pdf.length}. Artifacts: ${output}`)
+  assert.equal(await page.evaluate(() => window.__reportPrintCalls), 3, "each confirmed print option should invoke browser printing once")
+  console.log(`Report print checks passed. PDF bytes: with charts ${withChartsPdf.length}, without charts ${withoutChartsPdf.length}. Artifacts: ${output}`)
 } finally {
   await browser?.close()
   await server.close()

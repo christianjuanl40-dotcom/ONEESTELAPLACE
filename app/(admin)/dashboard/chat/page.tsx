@@ -298,7 +298,7 @@ export default function AdminSupportChatPage() {
                             msg.sender === "admin" ? "items-end" : "items-start"
                           }`}>
                             {msg.imageUrl && (
-                              <button type="button" aria-label="View attached image" className={`p-1 bg-white border border-slate-200 shadow-sm cursor-zoom-in hover:opacity-90 transition-opacity ${msg.sender === "admin" ? "rounded-2xl rounded-tr-sm" : "rounded-2xl rounded-tl-sm"}`} onClick={() => setFullScreenImage(msg.imageUrl)}>
+                              <button type="button" aria-label="View attached image" className={`p-1 bg-white border border-slate-200 shadow-sm cursor-zoom-in hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 ${msg.sender === "admin" ? "rounded-2xl rounded-tr-sm" : "rounded-2xl rounded-tl-sm"}`} onClick={() => setFullScreenImage(msg.imageUrl)}>
                                  <img src={msg.imageUrl} alt="attached" className="max-w-[200px] md:max-w-[300px] rounded-xl object-cover border border-slate-100" />
                               </button>
                             )}
@@ -338,7 +338,7 @@ export default function AdminSupportChatPage() {
                   <div className="pb-4 pt-0 relative flex justify-end animate-in zoom-in-75">
                     <div className="relative border-4 border-slate-100 rounded-xl shadow-inner bg-slate-50 p-1">
                       <img src={imagePreview} alt="preview" className="h-24 w-auto rounded-lg object-cover" />
-                       <button type="button" aria-label="Remove image attachment" onClick={() => { setImagePreview(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} className="absolute -top-3 -right-3 bg-slate-800 text-white rounded-full p-1 hover:scale-110 transition-transform shadow-lg"><X className="w-4 h-4" /></button>
+                       <button type="button" aria-label="Remove image attachment" onClick={() => { setImagePreview(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} className="absolute -top-3 -right-3 bg-slate-800 text-white rounded-full p-1 hover:scale-110 transition-transform shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-2"><X className="w-4 h-4" /></button>
                     </div>
                   </div>
                 )}
@@ -360,7 +360,7 @@ export default function AdminSupportChatPage() {
 
       {fullScreenImage && (
         <div className="fixed inset-0 z-[99999] bg-black/90 flex items-center justify-center p-4 sm:p-8 animate-in fade-in duration-200 backdrop-blur-sm" onClick={() => setFullScreenImage(null)}>
-          <button type="button" aria-label="Close image preview" className="absolute top-6 right-6 text-white/70 hover:text-white transition-colors bg-white/10 hover:bg-white/20 p-2 rounded-full" onClick={(e) => { e.stopPropagation(); setFullScreenImage(null); }}><X className="w-6 h-6 sm:w-8 sm:h-8" /></button>
+          <button type="button" aria-label="Close image preview" className="absolute top-6 right-6 text-white/70 hover:text-white transition-colors bg-white/10 hover:bg-white/20 p-2 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950" onClick={(e) => { e.stopPropagation(); setFullScreenImage(null); }}><X className="w-6 h-6 sm:w-8 sm:h-8" /></button>
           <img src={fullScreenImage} alt="Fullscreen view" className="max-w-full max-h-full rounded-lg object-contain shadow-2xl animate-in zoom-in-95" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
