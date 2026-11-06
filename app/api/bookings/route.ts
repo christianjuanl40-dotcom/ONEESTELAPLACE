@@ -21,6 +21,7 @@ import {
 } from "@/src/modules/shared/lib/availability"
 import { getCatalogAvailabilitySpace } from "@/src/modules/shared/lib/resource-identity"
 import { isCatalogPublished } from "@/src/modules/shared/lib/catalog-status"
+import { validateCatalogGuestCount } from "@/src/modules/shared/lib/catalog-capacity"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -43,15 +44,6 @@ function readString(body: DataRecord, key: string, maxLength: number, required =
   if (normalized.length > maxLength) throw new ApiAuthError(400, `${key} is too long.`)
   if (required && !normalized) throw new ApiAuthError(400, `A valid ${key} is required.`)
   return normalized
-}
-
-function readNumber(body: DataRecord, key: string, min: number, max: number): number {
-  const value = body[key]
-  const numberValue = typeof value === "number" ? value : Number(value)
-  if (!Number.isFinite(numberValue) || numberValue < min || numberValue > max) {
-    throw new ApiAuthError(400, `A valid ${key} is required.`)
-  }
-  return numberValue
 }
 
 function isValidCalendarDate(value: string): boolean {
@@ -82,12 +74,6 @@ function getCatalogPrice(item: DataRecord): number {
     throw new ApiAuthError(503, "The selected space is not currently available for booking.")
   }
   return price
-}
-
-function getCatalogCapacity(item: DataRecord): number | null {
-  const values = String(item.capacity || "").match(/\d+/g)?.map(Number) || []
-  const maximum = values.filter((value) => Number.isFinite(value)).reduce((highest, value) => Math.max(highest, value), 0)
-  return maximum > 0 ? maximum : null
 }
 
 function getNextBookingId(counterValue: unknown): { id: string; next: number } {
@@ -168,10 +154,16 @@ export async function POST(request: NextRequest) {
         throw new ApiAuthError(400, "Please choose a valid office room.")
       }
 
-      const guestCount = catalog.isOffice ? 1 : Math.floor(readNumber(body, "guestCount", 1, 1000))
-      const capacity = getCatalogCapacity(catalog.item)
-      if (!catalog.isOffice && capacity !== null && guestCount > capacity) {
-        throw new ApiAuthError(400, `The selected space can accommodate up to ${capacity} guests.`)
+      let guestCount = 1
+      if (!catalog.isOffice) {
+        const validation = validateCatalogGuestCount(catalog.item, body.guestCount)
+        if (!validation.ok) {
+          if (validation.reason === "exceeds_capacity" && validation.capacity !== null) {
+            throw new ApiAuthError(400, `The selected space can accommodate up to ${validation.capacity} guests.`)
+          }
+          throw new ApiAuthError(400, "A valid guestCount is required.")
+        }
+        guestCount = validation.guestCount
       }
 
       const startTime = catalog.isOffice ? "" : submittedStartTime

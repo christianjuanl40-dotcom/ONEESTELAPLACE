@@ -27,6 +27,9 @@ export default function ClientSupportChatPage() {
     retryChat,
     markAsReadByClient,
     loadChat,
+    loadOlderMessages,
+    hasOlderMessages,
+    isLoadingOlder,
     unloadChat,
   } = useChat()
   const { toast } = useToast()
@@ -70,7 +73,19 @@ export default function ClientSupportChatPage() {
     handleScroll,
     isNearBottom,
     scrollToBottom,
+    preserveScrollPosition,
+    clearPreservedScrollPosition,
   } = useChatScroll(myMessages.length, user?.id || null)
+
+  const handleLoadOlder = async () => {
+    if (!loadOlderMessages || isLoadingOlder) return
+    preserveScrollPosition()
+    try {
+      await loadOlderMessages()
+    } finally {
+      requestAnimationFrame(clearPreservedScrollPosition)
+    }
+  }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -131,6 +146,13 @@ export default function ClientSupportChatPage() {
         </div>
 
         <div ref={containerRef} onScroll={handleScroll} className="relative flex-1 overflow-y-auto p-4 sm:p-6 space-y-2 bg-slate-50/50">
+          {hasOlderMessages && (
+            <div className="flex justify-center pb-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => void handleLoadOlder()} disabled={isLoadingOlder}>
+                {isLoadingOlder ? "Loading older messages…" : "Load older messages"}
+              </Button>
+            </div>
+          )}
           {chatError && (
             <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800" role="alert">
               <p>{chatError}</p>

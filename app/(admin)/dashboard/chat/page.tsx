@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { useChat } from "@/src/modules/shared/contexts/chat-context"
@@ -21,9 +21,14 @@ export default function AdminSupportChatPage() {
   const router = useRouter()
   const {
     messages,
+    conversationIndex,
+    activeConversationId,
     sendMessage,
     markAsRead,
     loadChat,
+    loadOlderMessages,
+    hasOlderMessages,
+    isLoadingOlder,
     unloadChat,
     isChatLoaded,
     isChatLoading,
@@ -41,6 +46,11 @@ export default function AdminSupportChatPage() {
     loadChat()
     return unloadChat
   }, [loadChat, unloadChat])
+
+  const inboxMessages = useMemo(
+    () => sortChatMessages([...conversationIndex, ...messages]),
+    [conversationIndex, messages],
+  )
   
   const [searchQuery, setSearchQuery] = useState("")
   const [activeClientId, setActiveClientId] = useState<any>(null)
@@ -61,7 +71,7 @@ export default function AdminSupportChatPage() {
 
   const getDynamicClients = () => {
     const clientsMap = new Map()
-    messages.forEach((m: any) => {
+    inboxMessages.forEach((m: any) => {
       if (m.clientId) {
         const existing = clientsMap.get(m.clientId) || {
           id: m.clientId,
@@ -88,6 +98,13 @@ export default function AdminSupportChatPage() {
     : clientsList
   const activeClient = filteredClientsList.find(c => c.id === activeClientId) || filteredClientsList[0] || null
   const selectedClientId = activeClient?.id || null
+
+  useEffect(() => {
+    if (selectedClientId && selectedClientId !== activeConversationId) {
+      loadChat(selectedClientId)
+    }
+  }, [activeConversationId, loadChat, selectedClientId])
+
   const activeClientMessages = activeClient
     ? sortChatMessages(messages.filter((m: any) => m.clientId === activeClient.id))
     : []
@@ -99,7 +116,19 @@ export default function AdminSupportChatPage() {
     handleScroll,
     isNearBottom,
     scrollToBottom,
+    preserveScrollPosition,
+    clearPreservedScrollPosition,
   } = useChatScroll(activeClientMessages.length, activeClient?.id || null)
+
+  const handleLoadOlder = async () => {
+    if (!loadOlderMessages || isLoadingOlder) return
+    preserveScrollPosition()
+    try {
+      await loadOlderMessages()
+    } finally {
+      requestAnimationFrame(clearPreservedScrollPosition)
+    }
+  }
 
    useEffect(() => {
      if (activeClient?.id) void markAsRead(activeClient.id)
@@ -184,7 +213,7 @@ export default function AdminSupportChatPage() {
                <p className="p-6 text-center text-xs font-medium text-slate-400">{searchQuery ? "No matching clients." : "No client messages yet."}</p>
              ) : null}
              {filteredClientsList.map((client: any) => {
-              const clientMsgs = messages.filter((m: any) => m.clientId === client.id)
+               const clientMsgs = inboxMessages.filter((m: any) => m.clientId === client.id)
               const lastMsg = clientMsgs[clientMsgs.length - 1] 
               
                return (
@@ -233,8 +262,15 @@ export default function AdminSupportChatPage() {
                 </div>
               </div>
 
-              <div ref={containerRef} onScroll={handleScroll} className="relative flex-1 overflow-y-auto p-4 sm:p-6 space-y-2 bg-slate-50/50">
-                {activeClientMessages.map((msg: any, idx: number) => {
+               <div ref={containerRef} onScroll={handleScroll} className="relative flex-1 overflow-y-auto p-4 sm:p-6 space-y-2 bg-slate-50/50">
+                 {hasOlderMessages && (
+                   <div className="flex justify-center pb-2">
+                     <Button type="button" variant="outline" size="sm" onClick={() => void handleLoadOlder()} disabled={isLoadingOlder}>
+                       {isLoadingOlder ? "Loading older messages…" : "Load older messages"}
+                     </Button>
+                   </div>
+                 )}
+                 {activeClientMessages.map((msg: any, idx: number) => {
                   const previousMessage = activeClientMessages[idx - 1]
                   const isGrouped = shouldGroupChatMessage(previousMessage, msg)
                   const showDateSeparator = idx === 0 || !isSameManilaDay(previousMessage?.timestamp, msg.timestamp)

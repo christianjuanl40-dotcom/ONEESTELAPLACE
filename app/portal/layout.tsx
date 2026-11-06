@@ -53,11 +53,12 @@ export default function ClientLayout({
   const { toast } = useToast()
 
   const { user, isLoading, initializationError, logout } = useAuth()
-  const { unreadMessages, unreadError: chatUnreadError } = useChat()
+  const { unreadMessages, unreadMessagesIsBounded, unreadError: chatUnreadError } = useChat()
   const { notifications, unreadCount: notificationUnread, error: notificationError } = useNotifications()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [chatUnread, setChatUnread] = useState(0)
+  const [chatUnreadIsBounded, setChatUnreadIsBounded] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
   const prefetchedRef = useRef(false)
 
@@ -81,7 +82,8 @@ export default function ClientLayout({
 
   useEffect(() => {
     setChatUnread(unreadMessages)
-  }, [unreadMessages])
+    setChatUnreadIsBounded(Boolean(unreadMessagesIsBounded))
+  }, [unreadMessages, unreadMessagesIsBounded])
 
 
 
@@ -268,7 +270,11 @@ export default function ClientLayout({
                           : "bg-rose-500 text-white",
                       )}
                     >
-                      {typeof badgeCount === "number" && badgeCount > 99 ? "99+" : badgeCount}
+                      {item.key === "chat" && chatUnreadIsBounded
+                        ? "500+"
+                        : typeof badgeCount === "number" && badgeCount > 99
+                          ? "99+"
+                          : badgeCount}
                     </span>
                   )}
                 </Link>

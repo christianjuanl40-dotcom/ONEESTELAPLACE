@@ -20,6 +20,7 @@ import { POST as review } from "@/app/api/payments/review/route"
 import { POST as onsite } from "@/app/api/payments/onsite/route"
 import { POST as submit } from "@/app/api/payments/submit/route"
 import { POST as lifecycle } from "@/app/api/bookings/lifecycle/route"
+import { POST as refund } from "@/app/api/bookings/refund/route"
 import { GET as availability } from "@/app/api/availability/route"
 
 const date = "2099-03-01"
@@ -124,6 +125,61 @@ describe("server event scheduling commits", () => {
     ])
     expect(responses.filter((response) => response.status === 409)).toHaveLength(1)
     expect(store.retries).toBeGreaterThan(0)
+  })
+
+  it("enforces the catalog capacity on event creation and modification requests", async () => {
+    const constrained = structuredClone(store.data.get("cms/data")) as any
+    constrained.venues[0].capacity = "50"
+    store.seed("cms/data", constrained)
+
+    expect((await create(post(input("08:00", "14:00", { guestCount: 50 })))).status).toBe(201)
+    const invalid = await create(post(input("15:00", "21:00", { guestCount: 51 })))
+    expect(invalid.status).toBe(400)
+    expect((await invalid.json()).error).toMatch(/50 guests/i)
+
+    store.seed("bookings/MOVING", existing({ guestCount: 10 }))
+    const modification = await modify(post({
+      action: "request", bookingId: "MOVING", changes: { guestCount: 51 }, reason: "Too many guests",
+    }))
+    expect(modification.status).toBe(400)
+    expect((await modification.json()).error).toMatch(/50 guests/i)
+    expect(store.data.get("bookings/MOVING")).toMatchObject({ guestCount: 10, status: "confirmed" })
+
+    const adminUpdate = await modify(post({
+      action: "admin_update", bookingId: "MOVING", changes: { guestCount: 51 }, reason: "Too many guests",
+    }, "admin"))
+    expect(adminUpdate.status).toBe(400)
+    expect((await adminUpdate.json()).error).toMatch(/50 guests/i)
+    expect(store.data.get("bookings/MOVING")).toMatchObject({ guestCount: 10, status: "confirmed" })
+  })
+
+  it.each([
+    [0, /guestCount/i], [-1, /guestCount/i], [10.5, /guestCount/i], [undefined, /guestCount/i],
+  ])("rejects invalid event guest count %s", async (guestCount, expected) => {
+    const body = input("08:00", "14:00") as Record<string, unknown>
+    if (guestCount === undefined) delete body.guestCount
+    else body.guestCount = guestCount
+    const response = await create(post(body))
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(expected)
+  })
+
+  it("revalidates modification capacity when approval reads a changed catalog", async () => {
+    store.seed("bookings/MOVING", existing({ guestCount: 10 }))
+    const request = await modify(post({
+      action: "request", bookingId: "MOVING", changes: { guestCount: 80 }, reason: "Increase guests",
+    }))
+    expect(request.status).toBe(200)
+
+    const constrained = structuredClone(store.data.get("cms/data")) as any
+    constrained.venues[0].capacity = "50"
+    store.seed("cms/data", constrained)
+    const approval = await modify(post({ action: "approve", bookingId: "MOVING" }, "admin"))
+    expect(approval.status).toBe(400)
+    expect((await approval.json()).error).toMatch(/50 guests/i)
+    expect(store.data.get("bookings/MOVING")).toMatchObject({
+      guestCount: 10, status: "modification_under_review", modificationRequested: true,
+    })
   })
 
   it("resolves legacy name references to the canonical venue and rejects their buffered conflicts", async () => {
@@ -296,5 +352,63 @@ describe("finalized payment snapshot persistence", () => {
     expect(firstReminder.status).toBe(200)
     expect((await secondReminder.json()).changed).toBe(false)
     expect([...store.data.keys()].filter((path) => path.startsWith("notifications/")).length).toBe(1)
+  })
+
+  it("creates an internal refund-request notification without changing the payment ledger", async () => {
+    store.seed("bookings/REFUND", existing({
+      refundStatus: "eligible",
+      refundAmount: 0,
+      amountPaid: 5000,
+    }))
+    store.seed("payments/REFUND-PAYMENT", {
+      bookingId: "REFUND",
+      status: "Verified",
+      verificationStatus: "Verified",
+      amount: 5000,
+      submittedAt: "2099-01-01",
+    })
+
+    const response = await refund(post({ action: "request", bookingId: "REFUND" }))
+    expect(response.status).toBe(201)
+    expect(store.data.get("bookings/REFUND")?.refundStatus).toBe("requested")
+    const notification = [...store.data.entries()]
+      .find(([path]) => path.startsWith("notifications/"))?.[1]
+    expect(notification).toMatchObject({
+      type: "refund_requested",
+      userId: "admin",
+      relatedUserId: "CLIENT",
+      bookingId: "REFUND",
+      isRead: false,
+      moduleRead: false,
+    })
+    expect(notification?.link).toBe("/dashboard/bookings?highlight=REFUND")
+  })
+
+  it("keeps refund completion notifications client-scoped", async () => {
+    store.seed("bookings/REFUND", existing({
+      refundStatus: "requested",
+      refundAmount: 5000,
+      amountPaid: 5000,
+    }))
+    store.seed("payments/REFUND-PAYMENT", {
+      bookingId: "REFUND",
+      status: "Verified",
+      verificationStatus: "Verified",
+      amount: 5000,
+      submittedAt: "2099-01-01",
+    })
+
+    const response = await refund(post({ action: "complete", bookingId: "REFUND" }, "admin"))
+    expect(response.status).toBe(201)
+    const notification = [...store.data.entries()]
+      .find(([path]) => path.startsWith("notifications/"))?.[1]
+    expect(notification).toMatchObject({
+      type: "refund_completed",
+      userId: "CLIENT",
+      bookingId: "REFUND",
+      isRead: false,
+      moduleRead: false,
+    })
+    expect(notification?.link).toBe("/portal/bookings?highlight=REFUND")
   })
 })

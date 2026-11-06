@@ -74,6 +74,7 @@ import { getAvailabilityDataKey } from "@/src/modules/shared/lib/availability-re
 import { getCatalogAvailabilitySpace, isOfficeResourceBooking, resolveResourceSpace } from "@/src/modules/shared/lib/resource-identity"
 import { useBookingData, useBookings, type Booking } from "@/src/modules/client/contexts/booking-context"
 import { type NotificationType } from "@/src/modules/shared/lib/notifications"
+import { ADMIN_BOOKING_NOTIFICATION_TYPES, ADMIN_REFUND_NOTIFICATION_TYPES } from "@/src/modules/shared/lib/notification-access"
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
 import {
   calculatePaymentSummary,
@@ -337,7 +338,7 @@ export default function AdminBookingsPage() {
   const bookingDataError = [bookingCtx.dataErrors?.bookings, bookingCtx.dataErrors?.payments].filter(Boolean).join(" ") || null
   const bookings = useMemo(() => bookingCtx.bookings || [], [bookingCtx.bookings])
   const { markByBookingId } = useNotifications()
-  const ADMIN_BOOKING_TYPES: NotificationType[] = ["booking_submitted", "cancellation_requested", "modification_requested"]
+  const ADMIN_BOOKING_TYPES: NotificationType[] = [...ADMIN_BOOKING_NOTIFICATION_TYPES, ...ADMIN_REFUND_NOTIFICATION_TYPES]
 
   useEffect(() => {
     console.log(

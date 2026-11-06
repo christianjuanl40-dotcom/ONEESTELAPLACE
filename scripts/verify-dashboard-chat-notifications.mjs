@@ -27,6 +27,11 @@ const modules = {
     ];
      const makeInitialSnapshot=()=>({
        messages:baseMessages,
+       conversationIndex:[],
+       hasOlderMessages:false,
+       olderPageLoaded:false,
+       unreadMessages:null,
+       unreadMessagesIsBounded:false,
        chatLoaded:true,
        chatError:null,
       bookings:[{id:'BOOK-1',userId:clientId,status:'confirmed',bookingStatus:'Confirmed',eventName:'Fixture Reservation',venue:'Grand Hall',date:'2099-06-01',totalPrice:10000,totalAmount:10000,paymentType:'downpayment',selectedDownpaymentAmount:5000,createdAt:'2026-05-01T00:00:00.000Z'}],
@@ -64,7 +69,10 @@ const modules = {
       beginDataRetry(){publish({isLoading:true,dataError:null,dataErrors:{}})},
       resolveDataRetry(){publish({isLoading:false,dataError:null,dataErrors:{}})},
       appendIncoming(){const index=snapshot.messages.length;send('Incoming message '+index,'admin',clientId)},
-      setChatError(error){publish({chatError:error,chatLoaded:!error})},
+       setChatError(error){publish({chatError:error,chatLoaded:!error})},
+       enableOlderHistory(){publish({hasOlderMessages:true,olderPageLoaded:false})},
+       loadOlder(){if(snapshot.olderPageLoaded)return;const older=[{id:'OLDER-1',clientId,clientName:'Fixture Client',sender:'admin',senderId:'ADMIN',senderName:'Support',text:'Older paginated message',content:'Older paginated message',timestamp:'2026-05-14T12:00:00.000Z',isRead:true,isReadByClient:true},{id:'LEGACY-1',clientId,clientName:'Fixture Client',sender:'client',senderId:clientId,senderName:'Fixture Client',text:'Legacy message without a reliable timestamp',content:'Legacy message without a reliable timestamp',timestamp:null,isRead:true,isReadByClient:true}];publish({messages:[...older,...snapshot.messages],hasOlderMessages:false,olderPageLoaded:true})},
+       setUnreadBounded(){publish({unreadMessages:500,unreadMessagesIsBounded:true})},
       setNotificationError(error){publish({notificationError:error,notificationLoading:false})},
       navigation:[],
       lastSent:()=>snapshot.lastSent,
@@ -77,13 +85,18 @@ const modules = {
   `,
   chat: `
     import {useSyncExternalStore} from 'react';import {getState,subscribe,send} from 'virtual:phase4-state';
-    const actions={loadChat:()=>{},unloadChat:()=>{},retryChat:()=>window.fixture.update({chatError:null,chatLoaded:true}),markAsRead:clientId=>{const state=getState();window.fixture.update({messages:state.messages.map(message=>message.clientId===clientId&&message.sender==='client'?{...message,isRead:true}:message)})},markAsReadByClient:clientId=>{const state=getState();window.fixture.update({messages:state.messages.map(message=>message.clientId===clientId&&message.sender==='admin'?{...message,isReadByClient:true}:message)})},sendMessage:(text,role,clientId)=>send(text,role,clientId),sendPredefinedQuestion:async()=>{},getChatHistory:()=>getState().messages,getUnreadCount:()=>getState().messages.filter(message=>(message.sender==='client'||message.sender==='user')&&!message.isRead).length,clearNotifications:()=>{},markAdminAsRead:()=>{},toggleChat:()=>{},startTyping:()=>{},stopTyping:()=>{}};
-    export const useChat=()=>{const state=useSyncExternalStore(subscribe,getState,getState);const admin= new URLSearchParams(location.search).get('role')==='admin';return {messages:state.messages,typingIndicators:[],userStatuses:{},isConnected:true,isOpen:false,currentClientId:admin?null:'CLIENT-1',isChatLoaded:state.chatLoaded,isChatLoading:false,chatError:state.chatError,unreadError:null,newMessageNotifications:[],unreadMessages:state.messages.filter(message=>admin?message.sender==='client'&&!message.isRead:message.sender==='admin'&&!message.isReadByClient).length,...actions};};
+     const actions={loadChat:()=>{},unloadChat:()=>{},loadOlderMessages:async()=>window.fixture.loadOlder(),retryChat:()=>window.fixture.update({chatError:null,chatLoaded:true}),markAsRead:clientId=>{const state=getState();window.fixture.update({messages:state.messages.map(message=>message.clientId===clientId&&message.sender==='client'?{...message,isRead:true}:message)})},markAsReadByClient:clientId=>{const state=getState();window.fixture.update({messages:state.messages.map(message=>message.clientId===clientId&&message.sender==='admin'?{...message,isReadByClient:true}:message)})},sendMessage:(text,role,clientId)=>send(text,role,clientId),sendPredefinedQuestion:async()=>{},getChatHistory:()=>getState().messages,getUnreadCount:()=>getState().messages.filter(message=>(message.sender==='client'||message.sender==='user')&&!message.isRead).length,clearNotifications:()=>{},markAdminAsRead:()=>{},toggleChat:()=>{},startTyping:()=>{},stopTyping:()=>{}};
+     export const useChat=()=>{const state=useSyncExternalStore(subscribe,getState,getState);const admin= new URLSearchParams(location.search).get('role')==='admin';const computedUnread=state.messages.filter(message=>admin?message.sender==='client'&&!message.isRead:message.sender==='admin'&&!message.isReadByClient).length;return {messages:state.messages,conversationIndex:state.conversationIndex,activeConversationId:admin?'CLIENT-1':'CLIENT-1',typingIndicators:[],userStatuses:{},isConnected:true,isOpen:false,currentClientId:admin?null:'CLIENT-1',isChatLoaded:state.chatLoaded,isChatLoading:false,chatError:state.chatError,unreadError:null,newMessageNotifications:[],unreadMessages:state.unreadMessages ?? computedUnread,unreadMessagesIsBounded:state.unreadMessagesIsBounded,hasOlderMessages:state.hasOlderMessages,isLoadingOlder:false,...actions};};
   `,
   booking: `
     import {useSyncExternalStore} from 'react';import {getState,subscribe} from 'virtual:phase4-state';
-     export function useBookingData(){const state=useSyncExternalStore(subscribe,getState,getState);return {bookings:state.bookings,paymentRecords:state.paymentRecords,officeRentals:[],maintenanceRecords:[],maintenanceDates:[],isLoading:state.isLoading,dataError:state.dataError,dataErrors:state.dataErrors,maintenanceError:null,isMaintenanceLoading:false,retryData:()=>window.fixture.beginDataRetry(),getUserBookings:uid=>state.bookings.filter(booking=>booking.userId===uid),_registerDataNeed:()=>{}};}
+      export function useBookingData(){const state=useSyncExternalStore(subscribe,getState,getState);return {bookings:state.bookings,paymentRecords:state.paymentRecords,officeRentals:[],maintenanceRecords:[],maintenanceDates:[],isLoading:state.isLoading,dataError:state.dataError,dataErrors:state.dataErrors,maintenanceError:null,isMaintenanceLoading:false,retryData:()=>window.fixture.beginDataRetry(),getUserBookings:uid=>state.bookings.filter(booking=>booking.userId===uid),_registerDataNeed:()=>{}};}
     export function useBookings(){return useBookingData()}
+    export const calculateOfficeEndDate=(startDate)=>startDate;
+  `,
+  cms: `
+    const cmsData={venues:[{id:'venue.A',name:'Fixture Hall',price:10000,capacity:'50',description:'Fixture event venue',image:'/placeholder.jpg'}],offices:[{id:'office.A',name:'Fixture Office',price:5000,rooms:[{id:'room.A',name:'Room A'}]}],faqs:[],pastClientBookings:[],homepage:{}};
+    export const useCMS=()=>({cmsData,offices:cmsData.offices,getOfficeRooms:id=>cmsData.offices.find(item=>item.id===id)?.rooms||[]});
   `,
   notifications: `
     import {useSyncExternalStore} from 'react';import {getState,subscribe} from 'virtual:phase4-state';
@@ -94,15 +107,15 @@ const modules = {
   navigation: `export const useRouter=()=>({push:value=>{window.fixture.navigation.push(value)},replace:()=>{}});export const usePathname=()=>location.pathname;export const useSearchParams=()=>new URLSearchParams(location.search);`,
    link: `import React from 'react';const Link=React.forwardRef(function Link({href,children,...props},ref){return React.createElement('a',{href,...props,ref},children)});export default Link`,
   firebase: `export const db={};export const auth={currentUser:null};`,
-  firestore: `export const collection=()=>({});export const query=()=>({});export const where=()=>({});export const limit=()=>({});export const doc=()=>({});export const onSnapshot=(_,next)=>{queueMicrotask(()=>next({size:0,docs:[],forEach:()=>{}}));return()=>{}};export const updateDoc=async()=>{};export const getDocs=async()=>({docs:[],forEach:()=>{}});export const addDoc=async()=>({id:'LOCAL'});export const serverTimestamp=()=>null;export const runTransaction=async()=>{};`,
+   firestore: `export const collection=()=>({});export const query=()=>({});export const where=()=>({});export const orderBy=()=>({});export const limit=()=>({});export const doc=()=>({});export const onSnapshot=(_,next)=>{queueMicrotask(()=>next({size:0,docs:[],forEach:()=>{}}));return()=>{}};export const updateDoc=async()=>{};export const getDocs=async()=>({docs:[],forEach:()=>{}});export const addDoc=async()=>({id:'LOCAL'});export const serverTimestamp=()=>null;export const runTransaction=async()=>{};`,
   adminQueue: `export const buildPaymentReviewQueue=()=>[];export const DashboardPaymentReviewQueueModal=()=>null;`,
   adminBooking: `export const ApproveCancellationConfirmModal=()=>null;export const ApproveModificationConfirmModal=()=>null;export const BalanceReminderModal=()=>null;export const BookingDetailsModal=()=>null;export const ContractSigningConfirmModal=()=>null;export const DeclineCancellationModal=()=>null;export const DeclineModificationModal=()=>null;export const MarkCompletedConfirmModal=()=>null;export const RecordOnsitePaymentModal=()=>null;`,
   modify: `export const ModifyBookingDialog=()=>null;`,
   entry: `
     import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
-    import ClientDashboard from '@/app/portal/page';import ClientChat from '@/app/portal/chat/page';import AdminChat from '@/app/(admin)/dashboard/chat/page';import AdminDashboard from '@/app/(admin)/dashboard/page';import {NotificationDropdown} from '@/src/modules/shared/components/notification-dropdown';import 'virtual:phase4-state';import '@/app/globals.css';
+     import ClientDashboard from '@/app/portal/page';import ClientChat from '@/app/portal/chat/page';import {ClientChatWidget} from '@/src/modules/shared/components/chat-widget';import AdminChat from '@/app/(admin)/dashboard/chat/page';import AdminDashboard from '@/app/(admin)/dashboard/page';import {NotificationDropdown} from '@/src/modules/shared/components/notification-dropdown';import 'virtual:phase4-state';import '@/app/globals.css';
     function Notifications(){const [open,setOpen]=useState(false);return React.createElement('div',{className:'p-4'},React.createElement('button',{type:'button','aria-label':'Notifications',onClick:()=>setOpen(value=>!value)},'Open notifications'),React.createElement(NotificationDropdown,{open,onClose:()=>setOpen(false)}))}
-    function App(){const view=new URLSearchParams(location.search).get('view');if(view==='dashboard')return React.createElement(ClientDashboard);if(view==='admin-dashboard')return React.createElement(AdminDashboard);if(view==='admin-chat')return React.createElement(AdminChat);if(view==='notifications')return React.createElement(Notifications);return React.createElement(ClientChat);}
+     function App(){const view=new URLSearchParams(location.search).get('view');if(view==='dashboard')return React.createElement(ClientDashboard);if(view==='admin-dashboard')return React.createElement(AdminDashboard);if(view==='admin-chat')return React.createElement(AdminChat);if(view==='client-widget')return React.createElement(ClientChatWidget);if(view==='notifications')return React.createElement(Notifications);return React.createElement(ClientChat);}
     createRoot(document.getElementById('root')).render(React.createElement(App));
   `,
 }
@@ -112,6 +125,7 @@ const mocks = [
   [/\/auth\/auth-context(?:\.tsx?)?$/, "auth"],
   [/\/contexts\/chat-context(?:\.tsx?)?$/, "chat"],
   [/\/client\/contexts\/booking-context(?:\.tsx?)?$/, "booking"],
+  [/\/admin\/contexts\/cms-context(?:\.tsx?)?$/, "cms"],
   [/\/contexts\/notification-context(?:\.tsx?)?$/, "notifications"],
   [/\/hooks\/use-chat-suggestions(?:\.tsx?)?$/, "suggestions"],
   [/\/hooks\/use-toast(?:\.tsx?)?$/, "toast"],
@@ -293,8 +307,33 @@ try {
     assert.equal(await page.getByText("Support", { exact: true }).count(), 13)
     assert.equal(await page.getByText("May 15, 2026", { exact: true }).count(), 1)
     assert.ok((await page.locator("time").count()) >= 3)
-    assert.equal(await page.getByRole("textbox", { name: "Message support", exact: true }).count(), 1)
-  })
+     assert.equal(await page.getByRole("textbox", { name: "Message support", exact: true }).count(), 1)
+   })
+
+   await check("chat loads older pages without duplicates and preserves legacy visibility", async () => {
+     await page.evaluate(() => window.fixture.enableOlderHistory())
+     const messageList = page.locator("div.relative.flex-1.overflow-y-auto").first()
+     await page.getByRole("button", { name: "Load older messages", exact: true }).waitFor()
+     await messageList.evaluate((element) => { element.scrollTop = Math.min(48, element.scrollHeight); element.dispatchEvent(new Event("scroll", { bubbles: true })) })
+     const before = await messageList.evaluate((element) => ({ scrollTop: element.scrollTop, scrollHeight: element.scrollHeight }))
+     await page.getByRole("button", { name: "Load older messages", exact: true }).click()
+     await page.getByText("Older paginated message", { exact: true }).waitFor()
+     await page.getByText("Legacy message without a reliable timestamp", { exact: true }).waitFor()
+     assert.equal(await page.getByText("Older paginated message", { exact: true }).count(), 1)
+     assert.equal(await page.getByText("Legacy message without a reliable timestamp", { exact: true }).count(), 1)
+     const after = await messageList.evaluate((element) => ({ scrollTop: element.scrollTop, scrollHeight: element.scrollHeight }))
+     assert.ok(after.scrollHeight > before.scrollHeight)
+     assert.ok(after.scrollTop > before.scrollTop, JSON.stringify({ before, after }))
+     assert.equal(await page.getByRole("button", { name: "Load older messages", exact: true }).count(), 0)
+   })
+
+   await check("bounded unread counts are presented as 500+", async () => {
+     await page.evaluate(() => window.fixture.reset())
+     await goto("client-widget")
+     await page.evaluate(() => window.fixture.setUnreadBounded())
+     await page.getByRole("button", { name: "Open chat support, 500+ unread messages", exact: true }).waitFor()
+     await goto("client-chat")
+   })
 
   await check("client composer keeps Shift+Enter and sends on Enter", async () => {
     const composer = page.getByRole("textbox", { name: "Message support", exact: true })

@@ -7,6 +7,13 @@ export const ADMIN_BOOKING_NOTIFICATION_TYPES = [
   "modification_requested",
 ] as const satisfies readonly NotificationType[]
 
+// Refund requests contain an internal customer/booking workflow and therefore
+// require the narrower bookings permission. Dashboard-only staff must not see
+// this type even though they can receive ordinary booking notifications.
+export const ADMIN_REFUND_NOTIFICATION_TYPES = [
+  "refund_requested",
+] as const satisfies readonly NotificationType[]
+
 export const ADMIN_PAYMENT_NOTIFICATION_TYPES = [
   "payment_submitted",
   "remaining_balance_submitted",
@@ -22,6 +29,9 @@ export function getAdminNotificationTypes(
   const types: NotificationType[] = []
   if (permissions?.dashboard || permissions?.bookings) {
     types.push(...ADMIN_BOOKING_NOTIFICATION_TYPES)
+  }
+  if (permissions?.bookings) {
+    types.push(...ADMIN_REFUND_NOTIFICATION_TYPES)
   }
   if (permissions?.payments) {
     types.push(...ADMIN_PAYMENT_NOTIFICATION_TYPES)

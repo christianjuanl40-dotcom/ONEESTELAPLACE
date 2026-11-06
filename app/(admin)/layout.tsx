@@ -34,6 +34,7 @@ import { UserAvatar } from "@/src/modules/shared/components/user-avatar"
 import { useNotifications } from "@/src/modules/shared/contexts/notification-context"
 import { NotificationDropdown } from "@/src/modules/shared/components/notification-dropdown"
 import type { NotificationType } from "@/src/modules/shared/lib/notifications"
+import { ADMIN_BOOKING_NOTIFICATION_TYPES, ADMIN_REFUND_NOTIFICATION_TYPES } from "@/src/modules/shared/lib/notification-access"
 
 import type { StaffPermissions } from "@/src/modules/shared/types/permissions"
 
@@ -67,16 +68,17 @@ export default function AdminLayout({
   const pathname = usePathname()
   const router = useRouter()
   const { user, isLoading, initializationError, logout } = useAuth()
-  const { unreadMessages, unreadError: chatUnreadError } = useChat()
+  const { unreadMessages, unreadMessagesIsBounded, unreadError: chatUnreadError } = useChat()
   const { notifications, unreadCount: notificationUnread, error: notificationError } = useNotifications()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [chatUnread, setChatUnread] = useState(0)
+  const [chatUnreadIsBounded, setChatUnreadIsBounded] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
   const prefetchedRef = useRef(false)
 
   const ADMIN_BOOKING_TYPES: NotificationType[] = useMemo(
-    () => ["booking_submitted", "cancellation_requested", "modification_requested"],
+    () => [...ADMIN_BOOKING_NOTIFICATION_TYPES, ...ADMIN_REFUND_NOTIFICATION_TYPES],
     [],
   )
   const ADMIN_PAYMENT_TYPES: NotificationType[] = useMemo(
@@ -107,7 +109,8 @@ export default function AdminLayout({
   useEffect(() => {
     // Lightweight scoped unread listener (chat-context) — no full conversation load.
     setChatUnread(unreadMessages)
-  }, [unreadMessages])
+    setChatUnreadIsBounded(Boolean(unreadMessagesIsBounded))
+  }, [unreadMessages, unreadMessagesIsBounded])
 
   useEffect(() => {
     if (isLoading || initializationError) return
@@ -295,7 +298,11 @@ export default function AdminLayout({
                             : "bg-rose-500 text-white",
                         )}
                       >
-                        {typeof badgeCount === "number" && badgeCount > 99 ? "99+" : badgeCount}
+                        {item.key === "chat" && chatUnreadIsBounded
+                          ? "500+"
+                          : typeof badgeCount === "number" && badgeCount > 99
+                            ? "99+"
+                            : badgeCount}
                       </span>
                     )}
                   </Link>

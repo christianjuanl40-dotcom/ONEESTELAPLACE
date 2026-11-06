@@ -21,6 +21,7 @@ import {
 import { isOfficeResourceBooking, resolveResourceSpace } from "@/src/modules/shared/lib/resource-identity"
 import { isTerminalAvailabilityBooking } from "@/src/modules/shared/lib/booking-helpers"
 import { isCatalogPublished } from "@/src/modules/shared/lib/catalog-status"
+import { validateCatalogGuestCount } from "@/src/modules/shared/lib/catalog-capacity"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -193,9 +194,29 @@ async function assertAvailable(
   }
   const space = resolved.space
   const office = space.category === "office"
+  const items = catalog[office ? "offices" : "venues"]
+  const item = Array.isArray(items)
+    ? items.find((entry: DataRecord) => entry.id === space.venueId)
+    : null
+  if (!item) {
+    throw new ApiAuthError(409, "The booking resource is no longer available in the catalog.")
+  }
+  if (office) {
+    if (candidate.guestCount !== undefined && candidate.guestCount !== 1) {
+      throw new ApiAuthError(400, "Office bookings must keep a guest count of 1.")
+    }
+    candidate.guestCount = 1
+  } else {
+    const guestCount = validateCatalogGuestCount(item, candidate.guestCount)
+    if (!guestCount.ok) {
+      if (guestCount.reason === "exceeds_capacity" && guestCount.capacity !== null) {
+        throw new ApiAuthError(400, `The selected space can accommodate up to ${guestCount.capacity} guests.`)
+      }
+      throw new ApiAuthError(400, "A valid guestCount is required.")
+    }
+    candidate.guestCount = guestCount.guestCount
+  }
   if (schedulingChange) {
-    const items = catalog[office ? "offices" : "venues"]
-    const item = Array.isArray(items) ? items.find((entry: DataRecord) => entry.id === space.venueId) : null
     const room = office && space.spaceId !== space.venueId && Array.isArray(item?.rooms)
       ? item.rooms.find((entry: DataRecord) => entry.id === space.spaceId) : null
     const unavailable = (entry: DataRecord | null) => !entry || entry.isArchived === true || !isCatalogPublished(entry) || entry.isHidden === true || entry.isBookable === false

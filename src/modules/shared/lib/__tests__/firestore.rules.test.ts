@@ -50,6 +50,11 @@ rulesSuite("Firestore security rules", () => {
           status: "active",
           permissions: { reports: true },
         }),
+        firestore.collection("users").doc("dashboard-staff").set({
+          role: "staff",
+          status: "active",
+          permissions: { dashboard: true },
+        }),
         firestore.collection("users").doc("booking-staff").set({
           role: "staff",
           status: "active",
@@ -120,6 +125,37 @@ rulesSuite("Firestore security rules", () => {
         firestore.collection("notifications").doc("payment-notification").set({
           type: "payment_submitted",
           userId: "admin",
+        }),
+        firestore.collection("notifications").doc("refund-request-notification").set({
+          type: "refund_requested",
+          title: "Refund Requested",
+          message: "A refund request needs booking review.",
+          bookingId: "BK001",
+          userId: "admin",
+          relatedUserId: "client",
+          isRead: false,
+          moduleRead: false,
+          link: "/dashboard/bookings?highlight=BK001",
+        }),
+        firestore.collection("notifications").doc("refund-completed-client").set({
+          type: "refund_completed",
+          title: "Refund Completed",
+          message: "Your refund is complete.",
+          bookingId: "BK001",
+          userId: "client",
+          isRead: false,
+          moduleRead: false,
+          link: "/portal/bookings?highlight=BK001",
+        }),
+        firestore.collection("notifications").doc("refund-completed-other-client").set({
+          type: "refund_completed",
+          title: "Refund Completed",
+          message: "Another customer's refund is complete.",
+          bookingId: "BK002",
+          userId: "another-client",
+          isRead: false,
+          moduleRead: false,
+          link: "/portal/bookings?highlight=BK002",
         }),
       ])
     })
@@ -523,6 +559,39 @@ rulesSuite("Firestore security rules", () => {
     await assertFails(bookingStaff.collection("notifications").doc("payment-notification").get())
     await assertSucceeds(paymentStaff.collection("notifications").doc("payment-notification").get())
     await assertFails(paymentStaff.collection("notifications").doc("booking-notification").get())
+  })
+
+  it("scopes refund-request notifications to administrators and bookings staff", async () => {
+    await seedProfilesAndRecords()
+
+    const admin = testEnv.authenticatedContext("admin").firestore()
+    const bookingStaff = testEnv.authenticatedContext("booking-staff").firestore()
+    const dashboardStaff = testEnv.authenticatedContext("dashboard-staff").firestore()
+    const paymentStaff = testEnv.authenticatedContext("payment-staff").firestore()
+    const client = testEnv.authenticatedContext("client").firestore()
+    const anotherClient = testEnv.authenticatedContext("another-client").firestore()
+
+    await assertSucceeds(admin.collection("notifications").doc("refund-request-notification").get())
+    await assertSucceeds(bookingStaff.collection("notifications").doc("refund-request-notification").get())
+    await assertSucceeds(
+      bookingStaff.collection("notifications").doc("refund-request-notification").update({
+        isRead: true,
+        moduleRead: true,
+      }),
+    )
+    await assertFails(dashboardStaff.collection("notifications").doc("refund-request-notification").get())
+    await assertFails(paymentStaff.collection("notifications").doc("refund-request-notification").get())
+    await assertFails(client.collection("notifications").doc("refund-request-notification").get())
+    await assertFails(anotherClient.collection("notifications").doc("refund-request-notification").get())
+
+    await assertSucceeds(client.collection("notifications").doc("refund-completed-client").get())
+    await assertSucceeds(
+      client.collection("notifications").doc("refund-completed-client").update({
+        isRead: true,
+        moduleRead: true,
+      }),
+    )
+    await assertFails(anotherClient.collection("notifications").doc("refund-completed-client").get())
   })
 
   it("denies the obsolete shared unread counter collection", async () => {

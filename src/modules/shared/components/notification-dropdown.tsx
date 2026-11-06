@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { Bell, CheckCheck, Calendar, FileText, XCircle, AlertTriangle } from "lucide-react"
+import { Bell, CheckCheck, Calendar, FileText, XCircle, AlertTriangle, RotateCcw } from "lucide-react"
 import { Button } from "./ui/button"
 import { cn } from "../lib/utils"
 import { useNotifications } from "../contexts/notification-context"
@@ -28,6 +28,7 @@ const typeIcons: Record<NotificationType, typeof Bell> = {
   remaining_balance_rejected: XCircle,
   maintenance_conflict: AlertTriangle,
   balance_reminder: Bell,
+  refund_requested: RotateCcw,
   refund_completed: CheckCheck,
 }
 

@@ -22,6 +22,7 @@ export type NotificationType =
   | "remaining_balance_rejected"
   | "maintenance_conflict"
   | "balance_reminder"
+  | "refund_requested"
   | "refund_completed"
 
 export interface NotificationItem {

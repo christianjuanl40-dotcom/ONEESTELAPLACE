@@ -543,6 +543,27 @@ describe("office schedule commits and modifications", () => {
     expect(store.data.get("cms/data")?.bookingCounter).toBe(1)
   })
 
+  it("rejects office guest-count changes and preserves the established value of one", async () => {
+    store.seed("bookings/OFFICE-GUESTS", officeBooking())
+    const before = structuredClone(store.data)
+    const response = await modify(post({
+      action: "request", bookingId: "OFFICE-GUESTS", changes: { guestCount: 2 }, reason: "Unsupported change",
+    }))
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/guest count of 1/i)
+    expect(store.data).toEqual(before)
+  })
+
+  it("rejects an unauthorized modification request without changing the booking", async () => {
+    store.seed("bookings/FOREIGN-MODIFICATION", officeBooking({ userId: "OTHER-CLIENT" }))
+    const before = structuredClone(store.data)
+    const response = await modify(post({
+      action: "request", bookingId: "FOREIGN-MODIFICATION", changes: { eventName: "Unauthorized" }, reason: "Not the owner",
+    }))
+    expect(response.status).toBe(403)
+    expect(store.data).toEqual(before)
+  })
+
   it("permits concurrent same-name and same-room-ID creations in separate parents", async () => {
     const responses = await Promise.all([create(post(officeInput())), create(post(officeInput({ venueId: "west-fixed", officeId: "west-fixed" })))])
     expect(responses.map((response) => response.status)).toEqual([201, 201])

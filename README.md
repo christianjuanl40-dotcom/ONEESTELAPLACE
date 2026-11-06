@@ -2,7 +2,7 @@
 
 Booking and rental management system for **One Estela Place**: event venue reservations, office room rentals, payment verification, customer support, and website content management.
 
-Source reviewed: **2026-10-19** baseline; resource identity, scheduling, maintenance, and CMS persistence rechecked **2026-10-25**; exclusive office occupancy and customer/admin Booking Details rechecked **2026-10-26**; session initialization, read recovery, and availability performance rechecked **2026-10-27**; compact booking/payment tables rechecked **2026-11-03**; protected portal/admin shell scrolling rechecked **2026-11-04**; CMS responsive/accessibility surfaces, Phase 2.1 table scrolling/admin booking ordering, and lifecycle/payment presentation rechecked **2026-11-05**. This documentation describes the checked-in implementation; live catalog values and provider configuration come from the connected services.
+Source reviewed: **2026-10-19** baseline; resource identity, scheduling, maintenance, and CMS persistence rechecked **2026-10-25**; exclusive office occupancy and customer/admin Booking Details rechecked **2026-10-26**; session initialization, read recovery, and availability performance rechecked **2026-10-27**; compact booking/payment tables rechecked **2026-11-03**; protected portal/admin shell scrolling rechecked **2026-11-04**; CMS responsive/accessibility surfaces, Phase 2.1 table scrolling/admin booking ordering, and lifecycle/payment presentation rechecked **2026-11-05**; Phase 5 release-readiness validation, REF-01 refund authorization, CHAT-01 cursor pagination, and baseline response hardening rechecked **2026-11-06**. This documentation describes the checked-in implementation; live catalog values and provider configuration come from the connected services.
 
 ## Start here for future prompts
 
@@ -41,7 +41,7 @@ Versions below are declared in [package.json](package.json).
 | Layer | Implementation |
 | --- | --- |
 | Runtime | Node.js **22+**, npm and `package-lock.json` |
-| Application | Next.js **16.3.5**, App Router, React **18**, TypeScript **5.7.3** |
+| Application | Next.js **16.4.5**, App Router, React **18**, TypeScript **5.7.3** |
 | UI | Tailwind CSS **3.4**, shadcn-style/Radix primitives, Lucide icons, Inter |
 | Identity | Firebase Authentication, email/password |
 | Database | Cloud Firestore; realtime browser subscriptions and server-side Admin SDK transactions |
@@ -106,7 +106,7 @@ Next.js route-group names such as `(client)` and `(admin)` are filesystem organi
 | URL | Purpose / source |
 | --- | --- |
 | `/` | Public landing page: `app/(client)/page.tsx` |
-| `/portal` | Client dashboard |
+| `/portal` | Client dashboard with authenticated New Booking/Book Now reservation dialogs |
 | `/portal/bookings` | Client booking list, responsive booking overview, and reservation actions |
 | `/portal/payments` | My Transactions, responsive financial summaries, payment submissions, and receipts |
 | `/portal/status` | Detailed booking/payment/contract status |
@@ -145,7 +145,8 @@ The four booking/payment list surfaces—Admin Booking Management, Admin Payment
 | `node scripts/verify-cms.mjs` | Local-only Chromium checks of CMS venue, office/room, and Virtual Tour editors, contextual actions, destructive confirmations, keyboard focus, responsive overflow at 320/375/768/1024/1440px, and shared Radix ref-warning absence |
 | `node scripts/verify-booking-table.mjs` | Local-only Chromium checks of Admin Booking Management creation-time ordering, filters/search/pagination/reset/realtime insertion, table wheel scrolling, horizontal containment, and desktop/tablet/mobile overflow |
 | `node scripts/verify-report-print.mjs` | Local Chromium report checks for financial row/summary values, display-name search, typed sorting, pagination/page-size behavior, mobile disclosure details, Excel column/totals/filter parity, selected year/month print metadata, print typography, dashboard exclusion, and generated PDF |
-| `node scripts/verify-dashboard-chat-notifications.mjs` | Local-only Chromium checks for dashboard payment-position presentation, Manila-time chat grouping, keyboard composition, near-bottom scrolling, notification routing/retry, and responsive overflow |
+| `node scripts/verify-dashboard-chat-notifications.mjs` | Local-only Chromium checks for dashboard payment-position presentation, cursor-page chat loading, legacy-message visibility, 500+ unread presentation, Manila-time grouping, keyboard composition, scroll-anchor preservation, notification routing/retry, and responsive overflow |
+| `node scripts/verify-booking-navigation.mjs` | Local-only Chromium checks that authenticated dashboard and My Bookings New Booking/Book Now actions open the reservation category workflow without document navigation at 320/375/768/1024/1440px |
 
 There is no `npm test` script. Tests live in `src/modules/shared/lib/__tests__/`.
 
@@ -167,7 +168,9 @@ The Booking Details harness renders the actual customer/admin bookings pages wit
 
 The report-print harness renders the actual reports page with local booking/CMS fixtures, verifies received/booking-value/net-cash values in the dashboard and print rows, downloads and inspects the generated Excel workbook's headers/totals/filter metadata, switches Chromium to print media, checks selected year/month metadata, print-only report typography and dashboard exclusion, and generates an in-memory A4 landscape PDF. It loads no `.env` files or live services; use the same Chromium installation/browser-channel override as the other browser harnesses.
 
-The dashboard/chat/notification harness renders the actual Phase 4 client/admin surfaces with local in-memory fixtures. It verifies canonical booked/received/pending/outstanding labels, authoritative empty dashboard zeros, failed/partial/permission-denied read unavailability, retry/recovery and account-scope isolation, deterministic chat send failure, notification read rollback, Manila timestamps and presentation-only message grouping, Shift+Enter composition, unread/read and retry states, invalid notification destinations, near-bottom scroll preservation, and 320–1440px horizontal containment. It blocks external traffic and performs no Firebase/API writes.
+The dashboard/chat/notification harness renders the actual client/admin surfaces with local in-memory fixtures. It verifies canonical booked/received/pending/outstanding labels, authoritative empty dashboard zeros, failed/partial/permission-denied read unavailability, retry/recovery and account-scope isolation, deterministic chat send failure, bounded older-message loading with stable IDs, legacy timestamp visibility, notification read rollback, Manila timestamps and presentation-only message grouping, Shift+Enter composition, bounded `500+` unread presentation, invalid notification destinations, scroll-anchor preservation, and 320–1440px horizontal containment. It blocks external traffic and performs no Firebase/API writes.
+
+Phase 5.2B keeps refund processing server-authoritative while exposing `refund_requested` only to administrators and staff with `bookings`; dashboard-only staff, payments-only staff, and clients remain excluded. Chat uses a latest bounded realtime page per client, cursor-based older pages, a bounded admin conversation index with a legacy fallback lane, stable document-ID deduplication, and an explicit `500+` unread indicator when the bounded query may be incomplete. No production migration, Firestore index deployment, or dependency change is part of this workstream.
 
 Vitest includes route-level scheduling/payment regression checks using an in-memory transaction boundary (document-version retries and read-before-write enforcement). These exercise the actual route handlers but do not replace emulator/live Firestore transaction validation. `vitest.config.mts` resolves the application's import aliases for those tests.
 

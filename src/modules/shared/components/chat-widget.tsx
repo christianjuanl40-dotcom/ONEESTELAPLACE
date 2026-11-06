@@ -27,8 +27,12 @@ export function ClientChatWidget() {
     retryChat,
     markAsReadByClient,
     loadChat,
+    loadOlderMessages,
+    hasOlderMessages,
+    isLoadingOlder,
     unloadChat,
     unreadMessages,
+    unreadMessagesIsBounded,
   } = useChat()
   const { toast } = useToast()
 
@@ -48,12 +52,24 @@ export function ClientChatWidget() {
     handleScroll,
     isNearBottom,
     scrollToBottom,
+    preserveScrollPosition,
+    clearPreservedScrollPosition,
   } = useChatScroll(myMessages.length, isOpen ? user?.id || null : null)
   const unreadCount = unreadMessages
   const { suggestions, context: suggestionContext, dismiss: dismissSuggestions } = useChatSuggestions({
     visible: isOpen && pathname !== "/portal/chat",
     chatReady: isChatLoaded && pathname !== "/portal/chat",
   })
+
+  const handleLoadOlder = async () => {
+    if (!loadOlderMessages || isLoadingOlder) return
+    preserveScrollPosition()
+    try {
+      await loadOlderMessages()
+    } finally {
+      requestAnimationFrame(clearPreservedScrollPosition)
+    }
+  }
 
   useEffect(() => {
     if (isOpen && pathname !== "/portal/chat") {
@@ -122,8 +138,15 @@ export function ClientChatWidget() {
            <button type="button" aria-label="Close chat support" onClick={() => setIsOpen(false)} className="hover:bg-white/20 p-1.5 rounded-full transition-colors active:scale-95"><X className="w-5 h-5" /></button>
           </div>
 
-           <div ref={containerRef} onScroll={handleScroll} className="relative flex-1 overflow-y-auto bg-slate-50 flex flex-col p-4 space-y-2">
-             {chatError && (
+            <div ref={containerRef} onScroll={handleScroll} className="relative flex-1 overflow-y-auto bg-slate-50 flex flex-col p-4 space-y-2">
+              {hasOlderMessages && (
+                <div className="flex justify-center pb-1">
+                  <Button type="button" variant="outline" size="sm" onClick={() => void handleLoadOlder()} disabled={isLoadingOlder}>
+                    {isLoadingOlder ? "Loading older messages…" : "Load older messages"}
+                  </Button>
+                </div>
+              )}
+              {chatError && (
                <div className="mb-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800" role="alert">
                  <p>{chatError}</p>
                  <Button type="button" variant="outline" size="sm" className="mt-2 h-8 text-xs" onClick={retryChat}>Retry chat</Button>
@@ -183,7 +206,9 @@ export function ClientChatWidget() {
       {!isOpen && (
         <button 
           type="button"
-          aria-label={unreadCount > 0 ? `Open chat support, ${unreadCount} unread messages` : "Open chat support"}
+           aria-label={unreadCount > 0
+             ? `Open chat support, ${unreadMessagesIsBounded ? "500+" : unreadCount} unread messages`
+             : "Open chat support"}
           onClick={() => setIsOpen(true)} 
           className="fixed bottom-5 right-5 sm:bottom-6 sm:right-6 w-14 h-14 sm:w-14 sm:h-14 bg-[#ea580c] hover:bg-[#c2410c] text-white rounded-full shadow-[0_10px_30px_rgba(234,88,12,0.4)] flex items-center justify-center z-50 transition-all hover:scale-110 active:scale-95 group"
         >

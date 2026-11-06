@@ -11,6 +11,15 @@ describe("admin notification access", () => {
       "booking_submitted",
       "cancellation_requested",
       "modification_requested",
+      "refund_requested",
+    ])
+  })
+
+  it("does not give dashboard-only staff access to internal refund requests", () => {
+    expect(getAdminNotificationTypes("staff", { dashboard: true })).toEqual([
+      "booking_submitted",
+      "cancellation_requested",
+      "modification_requested",
     ])
   })
 

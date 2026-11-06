@@ -167,6 +167,32 @@ emulatorSuite("real Firestore availability transactions (fixture authentication 
     expect(locks.docs.every((document) => document.data().revision === 1)).toBe(true)
   }, 60000)
 
+  it("revalidates event capacity during a real Firestore modification approval", async () => {
+    await firestore!.collection("cms").doc("data").set({
+      ...catalog,
+      venues: [{ ...catalog.venues[0], capacity: "50" }],
+    })
+    const initial = await createBooking(post({ venueId: "EVENT", spaceId: "EVENT", bookingCategory: "venue",
+      date, eventName: "Capacity Event", eventType: "Celebration", guestCount: 10, startTime: "08:00", endTime: "14:00" }))
+    expect(initial.status).toBe(201)
+    const { id } = await initial.json()
+
+    const request = await modifyBooking(post({ action: "request", bookingId: id,
+      changes: { guestCount: 40 }, reason: "Increase guests" }))
+    expect(request.status).toBe(200)
+
+    await firestore!.collection("cms").doc("data").set({
+      ...catalog,
+      venues: [{ ...catalog.venues[0], capacity: "20" }],
+    })
+    const approval = await modifyBooking(post({ action: "approve", bookingId: id }, "admin"))
+    expect(approval.status).toBe(400)
+    expect((await approval.json()).error).toMatch(/20 guests/i)
+    expect((await firestore!.collection("bookings").doc(id).get()).data()).toMatchObject({
+      guestCount: 10, status: "modification_under_review", modificationRequested: true,
+    })
+  }, 60000)
+
   it("serializes a new office booking against approval of an overlapping office modification", async () => {
     const initialResponse = await createBooking(post(officeInput("2098-01-01")))
     expect(initialResponse.status).toBe(201)

@@ -17,6 +17,7 @@ export function useChatScroll(itemCount: number, conversationKey: string | null)
   const shouldStickToBottom = useRef(true)
   const previousItemCount = useRef(itemCount)
   const previousConversation = useRef(conversationKey)
+  const preservedScrollPosition = useRef<{ top: number; height: number } | null>(null)
   const [isNearBottom, setIsNearBottom] = useState(true)
 
   const handleScroll = useCallback(() => {
@@ -39,22 +40,49 @@ export function useChatScroll(itemCount: number, conversationKey: string | null)
     }
   }, [])
 
+  const preserveScrollPosition = useCallback(() => {
+    const element = containerRef.current
+    if (!element) return
+    preservedScrollPosition.current = {
+      top: element.scrollTop,
+      height: element.scrollHeight,
+    }
+  }, [])
+
+  const clearPreservedScrollPosition = useCallback(() => {
+    preservedScrollPosition.current = null
+  }, [])
+
   useLayoutEffect(() => {
     if (previousConversation.current === conversationKey) return
     previousConversation.current = conversationKey
     previousItemCount.current = itemCount
     shouldStickToBottom.current = true
+    preservedScrollPosition.current = null
     setIsNearBottom(true)
     scrollToBottom("auto")
   }, [conversationKey, itemCount, scrollToBottom])
 
   useLayoutEffect(() => {
     const previousCount = previousItemCount.current
-    if (itemCount > previousCount && shouldStickToBottom.current) {
+    const preserved = preservedScrollPosition.current
+    const element = containerRef.current
+    if (itemCount > previousCount && preserved && element) {
+      element.scrollTop = preserved.top + (element.scrollHeight - preserved.height)
+      preservedScrollPosition.current = null
+    } else if (itemCount > previousCount && shouldStickToBottom.current) {
       scrollToBottom(previousCount === 0 ? "auto" : "smooth")
     }
     previousItemCount.current = itemCount
   }, [itemCount, scrollToBottom])
 
-  return { containerRef, endRef, handleScroll, isNearBottom, scrollToBottom }
+  return {
+    containerRef,
+    endRef,
+    handleScroll,
+    isNearBottom,
+    scrollToBottom,
+    preserveScrollPosition,
+    clearPreservedScrollPosition,
+  }
 }

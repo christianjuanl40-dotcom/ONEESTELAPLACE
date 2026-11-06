@@ -36,6 +36,7 @@ import { calculateClientPaymentOverview } from "@/src/modules/shared/lib/dashboa
 import { getDashboardDataReadiness } from "@/src/modules/shared/lib/dashboard-data-readiness"
 import { DashboardDataUnavailable } from "@/src/modules/shared/components/dashboard-data-unavailable"
 import { getPaymentStatusPresentationClass } from "@/src/modules/shared/lib/status-presentation"
+import { ReserveDialog } from "@/src/modules/client/components/reserve-dialog"
 
 function isOfficeBooking(booking: Booking) {
   return isOfficeResourceBooking(booking as unknown as Record<string, unknown>)
@@ -424,9 +425,11 @@ export default function ClientDashboardPage() {
               A clear view of your current reservations and payment activity.
             </p>
           </div>
-          <Button className="h-11 shrink-0 rounded-xl bg-orange-600 px-5 text-sm font-semibold text-white shadow-sm transition-transform hover:bg-orange-700 active:scale-[0.97]" asChild>
-            <Link href="/portal/bookings"><Plus className="mr-1.5 h-4 w-4" /> New Booking</Link>
-          </Button>
+          <ReserveDialog>
+            <Button type="button" className="h-11 shrink-0 rounded-xl bg-orange-600 px-5 text-sm font-semibold text-white shadow-sm transition-transform hover:bg-orange-700 active:scale-[0.97]">
+              <Plus className="mr-1.5 h-4 w-4" /> New Booking
+            </Button>
+          </ReserveDialog>
         </div>
 
         <div className="space-y-6">
@@ -639,9 +642,13 @@ export default function ClientDashboardPage() {
                   </p>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button className="mt-4 h-9 rounded-xl bg-orange-600 px-4 text-xs font-bold text-white shadow-sm hover:bg-orange-700 active:scale-[0.97] transition-transform" asChild>
-                        <Link href="/portal/bookings"><Plus className="mr-1.5 h-3.5 w-3.5" /> Book Now</Link>
-                      </Button>
+                      <span className="inline-flex">
+                        <ReserveDialog>
+                          <Button type="button" className="mt-4 h-9 rounded-xl bg-orange-600 px-4 text-xs font-bold text-white shadow-sm hover:bg-orange-700 active:scale-[0.97] transition-transform">
+                            <Plus className="mr-1.5 h-3.5 w-3.5" /> Book Now
+                          </Button>
+                        </ReserveDialog>
+                      </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="text-[10px] font-semibold">
                       Browse available spaces
