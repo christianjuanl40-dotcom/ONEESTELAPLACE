@@ -13,6 +13,8 @@ export type NotificationType =
   | "cancellation_requested"
   | "cancellation_approved"
   | "cancellation_declined"
+  | "booking_updated"
+  | "booking_cancelled"
   | "payment_submitted"
   | "payment_approved"
   | "payment_rejected"

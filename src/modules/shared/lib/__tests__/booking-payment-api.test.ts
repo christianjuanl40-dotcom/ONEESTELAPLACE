@@ -9,13 +9,27 @@ vi.mock("@/lib/server-auth", () => {
   class ApiAuthError extends Error {
     constructor(readonly status: number, message: string) { super(message) }
   }
-  const user = async (request: Request) => ({ uid: "CLIENT", role: request.headers.get("x-role") || "client", fullName: "Fixture", permissions: {} })
+  const user = async (request: Request) => {
+    const role = request.headers.get("x-role") || "client"
+    const permissions: Record<string, boolean> = role === "staff" ? { bookings: true } : {}
+    return { uid: "CLIENT", role, fullName: "Fixture", email: "fixture@example.test", permissions }
+  }
+  const backoffice = async (request: Request, options: { permission?: string; adminOnly?: boolean } = {}) => {
+    const current = await user(request)
+    if (current.role !== "admin" && current.role !== "staff") throw new ApiAuthError(403, "This account is not authorized.")
+    if (options.adminOnly && current.role !== "admin") throw new ApiAuthError(403, "Administrator access is required.")
+    if (options.permission && current.role !== "admin" && current.permissions[options.permission] !== true) {
+      throw new ApiAuthError(403, "You do not have permission to perform this action.")
+    }
+    return current
+  }
   return { ApiAuthError, isApiAuthError: (error: unknown) => error instanceof ApiAuthError,
-    requireAuthenticatedUser: user, requireBackofficeUser: user }
+    requireAuthenticatedUser: user, requireBackofficeUser: backoffice }
 })
 
 import { POST as create } from "@/app/api/bookings/route"
 import { POST as modify } from "@/app/api/bookings/modification/route"
+import { PATCH as cancel } from "@/app/api/bookings/cancellation/route"
 import { POST as review } from "@/app/api/payments/review/route"
 import { POST as onsite } from "@/app/api/payments/onsite/route"
 import { POST as submit } from "@/app/api/payments/submit/route"
@@ -93,6 +107,17 @@ describe("server event scheduling commits", () => {
   it("excludes its own booking and validates time-range-only admin updates", async () => {
     store.seed("bookings/MOVING", existing())
     expect((await modify(post({ action: "admin_update", bookingId: "MOVING", changes: { eventName: "Updated" }, reason: "Edit" }, "admin"))).status).toBe(200)
+    expect(store.data.get("bookings/MOVING")).toMatchObject({ modifiedBy: "CLIENT", modifiedByName: "Fixture" })
+    const movingLogs = store.data.get("bookings/MOVING")?.adminLogs as Array<Record<string, unknown>> | undefined
+    expect(movingLogs?.at(-1)).toMatchObject({
+      action: "ADMIN_UPDATE_BOOKING",
+      actorId: "CLIENT",
+      previousValues: { eventName: "Fixture" },
+      updatedValues: { eventName: "Updated" },
+    })
+    expect([...store.data.keys()].filter((key) => key.startsWith("notifications/")).map((key) => store.data.get(key)?.type)).toEqual(["booking_updated"])
+    expect((await modify(post({ action: "admin_update", bookingId: "MOVING", changes: { eventName: "Updated" }, reason: "Repeat" }, "admin"))).status).toBe(200)
+    expect([...store.data.keys()].filter((key) => key.startsWith("notifications/")).map((key) => store.data.get(key)?.type)).toEqual(["booking_updated"])
     store.seed("bookings/LATER", existing({ startTime: "15:00", endTime: "21:00" }))
     expect((await modify(post({ action: "admin_update", bookingId: "MOVING", changes: { time: "9:00 AM - 3:00 PM" }, reason: "Edit" }, "admin"))).status).toBe(409)
     expect((await modify(post({ action: "admin_update", bookingId: "MOVING", changes: { time: "8:00 AM - 2:00 PM" }, reason: "Edit" }, "admin"))).status).toBe(200)
@@ -125,6 +150,24 @@ describe("server event scheduling commits", () => {
     ])
     expect(responses.filter((response) => response.status === 409)).toHaveLength(1)
     expect(store.retries).toBeGreaterThan(0)
+  })
+
+  it("keeps direct admin modification owner and payment fields server-authoritative", async () => {
+    store.seed("bookings/MOVING", existing({ amountPaid: 2500, paymentStatus: "partial", userId: "CLIENT" }))
+    const response = await modify(post({
+      action: "admin_update",
+      bookingId: "MOVING",
+      changes: { eventName: "Operations Workshop", guestCount: 50 },
+      reason: "Client requested an updated event description.",
+    }, "admin"))
+    expect(response.status).toBe(200)
+    expect(store.data.get("bookings/MOVING")).toMatchObject({
+      userId: "CLIENT",
+      eventName: "Operations Workshop",
+      guestCount: 50,
+      amountPaid: 2500,
+      paymentStatus: "partial",
+    })
   })
 
   it("enforces the catalog capacity on event creation and modification requests", async () => {
@@ -410,5 +453,84 @@ describe("finalized payment snapshot persistence", () => {
       moduleRead: false,
     })
     expect(notification?.link).toBe("/portal/bookings?highlight=REFUND")
+  })
+})
+
+describe("direct administrative cancellation", () => {
+  const directCancel = (bookingId = "CANCEL-ME", role = "admin", reason = "Operations cancelled the reservation") => cancel(
+    new NextRequest("http://localhost/api/bookings/cancellation", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "x-role": role },
+      body: JSON.stringify({ action: "admin_cancel", bookingId, reason }),
+    }),
+  )
+
+  it("cancels an eligible paid booking without processing a refund", async () => {
+    store.seed("bookings/CANCEL-ME", existing({
+      date: "2099-03-01",
+      status: "confirmed",
+      bookingStatus: "Confirmed",
+      amountPaid: 2500,
+      paymentStatus: "paid",
+      isSlotSecured: true,
+      refundStatus: "Not Applicable",
+    }))
+    store.seed("payments/PAY-CANCEL", { bookingId: "CANCEL-ME", status: "Verified", amount: 2500 })
+
+    const response = await directCancel()
+    expect(response.status).toBe(200)
+    expect(store.data.get("bookings/CANCEL-ME")).toMatchObject({
+      status: "cancelled",
+      bookingStatus: "Cancelled",
+      cancellationSource: "admin",
+      cancellationType: "admin_action",
+      cancellationReason: "Operations cancelled the reservation",
+      cancellationActorId: "CLIENT",
+      cancellationActorName: "Fixture",
+      refundStatus: "eligible",
+    })
+    expect(store.data.get("payments/PAY-CANCEL")).toMatchObject({ status: "Verified", amount: 2500 })
+    const cancellationLogs = store.data.get("bookings/CANCEL-ME")?.adminLogs as Array<Record<string, unknown>> | undefined
+    expect(cancellationLogs?.at(-1)).toMatchObject({
+      action: "ADMIN_CANCEL_BOOKING",
+      actorId: "CLIENT",
+      actorName: "Fixture",
+      previousValues: { status: "confirmed" },
+      updatedValues: { status: "cancelled" },
+    })
+    const notificationKeys = [...store.data.keys()].filter((key) => key.startsWith("notifications/"))
+    expect(notificationKeys).toHaveLength(1)
+    expect(store.data.get(notificationKeys[0])).toMatchObject({ type: "booking_cancelled", userId: "CLIENT", bookingId: "CANCEL-ME" })
+
+    const duplicate = await directCancel()
+    expect(duplicate.status).toBe(200)
+    expect([...store.data.keys()].filter((key) => key.startsWith("notifications/"))).toHaveLength(1)
+    expect(store.data.get("bookings/CANCEL-ME")?.refundStatus).not.toBe("refunded")
+  })
+
+  it.each([
+    ["staff", "Administrator access is required"],
+    ["client", "This account is not authorized"],
+  ])("denies direct cancellation to %s", async (role, message) => {
+    store.seed("bookings/CANCEL-ME", existing({ date: "2099-03-01", amountPaid: 2500, paymentStatus: "paid", isSlotSecured: true }))
+    const response = await directCancel("CANCEL-ME", role)
+    expect(response.status).toBe(403)
+    expect((await response.json()).error).toContain(message)
+    expect(store.data.get("bookings/CANCEL-ME")?.status).toBe("confirmed")
+  })
+
+  it.each([
+    [{ amountPaid: 0, paymentStatus: "unpaid", isSlotSecured: false }, /after the booking payment is secured/i],
+    [{ amountPaid: 2500, paymentStatus: "for_review", isSlotSecured: true }, /after the booking payment is secured/i],
+    [{ amountPaid: 2500, paymentStatus: "paid", isSlotSecured: true, status: "completed" }, /not eligible/i],
+    [{ amountPaid: 2500, paymentStatus: "paid", isSlotSecured: true, status: "cancellation_requested", cancellationRequested: true }, /cancellation request under review/i],
+    [{ amountPaid: 2500, paymentStatus: "paid", isSlotSecured: true, modificationStatus: "Under Review" }, /active modification/i],
+  ])("rejects unsafe direct cancellation state %j", async (fields, expected) => {
+    store.seed("bookings/CANCEL-ME", existing({ date: "2099-03-01", ...fields }))
+    const response = await directCancel()
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toMatch(expected)
+    const state = fields as Record<string, unknown>
+    expect(store.data.get("bookings/CANCEL-ME")?.status).toBe(state.status || "confirmed")
   })
 })

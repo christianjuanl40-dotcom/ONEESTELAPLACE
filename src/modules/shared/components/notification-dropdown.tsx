@@ -19,6 +19,8 @@ const typeIcons: Record<NotificationType, typeof Bell> = {
   cancellation_requested: Calendar,
   cancellation_approved: Calendar,
   cancellation_declined: XCircle,
+  booking_updated: Calendar,
+  booking_cancelled: XCircle,
   payment_submitted: FileText,
   payment_approved: FileText,
   payment_rejected: XCircle,

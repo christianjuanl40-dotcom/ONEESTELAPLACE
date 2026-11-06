@@ -33,7 +33,6 @@ import {
   getPaymentRecordTime,
   getRecordsForBooking,
 } from "@/src/modules/shared/lib/payment-calculations"
-import { calculateClientPaymentOverview } from "@/src/modules/shared/lib/dashboard-calculations"
 import { getDashboardDataReadiness } from "@/src/modules/shared/lib/dashboard-data-readiness"
 import { DashboardDataUnavailable } from "@/src/modules/shared/components/dashboard-data-unavailable"
 import { getPaymentStatusPresentationClass } from "@/src/modules/shared/lib/status-presentation"
@@ -157,10 +156,6 @@ function getRemainingDuration(endDate?: string, startDate?: string) {
 function formatDate(date?: string) {
   if (!date) return "No date"
   return formatBookingDate(date)
-}
-
-function formatPesos(value: number) {
-  return `₱${Number(value || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 function getOfficeStatusDisplay(booking: Booking) {
@@ -394,10 +389,6 @@ export default function ClientDashboardPage() {
       .slice(0, 3)
   }, [myBookings, paymentRecords, readiness.status])
 
-  const paymentOverview = useMemo(
-    () => readiness.status === "ready" ? calculateClientPaymentOverview(myBookings, paymentRecords) : null,
-    [myBookings, paymentRecords, readiness.status],
-  )
   const openNewBooking = () => router.push("/portal/bookings?newBooking=1")
   const newBookingAction = (
     <Button type="button" onClick={openNewBooking} className="h-11 shrink-0 rounded-xl bg-orange-600 px-5 text-sm font-semibold text-white shadow-sm transition-transform hover:bg-orange-700 active:scale-[0.97]">
@@ -420,7 +411,7 @@ export default function ClientDashboardPage() {
     )
   }
 
-  if (readiness.status === "unavailable" || !paymentOverview) {
+  if (readiness.status === "unavailable") {
     return <DashboardDataUnavailable error={readiness.error} onRetry={bookingData.retryData} action={newBookingAction} />
   }
 
@@ -430,48 +421,12 @@ export default function ClientDashboardPage() {
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 animate-in fade-in duration-500">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
-            <p className="oe-page-kicker">Client Portal</p>
-            <h1 className="oe-page-title mt-1">Dashboard</h1>
-            <p className="oe-page-description mt-1 max-w-xl">
-              A clear view of your current reservations and payment activity.
-            </p>
+            <h1 className="oe-page-title">Dashboard</h1>
           </div>
           {newBookingAction}
         </div>
 
         <div className="space-y-6">
-          <div>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="oe-section-heading">Payment Overview</h2>
-              <Button variant="link" className="h-auto p-0 text-xs font-bold text-orange-600" asChild>
-                <Link href="/portal/payments">View transactions <ArrowRight className="ml-1 h-3 w-3" /></Link>
-              </Button>
-            </div>
-            <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
-              <CardContent className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4 sm:p-5">
-                <div className="rounded-xl bg-slate-50 p-3">
-                  <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Booking value</p>
-                  <p className="mt-1 text-base font-black tabular-nums text-slate-900">{formatPesos(paymentOverview.totalBookingValue)}</p>
-                </div>
-                <div className="rounded-xl bg-emerald-50 p-3">
-                  <p className="text-[10px] font-black uppercase tracking-wide text-emerald-700">Received</p>
-                  <p className="mt-1 text-base font-black tabular-nums text-emerald-900">{formatPesos(paymentOverview.receivedPayments)}</p>
-                </div>
-                <div className="rounded-xl bg-amber-50 p-3">
-                  <p className="text-[10px] font-black uppercase tracking-wide text-amber-700">Pending verification</p>
-                  <p className="mt-1 text-base font-black tabular-nums text-amber-900">{formatPesos(paymentOverview.pendingVerification)}</p>
-                </div>
-                <div className="rounded-xl bg-orange-50 p-3">
-                  <p className="text-[10px] font-black uppercase tracking-wide text-orange-700">Outstanding</p>
-                  <p className="mt-1 text-base font-black tabular-nums text-orange-900">{formatPesos(paymentOverview.outstandingBalance)}</p>
-                </div>
-              </CardContent>
-              <p className="px-4 pb-4 text-[10px] font-medium leading-4 text-slate-500 sm:px-5 sm:pb-5">
-                Pending submissions are shown separately and do not count as received payments.
-              </p>
-            </Card>
-          </div>
-
           {activeRental && (
             <div>
               <h2 className="oe-section-heading mb-3">

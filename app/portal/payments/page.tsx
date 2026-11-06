@@ -576,14 +576,14 @@ function TransactionTable({
   return (
     <>
       <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm md:block">
-        <Table className="min-w-[1080px] table-fixed xl:min-w-0">
+        <Table className="min-w-[1180px] table-fixed">
           <caption className="sr-only">{mode === "history" ? "Transaction history" : "Active transaction overview"}</caption>
           <colgroup>
-            <col style={{ width: "18%" }} />
-            <col style={{ width: "13%" }} />
-            <col style={{ width: "17%" }} />
-            <col style={{ width: "19%" }} />
+            <col style={{ width: "16%" }} />
             <col style={{ width: "12%" }} />
+            <col style={{ width: "15%" }} />
+            <col style={{ width: "19%" }} />
+            <col style={{ width: "17%" }} />
             <col style={{ width: "21%" }} />
           </colgroup>
           <TableHeader className="bg-slate-50/80">
@@ -592,7 +592,7 @@ function TransactionTable({
                <TableHead className="oe-table-head">Reserved Space</TableHead>
                <TableHead className="oe-table-head">Schedule</TableHead>
                <TableHead className="oe-table-head">Financial Summary</TableHead>
-               <TableHead className="oe-table-head">Payment Status</TableHead>
+                <TableHead className="oe-table-head text-center">Payment Status</TableHead>
                <TableHead className="oe-table-head text-right">Actions</TableHead>
             </tr>
           </TableHeader>
@@ -680,7 +680,7 @@ function TransactionTableRow({
        <Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 whitespace-nowrap border-slate-300 text-slate-800 hover:border-slate-400 hover:bg-slate-50">View Details</Button>
     )
   ) : (
-    <div className="flex flex-wrap justify-end gap-1.5">
+    <div className="oe-transaction-actions">
        <Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 whitespace-nowrap border-slate-300 text-slate-800 hover:border-slate-400 hover:bg-slate-50">View Details</Button>
       <PaymentActionButtons booking={booking} onPay={onPay} onSettle={onSettle} compact paymentCount={data.records.length} latestPaymentStatus={getLatestPaymentStatus(records as PaymentRecord[], booking)} records={data.records} />
     </div>
@@ -698,8 +698,8 @@ function TransactionTableRow({
          <TableCell className="min-w-0 align-top whitespace-normal"><p className="oe-table-primary line-clamp-2">{resource.primary}</p>{resource.room && <p className="oe-table-secondary mt-0.5 line-clamp-1">Room: {resource.room}</p>}</TableCell>
          <TableCell className="min-w-0 max-w-0 align-top whitespace-normal"><p className="oe-table-primary max-w-full line-clamp-2">{schedule.primary}</p><p className="oe-table-secondary mt-0.5 max-w-full line-clamp-2">{schedule.secondary}</p>{booking.status === "pending" && !isCashPending && !isExpired && <p className="mt-1 max-w-full break-words text-xs font-semibold leading-4 text-orange-700">Time left: {formatCountdown(remainingMs)}</p>}</TableCell>
           <TableCell className="min-w-0 max-w-0 align-top whitespace-normal"><div className="min-w-0 space-y-1.5"><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3"><span className="oe-financial-label">Total</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.displayTotal)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3"><span className="oe-financial-label">Received</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.amountPaid)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3"><span className="oe-financial-label">Balance</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.remaining)}</span></p>{data.pendingReview > 0 && <p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3"><span className="oe-financial-label">Pending review</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.pendingReview)}</span></p>}</div></TableCell>
-         <TableCell className="min-w-0 max-w-0 align-top whitespace-normal"><span className={cn("oe-status-badge max-w-full whitespace-normal break-words", data.statusClass)}>{data.statusLabel}</span></TableCell>
-         <TableCell className="min-w-0 max-w-0 align-top whitespace-normal text-right"><div className="oe-table-actions">{action}</div></TableCell>
+          <TableCell data-transaction-status className="min-w-0 whitespace-nowrap text-center align-middle"><span className={cn("oe-status-badge oe-payment-status", data.statusClass)}>{data.statusLabel}</span></TableCell>
+          <TableCell className="min-w-0 align-middle text-right"><div className="oe-transaction-actions">{action}</div></TableCell>
       </tr>
       {mode === "history" && expanded && (
         <tr className="border-b border-slate-100 bg-slate-50/60">
@@ -760,13 +760,13 @@ function TransactionCompactRow({
 
   return (
     <div ref={rowRef} data-transaction-target={booking.id} className={cn("rounded-xl border border-slate-200 bg-white p-3 shadow-sm", isHighlighted && "notification-target-highlight")}>
-       <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-2">{mode === "history" && onToggle && <button type="button" onClick={() => onToggle(booking)} aria-expanded={expanded} aria-label={expanded ? `Hide transaction summary for ${booking.id}` : `Show transaction summary for ${booking.id}`} className="mt-0.5 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"><ChevronDown className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")} /></button>}<div className="min-w-0"><p className="oe-table-label truncate">{booking.id}</p><p className="oe-table-primary mt-0.5 line-clamp-2">{booking.eventName || booking.companyName || "Untitled booking"}</p></div></div><span className={cn("oe-status-badge max-w-[142px] min-w-0 whitespace-normal break-words text-right", data.statusClass)}>{data.statusLabel}</span></div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div className="flex min-w-0 items-start gap-2">{mode === "history" && onToggle && <button type="button" onClick={() => onToggle(booking)} aria-expanded={expanded} aria-label={expanded ? `Hide transaction summary for ${booking.id}` : `Show transaction summary for ${booking.id}`} className="mt-0.5 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"><ChevronDown className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")} /></button>}<div className="min-w-0"><p className="oe-table-label truncate">{booking.id}</p><p className="oe-table-primary mt-0.5 line-clamp-2">{booking.eventName || booking.companyName || "Untitled booking"}</p></div></div><span className={cn("oe-status-badge oe-payment-status shrink-0", data.statusClass)}>{data.statusLabel}</span></div>
       <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
         <div className="min-w-0"><p className="oe-table-label">Reserved space</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>
         <div className="min-w-0"><p className="oe-table-label">Date / period</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{schedule.primary}</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{schedule.secondary}</p></div>
       </div>
        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 sm:grid-cols-4"><div className="min-w-0"><p className="oe-financial-label">Total</p><p className="oe-financial-value mt-0.5">{formatMoney(data.displayTotal)}</p></div><div className="min-w-0"><p className="oe-financial-label">Received</p><p className="oe-financial-value mt-0.5">{formatMoney(data.amountPaid)}</p></div><div className="min-w-0"><p className="oe-financial-label">Balance</p><p className="oe-financial-value mt-0.5">{formatMoney(data.remaining)}</p></div><div className="min-w-0"><p className="oe-financial-label">Pending review</p><p className="oe-financial-value mt-0.5">{formatMoney(data.pendingReview)}</p></div></div>
-      <div className="mt-3 flex flex-wrap justify-end gap-1.5 border-t border-slate-100 pt-3">
+      <div className="oe-transaction-actions mt-3 border-t border-slate-100 pt-3">
          {mode === "history" ? (data.isUnpaid ? <Button onClick={() => onPay(booking)} className="oe-table-action h-9 bg-orange-600 text-white hover:bg-orange-700"><CreditCard className="mr-1 h-3.5 w-3.5" />Pay Now</Button> : <Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 border-slate-300 text-slate-800 hover:bg-slate-50">View Details</Button>) : <><Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 border-slate-300 text-slate-800 hover:bg-slate-50">View Details</Button><PaymentActionButtons booking={booking} onPay={onPay} onSettle={onSettle} compact paymentCount={data.records.length} latestPaymentStatus={getLatestPaymentStatus(records as PaymentRecord[], booking)} records={data.records} /></>}
       </div>
        {mode === "history" && expanded && <div className="mt-3 grid gap-3 border-t border-slate-100 bg-slate-50/60 pt-3 sm:grid-cols-2"><TransactionDetailItem label="Booking Status" value={getBookingStatusLabel(booking.status)} /><TransactionDetailItem label="Payment Type" value={isOfficeRentalBooking(booking) ? "Slot Reservation" : (booking as any).paymentType === "downpayment" ? "Down Payment" : "Full Payment"} /><TransactionDetailItem label="Received / Credited" value={formatMoney(data.amountPaid)} /><TransactionDetailItem label="Verified Payments" value={formatMoney(data.verifiedAmount)} /><TransactionDetailItem label="Pending Review" value={formatMoney(data.pendingReview)} /><TransactionDetailItem label="Remaining Balance" value={formatMoney(data.remaining)} /></div>}
@@ -2350,11 +2350,7 @@ function TransactionsContent() {
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 animate-in fade-in duration-500">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
-            <p className="oe-page-kicker">Client Portal</p>
-            <h1 className="oe-page-title mt-1">My Transactions</h1>
-            <p className="oe-page-description mt-1 max-w-xl">
-              Review payment summaries, balances, and submission history by booking.
-            </p>
+            <h1 className="oe-page-title">My Transactions</h1>
           </div>
           <div className="flex shrink-0 items-center justify-end">
             {hasHistoryRecords && (

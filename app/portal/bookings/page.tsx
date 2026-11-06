@@ -2689,9 +2689,8 @@ export default function MyBookingsPage() {
   const pageContent = isLoading || dataError ? (
       <div className="w-full min-w-0 max-w-full overflow-x-hidden">
         <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-          <p className="oe-page-kicker">Client Portal</p>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <h1 className="oe-page-title mt-1">My Bookings</h1>
+            <h1 className="oe-page-title">My Bookings</h1>
             {newBookingButton}
           </div>
           {isLoading ? (
@@ -2782,11 +2781,7 @@ export default function MyBookingsPage() {
 
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <p className="oe-page-kicker">Client Portal</p>
-            <h1 className="oe-page-title mt-1">My Bookings</h1>
-            <p className="oe-page-description mt-1 max-w-xl">
-              Keep track of active reservations, schedules, and booking history.
-            </p>
+            <h1 className="oe-page-title">My Bookings</h1>
           </div>
           <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-center sm:justify-end lg:w-auto">
             <div className="relative w-full sm:max-w-xs">

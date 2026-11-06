@@ -150,6 +150,10 @@ export interface AdminLog {
   action: string;
   message: string;
   createdAt: string;
+  actorId?: string;
+  actorName?: string;
+  previousValues?: Record<string, unknown>;
+  updatedValues?: Record<string, unknown>;
 }
 
 export interface BookingReceipt {
@@ -267,6 +271,8 @@ export interface Booking {
   cancellationType?: "client_request" | "admin_action" | "automatic_expiry";
   cancellationActorId?: string;
   cancellationActorName?: string;
+  cancelledBy?: string;
+  cancelledByName?: string;
   cancellationRequestedBy?: string;
   cancellationRequestedByName?: string;
   cancellationReviewedBy?: string;
@@ -293,6 +299,9 @@ export interface Booking {
   modificationReviewedAt?: string;
   modificationDeclineReason?: string;
   modificationReviewedBy?: string;
+  modifiedAt?: string;
+  modifiedBy?: string;
+  modifiedByName?: string;
   requestedChanges?: Record<string, unknown>;
   originalBookingSnapshot?: Record<string, unknown>;
   modificationPreviousStatus?: BookingStatus;
@@ -480,6 +489,7 @@ interface BookingContextType {
   modifyBooking: (id: string, updates: Partial<Booking>) => Promise<Booking>;
 
   requestCancellation: (id: string, reason: string) => Promise<Booking>;
+  adminCancelBooking: (id: string, reason: string) => Promise<Booking>;
   approveCancellation: (id: string) => Promise<Booking>;
   declineCancellation: (id: string, reason: string) => Promise<Booking>;
   rejectCancellation: (id: string, reason?: string) => Promise<Booking>;
@@ -1543,6 +1553,11 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
   const requestCancellation = async (id: string, reason: string): Promise<Booking> => {
     if (!user || user.role !== "client") throw new Error("Only signed-in clients can request cancellation.")
     return callCancellationApi(id, { reason })
+  }
+
+  const adminCancelBooking = async (id: string, reason: string): Promise<Booking> => {
+    if (!reason.trim()) throw new Error("A cancellation reason is required.")
+    return callCancellationApi(id, { action: "admin_cancel", reason: reason.trim() })
   }
 
   const approveCancellation = async (id: string): Promise<Booking> => {
@@ -3164,6 +3179,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         getBookingById: scopeIsCurrent ? getBookingById : () => undefined,
         modifyBooking,
         requestCancellation,
+        adminCancelBooking,
         approveCancellation,
         declineCancellation,
         rejectCancellation,

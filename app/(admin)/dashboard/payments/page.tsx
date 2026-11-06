@@ -135,7 +135,7 @@ function PaymentSortableHeader({
 }) {
   const isActive = sortKey === activeSortKey
   return (
-    <TableHead scope="col" aria-sort={isActive ? (direction === "asc" ? "ascending" : "descending") : "none"} className="oe-table-head">
+    <TableHead scope="col" aria-sort={isActive ? (direction === "asc" ? "ascending" : "descending") : "none"} className={cn("oe-table-head", sortKey === "status" && "text-center")}>
       <button
         type="button"
         onClick={() => onSort(sortKey)}
@@ -724,11 +724,7 @@ export default function AdminPaymentsPage() {
         />}
         <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <p className="oe-page-kicker">Operations</p>
-            <h1 className="oe-page-title mt-1">Payment Verification</h1>
-            <p className="oe-page-description mt-1 max-w-2xl">
-              Review customer submissions and keep payment decisions tied to the correct booking.
-            </p>
+            <h1 className="oe-page-title">Payment Verification</h1>
           </div>
           <div className="flex w-full flex-col items-stretch gap-2 sm:ml-auto sm:w-fit sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
               <Select value={venueFilter} onValueChange={setVenueFilter}>
@@ -1040,14 +1036,14 @@ function PaymentVerificationTable({
   return (
     <>
       <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm md:block">
-        <Table className="min-w-[1040px] table-fixed xl:min-w-0">
+        <Table className="min-w-[1040px] table-fixed">
           <caption className="sr-only">Admin payment verification records grouped by booking</caption>
           <colgroup>
-            <col style={{ width: "25%" }} />
+            <col style={{ width: "24%" }} />
             <col style={{ width: "17%" }} />
-            <col style={{ width: "29%" }} />
-            <col style={{ width: "14%" }} />
-            <col style={{ width: "15%" }} />
+            <col style={{ width: "27%" }} />
+            <col style={{ width: "20%" }} />
+            <col style={{ width: "12%" }} />
           </colgroup>
           <TableHeader className="bg-slate-50/80">
             <tr>
@@ -1130,8 +1126,8 @@ function PaymentVerificationTableRow({
           <span> · {submission?.referenceNo || submission?.id || "Record"}</span>
         </p>
       </TableCell>
-      <TableCell className="min-w-0 max-w-0 whitespace-normal align-top"><PaymentBadge payment={payment} /></TableCell>
-      <TableCell className="min-w-0 max-w-0 whitespace-normal text-right align-top">
+      <TableCell data-payment-review-status className="min-w-0 whitespace-nowrap text-center align-middle"><PaymentBadge payment={payment} className="oe-payment-status" /></TableCell>
+      <TableCell className="min-w-0 whitespace-nowrap text-right align-middle">
         <Button
           type="button"
           onClick={() => onView(payment)}
@@ -1171,13 +1167,13 @@ function PaymentVerificationCompactRow({
 
   return (
     <div ref={rowRef} className={cn("rounded-xl border border-slate-200 bg-white p-3 shadow-sm", isHighlighted && "notification-target-highlight")}>
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
            <p className="oe-table-label truncate">{payment.id || "—"}</p>
            <p className="oe-table-primary mt-0.5 line-clamp-2">{payment.eventName || "Untitled booking"}</p>
            <p className="oe-table-secondary mt-0.5 line-clamp-1">{payment.userInfo?.name || "Customer not listed"}</p>
           </div>
-        <PaymentBadge payment={payment} />
+        <PaymentBadge payment={payment} className="oe-payment-status shrink-0" />
       </div>
       <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
          <div className="min-w-0"><p className="oe-table-label">Reserved space</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>

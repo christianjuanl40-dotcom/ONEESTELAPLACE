@@ -84,11 +84,17 @@ function getMinimumDate(): string {
   return addMonths(`${values.year}-${values.month}-${values.day}`, 1)
 }
 
-function appendLog(booking: DataRecord, action: string, message: string, createdAt: string) {
+function appendLog(
+  booking: DataRecord,
+  action: string,
+  message: string,
+  createdAt: string,
+  metadata: DataRecord = {},
+) {
   const existing = Array.isArray(booking.adminLogs)
     ? booking.adminLogs.filter(isRecord).slice(-49)
     : []
-  return [...existing, { action, message, createdAt }]
+  return [...existing, { action, message, createdAt, ...metadata }]
 }
 
 function normalizeChanges(value: unknown): DataRecord {
@@ -106,7 +112,11 @@ function normalizeChanges(value: unknown): DataRecord {
       changes[key] = entry
     } else {
       if (typeof entry !== "string") throw new ApiAuthError(400, `The modification field ${key} must be text.`)
-      changes[key] = entry
+      const normalized = entry.trim()
+      if (["eventName", "eventType", "companyName", "natureOfBusiness"].includes(key) && !normalized) {
+        throw new ApiAuthError(400, `A valid ${key} is required.`)
+      }
+      changes[key] = normalized
     }
   }
   if (Object.keys(changes).length === 0) throw new ApiAuthError(400, "Please provide at least one change.")
@@ -372,15 +382,40 @@ export async function POST(request: NextRequest) {
         const changes = normalizeChanges(body.changes)
         const candidate = buildCandidate(booking, changes)
         const eventLock = await assertAvailable(transaction, firestore, bookingId, booking, candidate, hasScheduleChanges(changes, booking))
-        const fields: DataRecord = {
+        const editableFields: DataRecord = {
           ...changes,
           ...scheduleFields(candidate),
           ...resourceFields(candidate),
           ...(candidate.endDate ? { endDate: candidate.endDate } : {}),
+        }
+        const changedFieldNames = Object.keys(editableFields).filter((key) => (
+          JSON.stringify(editableFields[key] ?? null) !== JSON.stringify(booking[key] ?? null)
+        ))
+        if (changedFieldNames.length === 0) {
+          return { changed: false, booking: { ...booking, id: bookingId }, userId: String(booking.userId || "") }
+        }
+        const previousValues = Object.fromEntries(changedFieldNames.map((key) => [key, booking[key] ?? null]))
+        const updatedValues = Object.fromEntries(changedFieldNames.map((key) => [key, editableFields[key] ?? null]))
+        const fields: DataRecord = {
+          ...editableFields,
           modifiedAt: now,
+          modifiedBy: user.uid,
+          modifiedByName: user.fullName || user.email || "Administrator",
+          modificationReason: reason,
           lastActivityAt: now,
           updatedAt: now,
-          adminLogs: appendLog(booking, "ADMIN_UPDATE_BOOKING", "Admin updated the booking details.", now),
+          adminLogs: appendLog(
+            booking,
+            "ADMIN_UPDATE_BOOKING",
+            `Admin updated booking details. Reason: ${reason}`,
+            now,
+            {
+              actorId: user.uid,
+              actorName: user.fullName || user.email || "Administrator",
+              previousValues,
+              updatedValues,
+            },
+          ),
         }
         commitEventAvailabilityLock(transaction, eventLock)
         commitExpiredAvailabilityHolds(transaction, firestore, eventLock.expiredBookings)
@@ -462,6 +497,24 @@ export async function POST(request: NextRequest) {
         })
       } catch (error) {
         console.error("[POST /api/bookings/modification] Notification write failed:", error)
+      }
+    }
+
+    if (result.changed && result.userId && action === "admin_update") {
+      try {
+        await firestore.collection("notifications").add({
+          type: "booking_updated",
+          title: "Booking Updated",
+          message: `An administrator updated Booking ${bookingId}. Review your booking details for the latest information.`,
+          bookingId,
+          userId: result.userId,
+          isRead: false,
+          moduleRead: false,
+          createdAt: new Date(),
+          link: `/portal/bookings?highlight=${bookingId}`,
+        })
+      } catch (error) {
+        console.error("[POST /api/bookings/modification] Client notification write failed:", error)
       }
     }
 

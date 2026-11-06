@@ -10,11 +10,14 @@ import {
 } from "@/lib/server-auth"
 import {
   buildCancellationApprovalFields,
+  buildAdminCancellationFields,
   buildCancellationDeclineFields,
   buildCancellationRequestFields,
   bookingBelongsToUser,
   evaluateCancellationEligibility,
+  hasActiveModificationForCancellation,
   hasPendingCancellation,
+  isAdminDirectCancellationStatusEligible,
   type CancellationRecord,
 } from "@/src/modules/shared/lib/cancellation"
 import { getRecordsForBooking, type PaymentRecordLike } from "@/src/modules/shared/lib/payment-calculations"
@@ -96,7 +99,7 @@ async function readPaymentRecords(
 }
 
 async function notifyCancellation(
-  type: "cancellation_requested" | "cancellation_approved" | "cancellation_declined",
+  type: "cancellation_requested" | "cancellation_approved" | "cancellation_declined" | "booking_cancelled",
   bookingId: string,
   booking: CancellationRecord,
   message: string,
@@ -113,10 +116,12 @@ async function notifyCancellation(
           ? "Cancellation Requested"
           : type === "cancellation_approved"
             ? "Cancellation Approved"
-            : "Cancellation Declined",
+            : type === "cancellation_declined"
+              ? "Cancellation Declined"
+              : "Booking Cancelled",
       message,
       bookingId,
-      userId: type === "cancellation_requested" ? "admin" : userId,
+       userId: type === "cancellation_requested" ? "admin" : userId,
       ...(type === "cancellation_requested"
         ? {
             relatedUserId: userId,
@@ -224,16 +229,18 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const user = await requireBackofficeUser(request, { permission: "bookings" })
     const body = await parseBody(request)
+    const action = readString(body, "action", 20, true).toLowerCase()
+    const user = action === "admin_cancel"
+      ? await requireBackofficeUser(request, { permission: "bookings", adminOnly: true })
+      : await requireBackofficeUser(request, { permission: "bookings" })
     const bookingId = readString(body, "bookingId", 128, true)
     if (!BOOKING_ID_PATTERN.test(bookingId)) throw new ApiAuthError(400, "Invalid booking ID.")
 
-    const action = readString(body, "action", 20, true).toLowerCase()
-    if (action !== "approve" && action !== "decline") {
+    if (action !== "approve" && action !== "decline" && action !== "admin_cancel") {
       throw new ApiAuthError(400, "Invalid cancellation action.")
     }
-    const reason = readString(body, "reason", 2000, action === "decline")
+    const reason = readString(body, "reason", 2000, action === "decline" || action === "admin_cancel")
     const reviewedAt = new Date().toISOString()
     const firestore = getAdminFirestore()
     const bookingRef = firestore.collection("bookings").doc(bookingId)
@@ -243,6 +250,47 @@ export async function PATCH(request: NextRequest) {
       if (!snapshot.exists) throw new ApiAuthError(404, "Booking not found.")
 
       const booking = snapshot.data() as CancellationRecord
+
+      if (action === "admin_cancel") {
+        if (String(booking.status || "").trim().toLowerCase() === "cancelled") {
+          return {
+            changed: false,
+            booking: getBookingResponse(booking, bookingId),
+          }
+        }
+        if (hasPendingCancellation(booking)) {
+          throw new ApiAuthError(409, "This booking has a cancellation request under review. Approve or decline that request instead.")
+        }
+        if (!isAdminDirectCancellationStatusEligible(booking)) {
+          throw new ApiAuthError(409, "This booking is not eligible for direct administrative cancellation.")
+        }
+        if (hasActiveModificationForCancellation(booking)) {
+          throw new ApiAuthError(409, "Resolve the active modification request before cancelling this booking.")
+        }
+
+        const paymentRecords = await readPaymentRecords(
+          transaction,
+          firestore,
+          bookingId,
+          String(booking.bookingCode || "").trim(),
+        )
+        const eligibility = evaluateCancellationEligibility(booking, new Date(reviewedAt), paymentRecords)
+        if (!eligibility.allowed) {
+          throw new ApiAuthError(409, eligibility.reason || "This booking cannot be cancelled.")
+        }
+
+        const reviewer = {
+          id: user.uid,
+          name: user.fullName || user.email || "Administrator",
+        }
+        const fields = buildAdminCancellationFields(booking, reason, reviewedAt, reviewer, paymentRecords)
+        transaction.update(bookingRef, fields as any)
+        return {
+          changed: true,
+          booking: getBookingResponse({ ...booking, ...fields }, bookingId),
+        }
+      }
+
       if (!hasPendingCancellation(booking)) {
         throw new ApiAuthError(409, "This booking has no pending cancellation request.")
       }
@@ -264,14 +312,20 @@ export async function PATCH(request: NextRequest) {
       }
     })
 
-    await notifyCancellation(
-      action === "approve" ? "cancellation_approved" : "cancellation_declined",
-      bookingId,
-      result.booking,
-      action === "approve"
-        ? `Your cancellation request for Booking ${bookingId} has been approved.`
-        : `Your cancellation request for Booking ${bookingId} has been declined.`,
-    )
+    if (result.changed) {
+      await notifyCancellation(
+        action === "admin_cancel"
+          ? "booking_cancelled"
+          : action === "approve" ? "cancellation_approved" : "cancellation_declined",
+        bookingId,
+        result.booking,
+        action === "admin_cancel"
+          ? `Booking ${bookingId} was cancelled by the One Estela Place administrator. Any eligible refund remains separate from the cancellation workflow.`
+          : action === "approve"
+            ? `Your cancellation request for Booking ${bookingId} has been approved.`
+            : `Your cancellation request for Booking ${bookingId} has been declined.`,
+      )
+    }
 
     return NextResponse.json({ booking: result.booking, reviewedBy: user.uid })
   } catch (error: unknown) {

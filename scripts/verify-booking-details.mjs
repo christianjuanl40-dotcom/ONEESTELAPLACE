@@ -124,7 +124,7 @@ try {
     assert.deepEqual(await action.evaluate(el => {
       const s = getComputedStyle(el)
       return [s.height, s.borderRadius, s.fontSize, s.fontWeight, s.columnGap, s.justifyContent, s.alignItems]
-    }), [stacked ? "56px" : "44px", stacked ? "12px" : "8px", "14px", "600", stacked ? "10px" : "8px", "center", "center"])
+    }), ["44px", stacked ? "10px" : "8px", "14px", "600", "8px", "center", "center"])
     assert.equal(await action.evaluate(el => el.scrollWidth > el.clientWidth + 1), false, "button labels fit without horizontal overflow")
     for (const icon of await action.locator("svg").all()) {
       assert.deepEqual(await icon.evaluate(el => { const s = getComputedStyle(el);return [s.width, s.height, s.marginRight] }), ["16px", "16px", "0px"])
@@ -132,16 +132,16 @@ try {
   }
   const equalWidthActions = async (actions, { x, width }, stacked = false) => {
     const buttons = await actions.all(), first = await actions.first().boundingBox()
-    const columns = !stacked && page.viewportSize().width >= 768 ? buttons.length : 1
-    const expectedWidth = (width - 12 * (columns - 1)) / columns
+    const columns = stacked ? (page.viewportSize().width >= 640 ? 2 : 1) : page.viewportSize().width >= 768 ? buttons.length : 1
+    const gap = stacked ? 8 : 12
+    const expectedWidth = (width - gap * (columns - 1)) / columns
     let previous
     for (const [index, action] of buttons.entries()) {
       await actionStyle(action, stacked)
       const box = await action.boundingBox()
       assert.ok(Math.abs(box.width - expectedWidth) < 1, "visible actions equally fill the available width without empty columns")
-      assert.ok(Math.abs(box.x - x - (columns > 1 ? index * (expectedWidth + 12) : 0)) < 1, "actions use the full row starting at its left edge")
-      if (columns > 1) assert.ok(Math.abs(box.y - first.y) < 1, "desktop actions align vertically")
-      else if (previous) assert.ok(Math.abs(box.y - previous.y - previous.height - (stacked ? 10 : 12)) < 1, "stacked actions retain their intended vertical gaps")
+      assert.ok(Math.abs(box.x - x - (index % columns) * (expectedWidth + gap)) < 1, "actions align to their grid column")
+      assert.ok(Math.abs(box.y - first.y - Math.floor(index / columns) * (first.height + gap)) < 1, "actions align without overlap with consistent row gaps")
       previous = box
     }
   }
@@ -217,17 +217,22 @@ try {
     const dialog = adminModal(), body = dialog.getByRole("region", { name: "Booking details content", exact: true })
     const box = await dialog.boundingBox(), bodyBox = await body.boundingBox(), header = await dialog.locator("header").boundingBox()
     const footer = await dialog.locator("footer").count() ? await dialog.locator("footer").boundingBox() : null
+    const shortPhone = page.viewportSize().width < 640 && page.viewportSize().height <= 680
     assert.ok(box.y >= 0 && box.x >= 0 && box.x + box.width <= page.viewportSize().width + 1 && box.y + box.height <= page.viewportSize().height + 1, "admin dialog fits the viewport")
-    assert.ok(bodyBox.y >= header.y + header.height - 1 && bodyBox.y + bodyBox.height <= (footer?.y ?? box.y + box.height) + 1)
+    if (shortPhone) {
+      const scrollBox = await dialog.locator('[data-admin-booking-scroll]').boundingBox()
+      assert.ok(scrollBox.y >= header.y + header.height - 1 && scrollBox.y + scrollBox.height <= box.y + box.height + 1)
+    } else assert.ok(bodyBox.y >= header.y + header.height - 1 && bodyBox.y + bodyBox.height <= (footer?.y ?? box.y + box.height) + 1)
     assert.equal(await dialog.evaluate(el => el.scrollWidth > el.clientWidth + 1), false)
     assert.equal(await dialog.getByRole("button", { name: "Close booking details", exact: true }).count(), 1)
-    assert.equal(await body.evaluate(el => getComputedStyle(el).overflowY), "auto")
+    const scroller = shortPhone ? dialog.locator('[data-admin-booking-scroll]') : body
+    assert.equal(await scroller.evaluate(el => getComputedStyle(el).overflowY), "auto")
     const scrollers = await dialog.evaluate(el => [el, ...el.querySelectorAll("*")].filter(node => ["auto", "scroll"].includes(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight + 1).length)
-    assert.equal(scrollers, await body.evaluate(el => Number(el.scrollHeight > el.clientHeight + 1)), "only the details body may scroll when content overflows")
-    await body.evaluate(el => { el.scrollTop = el.scrollHeight })
-    assert.equal(await body.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight < 2), true)
+    assert.equal(scrollers, await scroller.evaluate(el => Number(el.scrollHeight > el.clientHeight + 1)), "one details/actions scroll surface on short phones; otherwise only the details body")
+    await scroller.evaluate(el => { el.scrollTop = el.scrollHeight })
+    assert.equal(await scroller.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight < 2), true)
     assert.deepEqual(await dialog.locator("header").boundingBox(), header)
-    if (footer) assert.deepEqual(await dialog.locator("footer").boundingBox(), footer)
+    if (footer && !shortPhone) assert.deepEqual(await dialog.locator("footer").boundingBox(), footer)
   }
   for (const [width, height] of [[1366, 768], [1280, 720], [768, 1024], [640, 960], [390, 844], [320, 568]]) {
     await page.setViewportSize({ width, height })

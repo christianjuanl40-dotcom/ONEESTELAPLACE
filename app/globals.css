@@ -424,6 +424,51 @@
   min-width: 0;
 }
 
+/* Payment list alignment only; canonical labels/amounts remain in the pages. */
+.oe-payment-status {
+  flex-shrink: 0;
+  height: 2rem;
+  width: 11rem;
+  max-width: 100%;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.oe-transaction-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.oe-transaction-actions button {
+  width: 100%;
+  min-height: 2.75rem;
+  margin: 0;
+  justify-content: center;
+  white-space: normal;
+}
+
+.oe-transaction-actions svg {
+  flex-shrink: 0;
+}
+
+/* A fixed five-action footer must not consume the details on short phones.
+   Keep one scroll surface, with actions in flow rather than a second scroller. */
+@media (max-width: 639px) and (max-height: 680px) {
+  [data-admin-booking-scroll] {
+    display: block;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  [data-admin-booking-scroll] > [role="region"] {
+    overflow-y: visible;
+  }
+}
+
 .oe-table-action {
   border-radius: var(--oe-control-radius);
   font-size: 0.875rem;

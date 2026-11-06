@@ -257,6 +257,7 @@ try {
   const waitForBookings = async () => {
     await page.goto(`${origin}/portal/bookings?state=ready`)
     await page.getByRole("heading", { name: "My Bookings", exact: true }).waitFor()
+    assert.equal(await page.locator('.oe-page-kicker, .oe-page-description').count(), 0, 'My Bookings retains its heading without decorative header copy')
     await page.getByText("No current booking found.", { exact: true }).waitFor()
   }
 
@@ -369,6 +370,8 @@ try {
     await waitForDashboard()
     await page.getByRole("button", { name: "New Booking", exact: true }).click()
     await page.getByRole("heading", { name: "Select Category", exact: true }).waitFor()
+    assert.equal(await page.getByRole('heading',{name:'My Bookings',exact:true,includeHidden:true}).count(),1)
+    assert.equal(await page.locator('.oe-page-kicker, .oe-page-description').count(),0)
     assert.equal(new URL(page.url()).pathname, "/portal/bookings", `dashboard auto-open navigated incorrectly at ${width}px`)
     const metrics = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.documentElement.scrollWidth }))
     assert.ok(metrics.scrollWidth <= metrics.width + 1, `dashboard booking dialog overflows at ${width}px`)

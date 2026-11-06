@@ -16,16 +16,16 @@ export const bookingDetailsActionRowClassName = "grid min-w-0 grid-cols-1 gap-3 
 
 export const bookingDetailsStackedActionClassName = cn(
   bookingDetailsActionClassName,
-  "w-full h-14 min-w-0 rounded-xl flex items-center justify-center gap-2.5 text-sm font-semibold shadow-none transition-colors duration-200",
+  "h-11 min-w-0 rounded-lg px-3 flex items-center justify-center gap-2 text-sm font-semibold [&_svg]:shrink-0",
 )
 
-export function BookingDetailsFooter({ children, layout = "responsive" }: { children: ReactNode; layout?: "responsive" | "stacked" }) {
+export function BookingDetailsFooter({ children, layout = "responsive" }: { children: ReactNode; layout?: "responsive" | "compact" }) {
   const actions = Children.toArray(children)
   if (!actions.length) return null
 
   return (
-    <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-6">
-      <div className={layout === "stacked" ? "flex min-w-0 w-full flex-col gap-2.5" : bookingDetailsActionRowClassName}>
+    <footer className={cn("shrink-0 border-t border-slate-200 bg-white px-4 sm:px-6", layout === "compact" ? "py-2" : "py-3")}>
+      <div className={layout === "compact" ? "grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2" : bookingDetailsActionRowClassName}>
         {actions}
       </div>
     </footer>

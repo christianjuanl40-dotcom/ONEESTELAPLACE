@@ -58,7 +58,12 @@ import {
   getBookingSchedulePresentationClass,
   getBookingStatusPresentationClass,
 } from "@/src/modules/shared/lib/status-presentation"
-import { getCancellationAudit } from "@/src/modules/shared/lib/cancellation"
+import {
+  evaluateCancellationEligibility,
+  getCancellationAudit,
+  hasActiveModificationForCancellation,
+  isAdminDirectCancellationStatusEligible,
+} from "@/src/modules/shared/lib/cancellation"
 import { getRemainingDurationFromDates, getContractDurationLabel } from "@/src/modules/shared/lib/date-utils"
 import {
   getBookingLifecycleLabel,
@@ -88,6 +93,7 @@ import {
 } from "@/src/modules/shared/lib/payment-calculations"
 import { Textarea } from "@/src/modules/shared/components/ui/textarea"
 import { Label } from "@/src/modules/shared/components/ui/label"
+import { ModifyBookingDialog } from "@/src/modules/admin/components/modify-booking-dialog"
 import { useCMS } from "@/src/modules/admin/contexts/cms-context"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/src/modules/shared/components/ui/tabs"
 import { stableSortBy, type TableSortDirection, type TableSortableValue } from "@/src/modules/shared/lib/report-table-utils"
@@ -337,6 +343,8 @@ export default function AdminBookingsPage() {
   const bookingCtx = useBookingData({ bookings: true, payments: true })
   const bookingDataError = [bookingCtx.dataErrors?.bookings, bookingCtx.dataErrors?.payments].filter(Boolean).join(" ") || null
   const bookings = useMemo(() => bookingCtx.bookings || [], [bookingCtx.bookings])
+  const canManageBookings = user?.role === "admin" || user?.permissions?.bookings === true
+  const canDirectCancel = user?.role === "admin" && typeof bookingCtx.adminCancelBooking === "function"
   const { markByBookingId } = useNotifications()
   const ADMIN_BOOKING_TYPES: NotificationType[] = [...ADMIN_BOOKING_NOTIFICATION_TYPES, ...ADMIN_REFUND_NOTIFICATION_TYPES]
 
@@ -399,6 +407,13 @@ export default function AdminBookingsPage() {
   const [showApproveModificationTarget, setShowApproveModificationTarget] = useState<string | null>(null)
   const [showMarkCompletedTarget, setShowMarkCompletedTarget] = useState<string | null>(null)
   const [showMaintenanceModal, setShowMaintenanceModal] = useState(false)
+  const [editBookingTarget, setEditBookingTarget] = useState<Booking | null>(null)
+  const [isEditingBooking, setIsEditingBooking] = useState(false)
+  const [editBookingError, setEditBookingError] = useState<string | null>(null)
+  const restoreModifyFocus = useRef(false)
+  const [directCancellationTarget, setDirectCancellationTarget] = useState<Booking | null>(null)
+  const [directCancellationReason, setDirectCancellationReason] = useState("")
+  const [isDirectCancellationSubmitting, setIsDirectCancellationSubmitting] = useState(false)
 
   useEffect(() => {
     if (!selectedBooking) return
@@ -627,6 +642,75 @@ export default function AdminBookingsPage() {
     }
   }
 
+  const handleEditBooking = (id: string) => {
+    if (!canManageBookings || typeof bookingCtx.modifyBooking !== "function" || isEditingBooking || isDirectCancellationSubmitting) return
+    const target = bookings.find((booking) => booking.id === id)
+    if (!target) return
+    setSelectedBooking(null)
+    setEditBookingError(null)
+    restoreModifyFocus.current = false
+    setEditBookingTarget(target)
+  }
+
+  const saveEditedBooking = async (updatedBooking: Booking) => {
+    if (isEditingBooking || !canManageBookings || typeof bookingCtx.modifyBooking !== "function") return
+    setIsEditingBooking(true)
+    setEditBookingError(null)
+    try {
+      const updated = await bookingCtx.modifyBooking(updatedBooking.id, updatedBooking)
+      setEditBookingTarget(null)
+      setSelectedBooking(updated)
+      toast({
+        title: "Booking Updated",
+        description: `Booking ${updatedBooking.id} has been updated and the client has been notified.`,
+        className: "border-none bg-emerald-500 text-white",
+      })
+    } catch (error) {
+      toast({
+        title: "Booking Update Failed",
+        description: error instanceof Error ? error.message : "Unable to update the booking.",
+        variant: "destructive",
+      })
+      setEditBookingError(error instanceof Error ? error.message : "Unable to update the booking.")
+    } finally {
+      setIsEditingBooking(false)
+    }
+  }
+
+  const handleDirectCancellation = (id: string) => {
+    if (!canDirectCancel || isEditingBooking || isDirectCancellationSubmitting) return
+    const target = bookings.find((booking) => booking.id === id)
+    if (!target) return
+    setDirectCancellationTarget(target)
+    setDirectCancellationReason("")
+  }
+
+  const confirmDirectCancellation = async () => {
+    const target = directCancellationTarget
+    const reason = directCancellationReason.trim()
+    if (!target || !reason || !canDirectCancel || isDirectCancellationSubmitting) return
+    setIsDirectCancellationSubmitting(true)
+    try {
+      const updated = await bookingCtx.adminCancelBooking(target.id, reason)
+      setDirectCancellationTarget(null)
+      setDirectCancellationReason("")
+      setSelectedBooking(updated)
+      toast({
+        title: "Booking Cancelled",
+        description: `Booking ${target.id} was cancelled. Any eligible refund remains separate from cancellation processing.`,
+        className: "border-none bg-rose-500 text-white",
+      })
+    } catch (error) {
+      toast({
+        title: "Booking Cancellation Failed",
+        description: error instanceof Error ? error.message : "Unable to cancel the booking.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsDirectCancellationSubmitting(false)
+    }
+  }
+
   const handleMarkCompleted = (id: string) => {
     setShowMarkCompletedTarget(id)
     setShowMarkCompletedConfirm(true)
@@ -724,6 +808,7 @@ export default function AdminBookingsPage() {
           booking={selectedBooking}
           open={!!selectedBooking}
           onClose={() => { setSelectedBooking(null); setShowContractConfirm(false) }}
+          onEditBooking={canManageBookings && typeof bookingCtx.modifyBooking === "function" ? handleEditBooking : undefined}
           onMarkCompleted={handleMarkCompleted}
           onMarkContractSigned={() => setShowContractConfirm(true)}
           onSendReminder={(id) => {
@@ -758,6 +843,47 @@ export default function AdminBookingsPage() {
             }
           }}
           onMarkAsRefunded={markAsRefunded}
+          onDirectCancelBooking={canDirectCancel ? handleDirectCancellation : undefined}
+          actionPending={isEditingBooking || isDirectCancellationSubmitting}
+        />
+
+        {editBookingTarget && (
+          <ModifyBookingDialog
+            open={!!editBookingTarget}
+            onOpenChange={(open) => {
+              if (!open && !isEditingBooking) {
+                restoreModifyFocus.current = true
+                setEditBookingTarget(null)
+              }
+            }}
+            onCloseAutoFocus={(event) => {
+              if (!restoreModifyFocus.current) return
+              const trigger = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-booking-details-trigger]"))
+                .find((button) => button.dataset.bookingDetailsTrigger === editBookingTarget.id && button.getClientRects().length > 0)
+              if (trigger) {
+                event.preventDefault()
+                trigger.focus()
+              }
+            }}
+            booking={editBookingTarget}
+            isSaving={isEditingBooking}
+            saveError={editBookingError}
+            onSave={saveEditedBooking}
+          />
+        )}
+
+        <AdminCancelBookingConfirmModal
+          open={!!directCancellationTarget}
+          booking={directCancellationTarget}
+          reason={directCancellationReason}
+          onReasonChange={setDirectCancellationReason}
+          isSubmitting={isDirectCancellationSubmitting}
+          onCancel={() => {
+            if (isDirectCancellationSubmitting) return
+            setDirectCancellationTarget(null)
+            setDirectCancellationReason("")
+          }}
+          onConfirm={confirmDirectCancellation}
         />
 
         <ApproveCancellationConfirmModal
@@ -847,11 +973,7 @@ export default function AdminBookingsPage() {
 
         <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <p className="oe-page-kicker">Operations</p>
-            <h1 className="oe-page-title mt-1">Booking Management</h1>
-            <p className="oe-page-description mt-1 max-w-2xl">
-              Review reservations, schedules, customers, and booking lifecycle actions.
-            </p>
+            <h1 className="oe-page-title">Booking Management</h1>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
             <Button
@@ -1018,27 +1140,18 @@ function getBookingScheduleParts(booking: Booking) {
 
 function AdminBookingStatusBadges({ booking }: { booking: Booking }) {
   const scheduleClassification = getBookingScheduleClassification(booking)
-  const showScheduleBadge = ["upcoming", "active", "legacy"].includes(scheduleClassification) ||
-    (scheduleClassification === "completed" && getBookingLifecycleStatus(booking as unknown as Record<string, unknown>) !== "completed")
+  const lifecycle = getBookingLifecycleStatus(booking as unknown as Record<string, unknown>)
+  // Table-only projection. Filters and Booking Details retain lifecycle semantics.
+  const useSchedule = scheduleClassification === "rejected" ||
+    (lifecycle === "confirmed" && scheduleClassification !== "legacy")
+  const label = useSchedule
+    ? scheduleClassification === "active" ? "Active" : getBookingScheduleClassificationLabel(scheduleClassification)
+    : getBookingLifecycleLabel(booking as unknown as Record<string, unknown>)
   return (
-    <div className="flex min-w-0 flex-col items-start gap-1.5">
-      <span className={cn("oe-status-badge max-w-full whitespace-normal break-words", getStatusBadgeClass(booking.status))}>
-        {getStatusLabel(booking.status)}
-      </span>
-      {showScheduleBadge && (
-        <span className={cn(
-          "oe-status-badge max-w-full whitespace-normal break-words",
-          getBookingSchedulePresentationClass(scheduleClassification),
-        )}>
-          {getBookingScheduleClassificationLabel(scheduleClassification)}
-        </span>
-      )}
-      {isCancellationRequestPending(booking) && (
-        <span className="oe-status-badge max-w-full whitespace-normal break-words border border-amber-200 bg-amber-50 text-amber-700">
-          Cancellation Requested
-        </span>
-      )}
-    </div>
+    <span data-booking-table-status className={cn(
+      "oe-status-badge h-8 max-w-full whitespace-nowrap border",
+      useSchedule ? getBookingSchedulePresentationClass(scheduleClassification) : getStatusBadgeClass(lifecycle),
+    )}>{label}</span>
   )
 }
 
@@ -1154,6 +1267,7 @@ function AdminBookingTableRow({
         <div className="oe-table-actions">
         <Button
           variant="outline"
+          data-booking-details-trigger={booking.id}
           onClick={() => onView(booking)}
           className="oe-table-action h-9 min-w-[104px] whitespace-nowrap border-slate-300 text-slate-800 hover:border-slate-400 hover:bg-slate-50"
         >
@@ -1218,6 +1332,7 @@ function AdminBookingCompactRow({
       <div className="mt-3 flex justify-end border-t border-slate-100 pt-3">
         <Button
           variant="outline"
+          data-booking-details-trigger={booking.id}
           onClick={() => onView(booking)}
           className="oe-table-action h-9 border-slate-300 text-slate-800 hover:border-slate-400 hover:bg-slate-50"
         >
@@ -1242,6 +1357,7 @@ export function BookingDetailsModal({
   onApproveModification,
   onDeclineModification,
   onMarkAsRefunded,
+  onDirectCancelBooking,
   paymentRecords,
   actionPending = false,
 }: {
@@ -1258,6 +1374,7 @@ export function BookingDetailsModal({
   onApproveModification?: (id: string) => void
   onDeclineModification?: (id: string) => void
   onMarkAsRefunded?: (id: string) => void
+  onDirectCancelBooking?: (id: string) => void
   paymentRecords?: PaymentRecordLike[] | null
   actionPending?: boolean
 }) {
@@ -1321,7 +1438,7 @@ export function BookingDetailsModal({
   const bookingStatus = normalizeStatus((booking as any).bookingStatus || booking.status)
   const isCancellationRequested = isCancellationRequestPending(booking)
   const cancellationAudit = getCancellationAudit(booking as unknown as Record<string, unknown>)
-  const isModificationUnderReview = normalizeStatus(booking.status) === "modification_under_review"
+  const isModificationUnderReview = hasActiveModificationForCancellation(booking as unknown as Record<string, unknown>)
 
   const hasActiveProof = (() => {
     const proofExists = Boolean(
@@ -1388,6 +1505,16 @@ export function BookingDetailsModal({
     paymentStatus === "pending_verification"
   const secondaryActionClassName = bookingDetailsActionToneClassNames.slate
   const canEditBooking = Boolean(onEditBooking) && !isCancelled && !isCompleted && !isCancellationRequested && !isModificationUnderReview && !isPaymentUnderReview
+  const directCancellationEligibility = evaluateCancellationEligibility(
+    booking as unknown as Record<string, unknown>,
+    new Date(),
+    bookingPaymentRecords,
+  )
+  const canDirectCancelBooking = Boolean(onDirectCancelBooking) &&
+    isAdminDirectCancellationStatusEligible(booking as unknown as Record<string, unknown>) &&
+    directCancellationEligibility.allowed &&
+    !isCancelled && !isCompleted && !isCancellationRequested && !isModificationUnderReview &&
+    !isPaymentUnderReview && !["rental_expired", "declined"].includes(normalizedStatus)
   const managementActions = (() => {
     if (isCancelled) return null
     const normStatus = normalizeStatus(booking.status)
@@ -1619,6 +1746,7 @@ export function BookingDetailsModal({
           </DialogClose>
         </header>
 
+        <div data-admin-booking-scroll className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div role="region" aria-label="Booking details content" tabIndex={0} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-orange-600 sm:px-6">
 
           <section className="mb-3 rounded-xl border border-orange-100 bg-orange-50/50 p-3 sm:p-4">
@@ -2092,7 +2220,7 @@ export function BookingDetailsModal({
 
       </div>
 
-      <BookingDetailsFooter layout="stacked">
+      <BookingDetailsFooter layout="compact">
         {isContractSigningActionVisible && !showContractSigningActionInFooter && onMarkContractSigned && (
           <ContractSigningAction disabled={actionPending} onClick={onMarkContractSigned} secondary={Boolean(managementActions || showRefundAction)} />
         )}
@@ -2104,7 +2232,18 @@ export function BookingDetailsModal({
             variant="outline"
             className={cn(bookingDetailsStackedActionClassName, bookingDetailsActionToneClassNames.slate)}
           >
-            <CalendarDays className="size-4" /> Edit Booking Details
+            <CalendarDays className="size-4" /> Modify Booking
+          </Button>
+        )}
+        {canDirectCancelBooking && onDirectCancelBooking && (
+          <Button
+            type="button"
+            disabled={actionPending}
+            onClick={() => onDirectCancelBooking(booking.id)}
+            variant="outline"
+            className={cn(bookingDetailsStackedActionClassName, bookingDetailsActionToneClassNames.destructive)}
+          >
+            <AlertCircle className="size-4" /> Cancel Booking
           </Button>
         )}
         {managementActions}
@@ -2115,6 +2254,7 @@ export function BookingDetailsModal({
           </Button>
         )}
       </BookingDetailsFooter>
+        </div>
   </DialogContent>
 </Dialog>
   )
@@ -2567,6 +2707,111 @@ export function ApproveCancellationConfirmModal({
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button variant="outline" onClick={onCancel} className="h-11 w-full sm:w-auto rounded-xl border-slate-200 text-sm font-black text-slate-700">Cancel</Button>
               <Button onClick={onConfirm} className="h-11 w-full sm:w-auto rounded-xl bg-rose-600 text-sm font-black text-white hover:bg-rose-700">Approve Cancellation</Button>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function AdminCancelBookingConfirmModal({
+  open,
+  booking,
+  reason,
+  onReasonChange,
+  onCancel,
+  onConfirm,
+  isSubmitting = false,
+}: {
+  open: boolean
+  booking: Booking | null
+  reason: string
+  onReasonChange: (value: string) => void
+  onCancel: () => void
+  onConfirm: () => void
+  isSubmitting?: boolean
+}) {
+  const [reasonError, setReasonError] = useState(false)
+
+  useEffect(() => {
+    if (open) setReasonError(false)
+  }, [booking?.id, open])
+
+  const handleConfirm = () => {
+    if (!reason.trim()) {
+      setReasonError(true)
+      return
+    }
+    setReasonError(false)
+    onConfirm()
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(value) => !value && !isSubmitting && onCancel()}>
+      <DialogContent aria-describedby={undefined} className="w-[95vw] sm:max-w-[560px] max-h-[90dvh] rounded-2xl border-0 bg-white p-0 shadow-2xl [&>button]:hidden">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 sm:px-7 sm:py-6">
+            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-50 text-rose-600">
+              <AlertCircle className="h-8 w-8" aria-hidden="true" />
+            </div>
+            <DialogTitle className="text-2xl font-black text-slate-950">Cancel Booking?</DialogTitle>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              You are about to cancel this client&apos;s booking. This action updates the booking status and may affect availability. Any applicable refund will be handled according to the existing refund workflow.
+            </p>
+            {booking && (
+              <div className="mt-5 space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left">
+                <div className="flex justify-between gap-4 text-xs">
+                  <span className="font-semibold text-slate-400">Booking reference</span>
+                  <span className="font-bold text-slate-900 [overflow-wrap:anywhere]">{booking.id}</span>
+                </div>
+                <div className="flex justify-between gap-4 text-xs">
+                  <span className="font-semibold text-slate-400">Client</span>
+                  <span className="text-right font-bold text-slate-900 [overflow-wrap:anywhere]">{booking.userInfo?.name || "Client not listed"}</span>
+                </div>
+                <div className="flex justify-between gap-4 text-xs">
+                  <span className="font-semibold text-slate-400">Booking</span>
+                  <span className="text-right font-bold text-slate-900 [overflow-wrap:anywhere]">{booking.eventName || booking.companyName || "Untitled booking"}</span>
+                </div>
+              </div>
+            )}
+            <div className="mt-5">
+              <Label htmlFor="admin-cancellation-reason" className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-900">Cancellation reason *</Label>
+              <Textarea
+                id="admin-cancellation-reason"
+                value={reason}
+                required
+                aria-required="true"
+                onChange={(event) => {
+                  onReasonChange(event.target.value)
+                  if (reasonError && event.target.value.trim()) setReasonError(false)
+                }}
+                placeholder="Explain why the booking is being cancelled..."
+                aria-invalid={reasonError}
+                className={cn("mt-1.5 min-h-[96px] resize-y rounded-xl border text-sm focus-visible:ring-rose-600", reasonError ? "border-rose-300" : "border-slate-200")}
+              />
+              {reasonError && <p className="mt-1 text-xs font-semibold text-rose-600" role="alert">Please provide a cancellation reason.</p>}
+            </div>
+          </div>
+          <div className="shrink-0 border-t border-slate-100 bg-white px-6 py-5 sm:px-7">
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isSubmitting}
+                onClick={onCancel}
+                className="h-11 w-full rounded-xl border-slate-200 text-sm font-black text-slate-700 sm:w-auto"
+              >
+                Keep Booking
+              </Button>
+              <Button
+                type="button"
+                disabled={isSubmitting}
+                onClick={handleConfirm}
+                className="h-11 w-full rounded-xl bg-rose-600 text-sm font-black text-white hover:bg-rose-700 sm:w-auto"
+              >
+                {isSubmitting ? "Cancelling..." : "Confirm Cancellation"}
+              </Button>
             </div>
           </div>
         </div>

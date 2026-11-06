@@ -215,20 +215,28 @@ try {
    }
    const waitForPaint = () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
 
-   await check("client dashboard shows canonical payment overview labels and values", async () => {
+   await check("client dashboard removes Payment Overview and keeps recent activity and transactions navigation", async () => {
     await goto("dashboard")
     await page.getByRole("heading", { name: "Dashboard", exact: true }).waitFor()
-    await page.getByText("Payment Overview", { exact: true }).waitFor()
-    assert.equal(await page.getByText("₱10,000.00", { exact: true }).count() > 0, true)
-    assert.equal(await page.getByText("₱2,000.00", { exact: true }).count() > 0, true)
-    assert.equal(await page.getByText("₱3,000.00", { exact: true }).count() > 0, true)
-     assert.equal(await page.getByText("Pending submissions are shown separately and do not count as received payments.", { exact: true }).count(), 1)
+    assert.equal(await page.getByText("Payment Overview", { exact: true }).count(), 0)
+    assert.equal(await page.getByText("Pending submissions are shown separately and do not count as received payments.", { exact: true }).count(), 0)
+    await page.getByRole('heading', {name:'Recent Payments',exact:true}).waitFor()
+    assert.equal(await page.getByRole('link', {name:'Manage',exact:true}).getAttribute('href'), '/portal/payments')
+    assert.equal(await page.locator('.oe-page-kicker, .oe-page-description').count(), 0)
+    for (const width of [320,375,768,1024,1440]) {
+      await page.setViewportSize({width,height:720})
+      await waitForPaint()
+      const title=await page.getByRole('heading',{name:'Dashboard',exact:true}).boundingBox()
+      const action=await page.getByRole('button',{name:'New Booking',exact:true}).boundingBox()
+      assert.ok(title.x+title.width<=width && action.x+action.width<=width)
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true)
+    }
    })
 
-   await check("successful empty dashboard reads preserve legitimate zero totals", async () => {
+   await check("successful empty dashboard reads keep the empty activity state without the removed overview", async () => {
      await page.evaluate(() => window.fixture.update({ bookings: [], paymentRecords: [], dataError: null, dataErrors: {}, isLoading: false }))
-     await page.getByText("Payment Overview", { exact: true }).waitFor()
-     assert.equal(await page.getByText("₱0.00", { exact: true }).count(), 4)
+     await page.getByText("No payments yet.", { exact: true }).waitFor()
+     assert.equal(await page.getByText("Payment Overview", { exact: true }).count(), 0)
      assert.equal(await page.getByRole("alert").count(), 0)
      await page.evaluate(() => window.fixture.reset())
    })
@@ -242,8 +250,8 @@ try {
      await page.getByRole("status").waitFor()
      assert.equal(await page.getByText("Payment Overview", { exact: true }).count(), 0)
      await page.evaluate(() => window.fixture.resolveDataRetry())
-     await page.getByText("Payment Overview", { exact: true }).waitFor()
-     assert.equal(await page.getByText("₱10,000.00", { exact: true }).count() > 0, true)
+     await page.getByRole('heading', {name:'Recent Payments',exact:true}).waitFor()
+     assert.equal(await page.getByText("Payment Overview", { exact: true }).count(), 0)
    })
 
    await check("client payment read failure does not render a partial aggregate", async () => {
@@ -254,15 +262,15 @@ try {
      await page.getByRole("button", { name: "Retry dashboard data", exact: true }).click()
      await page.getByRole("status").waitFor()
      await page.evaluate(() => window.fixture.resolveDataRetry())
-     await page.getByText("Payment Overview", { exact: true }).waitFor()
+     await page.getByRole('heading', {name:'Recent Payments',exact:true}).waitFor()
    })
 
    await check("account switching does not expose the previous client's financial data", async () => {
      await page.evaluate(() => window.fixture.reset())
      await goto("dashboard", "client", "CLIENT-2")
-     await page.getByText("Payment Overview", { exact: true }).waitFor()
+     await page.getByText("No payments yet.", { exact: true }).waitFor()
      assert.equal(await page.getByText("Fixture Reservation", { exact: true }).count(), 0)
-     assert.equal(await page.getByText("₱0.00", { exact: true }).count(), 4)
+     assert.equal(await page.getByText("Payment Overview", { exact: true }).count(), 0)
    })
 
    await check("admin combined and permission-denied reads fail closed", async () => {
@@ -280,6 +288,7 @@ try {
      await page.getByRole("status").waitFor()
      await page.evaluate(() => window.fixture.resolveDataRetry())
      await page.getByRole("heading", { name: "Dashboard", exact: true }).waitFor()
+     assert.equal(await page.locator('.oe-page-kicker, .oe-page-description').count(), 0)
      assert.equal(await page.getByText("₱10,000", { exact: true }).count() > 0, true)
    })
 
@@ -421,13 +430,17 @@ try {
    })
 
   await check("dashboard and chat avoid page-level horizontal overflow at required widths", async () => {
-    for (const view of ["dashboard", "client-chat"]) {
-      await goto(view)
+    for (const view of ["dashboard", "admin-dashboard", "client-chat"]) {
+      await goto(view, view === 'admin-dashboard' ? 'admin' : 'client')
       for (const width of [320, 375, 768, 1024, 1440]) {
         await page.setViewportSize({ width, height: 720 })
         await waitForPaint()
         const metrics = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.documentElement.scrollWidth }))
         assert.ok(metrics.scrollWidth <= metrics.width + 1, `${view} has horizontal overflow at ${width}px`)
+        if (view.endsWith('dashboard')) {
+          assert.equal(await page.getByRole('heading',{name:'Dashboard',exact:true}).count(),1)
+          assert.equal(await page.locator('.oe-page-kicker, .oe-page-description').count(),0)
+        }
       }
     }
   })

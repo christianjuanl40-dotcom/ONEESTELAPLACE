@@ -342,10 +342,12 @@ try {
     const footerBox = await footer.boundingBox()
     const contentBox = await details().boundingBox()
     const dialogBox = await dialog.boundingBox()
+    const shortPhone = size.width < 640 && size.height <= 680
+    const scroller = shortPhone ? dialog.locator('[data-admin-booking-scroll]') : details()
     assert.ok(dialogBox.y >= 15 && dialogBox.y + dialogBox.height <= size.height - 15, "modal must fit the viewport")
-    assert.ok(contentBox.height >= 150, "content must retain usable height")
+    assert.ok((await scroller.boundingBox()).height >= 150, "content must retain usable height")
     assert.ok(contentBox.y + contentBox.height <= footerBox.y + 1, "footer must not cover details")
-    assert.ok(footerBox.height <= 220, "management 56px actions must stack compactly")
+    assert.ok(footerBox.height <= 220, "44px management actions fit compact responsive rows")
     await noOverflow(dialog)
     await page.screenshot({ path: join(output, `booking-${size.name}-details.png`) })
 
@@ -355,18 +357,19 @@ try {
     }))
     await details().getByText(/VeryLongCustomerName/).waitFor()
     await noOverflow(dialog)
-    assert.equal(await details().evaluate(element => element.scrollHeight > element.clientHeight), true)
+    assert.equal(await scroller.evaluate(element => element.scrollHeight > element.clientHeight), true)
     const scrollers = await dialog.evaluate(element => [element, ...element.querySelectorAll("*")].filter(node =>
       /auto|scroll/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight + 1,
     ).length)
     assert.equal(scrollers, 1, "modal must have one usable scroll region")
     await details().focus()
     await page.keyboard.press("End")
-    await page.waitForFunction(() => document.querySelector('[aria-label="Booking details content"]').scrollTop > 0)
+    await page.waitForFunction(short => document.querySelector(short ? '[data-admin-booking-scroll]' : '[aria-label="Booking details content"]').scrollTop > 0, shortPhone)
+    await scroller.evaluate(element => { element.scrollTop = element.scrollHeight })
     assert.equal(await footer.evaluate(element => {
       const box = element.getBoundingClientRect()
       return box.bottom <= innerHeight && box.top >= 0
-    }), true, "footer must remain visible while content scrolls")
+    }), true, "footer remains visible or is reachable at the end of the single short-phone scroll surface")
     await page.screenshot({ path: join(output, `booking-${size.name}-long-values.png`) })
     await page.getByRole("button", { name: "Close booking details", exact: true }).click()
     await page.waitForFunction(() => !document.body.hasAttribute("data-scroll-locked"))

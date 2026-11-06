@@ -24,6 +24,18 @@ const TERMINAL_STATUSES = new Set([
   "rental_expired",
 ])
 
+const ADMIN_DIRECT_CANCELLATION_STATUSES = new Set([
+  "pending",
+  "approved",
+  "confirmed",
+  "fully_paid",
+  "reservation_secured",
+  "slot_secured",
+  "slot_verified",
+  "contract_signing_required",
+  "active_rental",
+])
+
 const PAYMENT_UNAVAILABLE_STATUSES = new Set([
   "",
   "unpaid",
@@ -68,10 +80,11 @@ function appendLog(
   action: string,
   message: string,
   createdAt: string,
+  metadata: CancellationRecord = {},
 ): CancellationRecord[] {
   return [
     ...getAdminLogs(booking),
-    { action, message, createdAt },
+    { action, message, createdAt, ...metadata },
   ]
 }
 
@@ -108,6 +121,33 @@ export function hasPendingCancellation(booking: CancellationRecord): boolean {
 
 export function bookingBelongsToUser(booking: CancellationRecord, userId: string): boolean {
   return String(booking.userId || booking.uid || "") === userId
+}
+
+/**
+ * Direct administrative cancellation uses the existing cancellation/refund
+ * policy, but it must never operate on a terminal lifecycle record or an
+ * already-released rental. The API still rechecks this inside its transaction.
+ */
+export function isAdminDirectCancellationStatusEligible(booking: CancellationRecord): boolean {
+  return ADMIN_DIRECT_CANCELLATION_STATUSES.has(normalize(booking.status))
+}
+
+export function hasActiveModificationForCancellation(booking: CancellationRecord): boolean {
+  const status = normalize(booking.status)
+  const bookingStatus = normalize(booking.bookingStatus)
+  const modificationStatus = normalize(booking.modificationStatus)
+  const requestStatus = normalize(booking.modifyRequestStatus)
+
+  return (
+    status === "modification_under_review" ||
+    status === "modification under review" ||
+    bookingStatus === "modification_under_review" ||
+    bookingStatus === "modification under review" ||
+    booking.modificationRequested === true ||
+    booking.modificationUnderReview === true ||
+    ["under review", "modification_under_review", "modification under review"].includes(modificationStatus) ||
+    ["pending", "under review", "modification_under_review", "modification under review"].includes(requestStatus)
+  )
 }
 
 export type CancellationEligibility = {
@@ -284,6 +324,73 @@ export function buildCancellationApprovalFields(
         ? "Admin approved cancellation. Refund is eligible and can be claimed onsite in cash."
         : "Admin approved cancellation. Booking is non-refundable based on policy.",
       reviewedAt,
+    ),
+  }
+}
+
+export function buildAdminCancellationFields(
+  booking: CancellationRecord,
+  reason: string,
+  reviewedAt: string,
+  reviewer: { id?: string; name?: string } = {},
+  records: ReadonlyArray<PaymentRecordLike> = [],
+): CancellationRecord {
+  const approved = buildCancellationApprovalFields(
+    {
+      ...booking,
+      cancellationSource: "admin",
+      cancellationType: "admin_action",
+      cancellationReason: reason,
+      cancellationNotes: reason,
+    },
+    reviewedAt,
+    reviewer,
+    records,
+  )
+  const previousStatus = booking.status || "pending"
+  const previousBookingStatus = booking.bookingStatus || getStatusLabel(normalize(previousStatus))
+  const previousPaymentStatus = booking.paymentStatus || "unpaid"
+
+  return {
+    ...approved,
+    previousStatus,
+    previousBookingStatus,
+    previousPaymentStatus,
+    cancellationSource: "admin" as CancellationSource,
+    cancellationType: "admin_action" as CancellationType,
+    cancellationReason: reason,
+    cancelReason: reason,
+    cancellationNotes: reason,
+    ...(reviewer.id ? {
+      cancellationActorId: reviewer.id,
+      cancellationRequestedBy: reviewer.id,
+      cancelledBy: reviewer.id,
+    } : {}),
+    ...(reviewer.name ? {
+      cancellationActorName: reviewer.name,
+      cancellationRequestedByName: reviewer.name,
+      cancelledByName: reviewer.name,
+    } : {}),
+    adminCancelDecision: "approved",
+    adminCancelReason: reason,
+    adminLogs: appendLog(
+      booking,
+      "ADMIN_CANCEL_BOOKING",
+      `Administrator cancelled the booking. Reason: ${reason}`,
+      reviewedAt,
+      {
+        ...(reviewer.id ? { actorId: reviewer.id } : {}),
+        ...(reviewer.name ? { actorName: reviewer.name } : {}),
+        previousValues: {
+          status: previousStatus,
+          bookingStatus: previousBookingStatus,
+          paymentStatus: previousPaymentStatus,
+        },
+        updatedValues: {
+          status: "cancelled",
+          bookingStatus: "Cancelled",
+        },
+      },
     ),
   }
 }

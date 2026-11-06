@@ -261,6 +261,43 @@ try {
     assert.ok((await page.evaluate(() => window.scrollY)) > 0)
   })
 
+  await check("single primary badge follows lifecycle and schedule without changing filter semantics", async () => {
+    await page.evaluate(() => {
+      const base = window.fixture.bookings[0]
+      window.fixture.updateBookings([
+        { ...base, id: 'STATUS-PENDING', status: 'pending', date: '2099-01-01' },
+        { ...base, id: 'STATUS-UPCOMING', status: 'confirmed', date: '2099-01-01' },
+        { ...base, id: 'STATUS-ACTIVE', status: 'confirmed', date: '2000-01-01', endDate: '2099-01-01' },
+        { ...base, id: 'STATUS-COMPLETED', status: 'completed' },
+        { ...base, id: 'STATUS-CANCELLED', status: 'cancelled' },
+        { ...base, id: 'STATUS-REJECTED', status: 'declined' },
+        { ...base, id: 'STATUS-LEGACY', status: 'confirmed', date: '' },
+      ])
+    })
+    const expected = ['Pending', 'Upcoming', 'Active', 'Completed', 'Cancelled', 'Rejected', 'Confirmed']
+    for (const width of [320, 375, 768, 1024, 1440]) {
+      await page.setViewportSize({ width, height: 720 })
+      await waitForPaint()
+      const rows = width >= 768 ? table().locator('tbody tr') : page.locator('.space-y-2.md\\:hidden > div')
+      assert.equal(await rows.count(), 7)
+      const labels = []
+      for (const row of await rows.all()) {
+        assert.equal(await row.locator('.oe-status-badge').count(), 1, 'exactly one badge per row')
+        labels.push((await row.locator('[data-booking-table-status]').innerText()).trim())
+      }
+      assert.deepEqual(labels.sort(), [...expected].sort())
+    }
+    await page.getByRole('combobox', { name: 'Booking status filter', exact: true }).click()
+    await page.getByRole('option', { name: 'Confirmed', exact: true }).click()
+    await waitForPaint()
+    assert.equal(await table().locator('tbody tr').count(), 3, 'Confirmed filter still uses lifecycle, not the new label')
+    await page.getByRole('button', { name: 'View Details', exact: true }).first().click()
+    await page.getByRole('dialog').getByText('Confirmed', { exact: true }).first().waitFor()
+    await page.keyboard.press('Escape')
+    assert.equal(await page.getByRole('heading', { name: 'Booking Management', exact: true }).count(), 1)
+    assert.equal(await page.locator('.oe-page-kicker, .oe-page-description').count(), 0)
+  })
+
   assert.equal(blocked.length, 0, `browser attempted external requests: ${blocked.join(", ")}`)
   assert.equal(errors.length, 0, `browser errors: ${errors.join("\n")}`)
   console.log(`Booking table/order browser checks passed (${passed.length} scenarios). Artifacts: ${output}`)

@@ -72,7 +72,13 @@ const stateModule = `
     remove(id) {publish({...state,paymentRecords:state.paymentRecords.filter(r=>r.id!==id),bookings:state.bookings.map(b=>({...b,paymentReceipts:b.paymentReceipts?.filter(r=>r.paymentId!==id)}))})},
     freezeHistory() {publish({...state,paymentRecords:state.paymentRecords.map(record=>record.bookingId==='BK-REVIEW'?{...record,reviewSnapshot:buildFinalizedPaymentSnapshot({...base,id:'BK-REVIEW'},records.filter(r=>r.paymentNumber<=record.paymentNumber),record,date(record.paymentNumber+10))}:record)})},
     page(ids) {publish({...state,paymentRecords:state.paymentRecords.filter(r=>ids.includes(r.id))})},
-    snapshot() {return state},
+     snapshot() {return state},
+     setupAlignment() {
+       const fixtures=[['INCOMPLETE','Incomplete',1500],['PARTIAL','Verified',5000],['PENDING','For Verification',5000],['PAID','Verified',10000]];
+       const bookings=fixtures.map(([key,status,amount])=>({...base,id:'ALIGN-'+key,eventName:'Alignment '+key,date:'2099-03-01',amountPaid:status==='For Verification'?0:amount,contractSigned:true,contractStatus:'Signed'}));
+       const paymentRecords=fixtures.map(([key,status,amount])=>({id:'PAY-ALIGN-'+key,bookingId:'ALIGN-'+key,customerId:'CLIENT',status,verificationStatus:status,amount,amountReceived:status==='Incomplete'?amount:undefined,requestedAmount:5000,term:'Down Payment',paymentMethod:'bank',submittedAt:date(20),proofUrl:${JSON.stringify(image)}}));
+       publish({...state,bookings,paymentRecords});
+     },
     addOfficeBooking() {publish({...state,bookings:[...state.bookings,{...base,id:'ACTIVE-OFFICE',bookingCategory:'office',isOfficeRental:true,venueId:'wing-b',officeId:'wing-b',spaceId:'other-suite',venue:'South Wing - Other Suite',status:'active_rental'}]})},
   };
   let cmsState={paymentInfo:{},cmsData:{
@@ -180,6 +186,8 @@ const mocks = [
 
 const server = await createServer({
   configFile: false,
+  envFile: false,
+  envDir: false,
   root,
   cacheDir: join(output, "vite-cache"),
   logLevel: "error",
@@ -261,6 +269,79 @@ try {
     const overflow = await page.locator('[data-slot="dialog-content"]').first().evaluate(element => element.scrollWidth > element.clientWidth + 1)
     assert.equal(overflow, false, "modal must not overflow horizontally")
     checks++
+  }
+
+  // Actual table/compact-row DOM, not a parallel utility-only presentation test.
+  for (const surface of ['admin','client']) {
+    await page.goto(`${origin}/__payment-review?${surface}`)
+    await page.getByRole('heading', {name:surface==='admin'?'Payment Verification':'My Transactions',exact:true}).waitFor()
+    await page.evaluate(() => window.paymentFixture.setupAlignment())
+    const before=await page.evaluate(() => JSON.stringify(window.paymentFixture.snapshot()))
+    for (const width of [320,375,768,1024,1440]) {
+      await page.setViewportSize({width,height:844})
+      await page.evaluate(() => new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))
+      assert.equal(await page.locator('.oe-page-kicker, .oe-page-description').count(),0)
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true)
+      const badges=page.locator('.oe-payment-status:visible')
+      assert.equal(await badges.count(),4)
+      const boxes=await badges.evaluateAll(nodes=>nodes.map(el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,overflow:el.scrollWidth>el.clientWidth+1,whiteSpace:getComputedStyle(el).whiteSpace}}))
+      for(const box of boxes){
+        assert.equal(box.height,32)
+        assert.equal(box.width,176)
+        assert.equal(box.overflow,false)
+        assert.equal(box.whiteSpace,'nowrap')
+        assert.ok(Math.abs(box.x-boxes[0].x)<1,'badges share a consistent horizontal position')
+      }
+      if(width>=768){
+        const cells=page.locator(surface==='admin'?'[data-payment-review-status]':'[data-transaction-status]')
+        for(const cell of await cells.all()){
+          const c=await cell.boundingBox(),b=await cell.locator('.oe-payment-status').boundingBox()
+          assert.ok(Math.abs(c.x+c.width/2-b.x-b.width/2)<1,'badges centered in their semantic column')
+        }
+        const container=page.locator('[data-slot="table-container"]').first()
+        await container.evaluate(el=>{el.scrollLeft=el.scrollWidth})
+        assert.equal(await container.evaluate(el=>el.scrollWidth<=el.clientWidth+1||el.scrollLeft>0),true)
+      }
+      if(surface==='client'){
+        const rows=page.locator('[data-transaction-target]:visible')
+        for(const row of await rows.all()){
+          const id=await row.getAttribute('data-transaction-target'),text=await row.innerText()
+          assert.match(text,/₱10,000/)
+          const expected=id==='ALIGN-INCOMPLETE'?['₱1,500','₱8,500']:id==='ALIGN-PARTIAL'?['₱5,000','₱5,000']:id==='ALIGN-PENDING'?['₱0','₱10,000','₱5,000']:['₱10,000','₱0']
+          for(const value of expected)assert.ok(text.includes(value),`${id}: unchanged canonical value ${value}`)
+          const paid=id==='ALIGN-INCOMPLETE'?'₱1,500':id==='ALIGN-PARTIAL'?'₱5,000':id==='ALIGN-PENDING'?'₱0':'₱10,000'
+          const balance=id==='ALIGN-INCOMPLETE'?'₱8,500':id==='ALIGN-PARTIAL'?'₱5,000':id==='ALIGN-PENDING'?'₱10,000':'₱0'
+          const pending=id==='ALIGN-PENDING'?'₱5,000':'₱0'
+          assert.deepEqual((await row.locator('.oe-financial-value').allTextContents()).map(text=>text.trim()),['₱10,000',paid,balance,...(width<768||id==='ALIGN-PENDING'?[pending]:[])])
+          if(width>=768){
+            const amounts=await row.locator('.oe-financial-value').evaluateAll(nodes=>nodes.map(el=>el.getBoundingClientRect().right))
+            for(const right of amounts)assert.ok(Math.abs(right-amounts[0])<1,'financial amounts share a predictable right edge')
+          }
+          for(const button of await row.getByRole('button').all()){
+            const b=await button.boundingBox()
+            assert.ok(b.height>=44)
+            assert.equal(await button.evaluate(el=>el.scrollWidth>el.clientWidth+1),false)
+          }
+        }
+      }
+      await page.screenshot({path:join(output,`${surface}-${width}-aligned-status.png`)})
+      const actionName=surface==='admin'?(width<768?'Review submissions':'Review'):'View Details'
+      await page.getByRole('button',{name:actionName,exact:true}).first().click()
+      await page.getByRole('dialog').first().waitFor()
+      await page.keyboard.press('Escape')
+      await page.getByRole('dialog').waitFor({state:'detached'})
+      if(surface==='client')for(const name of ['Make Payment','Settle Remaining Balance']){
+        await page.getByRole('button',{name,exact:true}).first().click()
+        await page.getByRole('button',{name:'Back to My Transactions',exact:true}).waitFor()
+        await page.locator('form').waitFor()
+        assert.equal(await page.locator('form').evaluate(el=>el.scrollWidth>el.clientWidth+1),false)
+        await page.getByRole('button',{name:'Back to My Transactions',exact:true}).click()
+        await page.getByRole('heading',{name:'My Transactions',exact:true}).waitFor()
+      }
+      assert.equal(await page.evaluate(()=>JSON.stringify(window.paymentFixture.snapshot())),before,'view/payment-entry actions do not mutate financial fixtures')
+      checks++
+      console.log(`PASS ${surface} ${width}px status/financial/action alignment`)
+    }
   }
 
   for (const surface of ["admin", "client"]) {
