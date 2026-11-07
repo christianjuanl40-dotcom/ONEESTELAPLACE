@@ -39,10 +39,12 @@ const modules = {
         {id:'PAY-VERIFIED',bookingId:'BOOK-1',status:'Verified',amount:2000,submittedAt:'2026-05-01T01:00:00.000Z'},
         {id:'PAY-PENDING',bookingId:'BOOK-1',status:'For Review',amount:3000,submittedAt:'2026-05-02T01:00:00.000Z'}
       ],
-      notifications:[
-        {id:'NOTIF-1',type:'booking_approved',title:'Booking approved',message:'Your fixture reservation is confirmed.',bookingId:'BOOK-1',userId:clientId,isRead:false,moduleRead:false,createdAt:'2026-05-15T04:05:00.000Z',link:'/portal/bookings'},
-        {id:'NOTIF-2',type:'balance_reminder',title:'Invalid destination fixture',message:'This record has no safe route.',bookingId:'BOOK-1',userId:clientId,isRead:true,moduleRead:true,createdAt:'2026-05-14T04:05:00.000Z',link:'javascript:blocked'}
-      ],
+       notifications:[
+         {id:'NOTIF-1',type:'booking_approved',title:'Booking approved',message:'Your fixture reservation is confirmed.',bookingId:'BOOK-1',userId:clientId,isRead:false,moduleRead:false,createdAt:'2026-05-15T04:05:00.000Z',link:'/portal/bookings'},
+         {id:'NOTIF-2',type:'balance_reminder',title:'Invalid destination fixture',message:'This record has no safe route.',bookingId:'BOOK-1',userId:clientId,isRead:true,moduleRead:true,createdAt:'2026-05-14T04:05:00.000Z',link:'javascript:blocked'},
+         {id:'NOTIF-LONG',type:'payment_incomplete',title:'Payment Requires Attention — Additional information is needed',message:'Please review the payment reference and upload the complete proof of payment before asking the support team to continue with verification. This full message remains available from the notification.',bookingId:'BOOK-1',userId:clientId,isRead:true,moduleRead:true,createdAt:{seconds:Math.floor(Date.parse('2026-11-07T02:45:00.000Z')/1000),nanoseconds:0},link:'/portal/payments'},
+         {id:'NOTIF-MISSING',type:'balance_reminder',title:'Historical notification without date',message:'This legacy record has no recoverable notification timestamp.',bookingId:'BOOK-1',userId:clientId,isRead:true,moduleRead:true,createdAt:null,link:'/portal/bookings'}
+       ],
        notificationError:null,
        notificationLoading:false,
        dataError:null,
@@ -432,14 +434,32 @@ try {
     await page.getByRole("button", { name: "Notifications", exact: true }).click()
     await page.getByRole("dialog", { name: "Notifications" }).waitFor()
     assert.equal(await page.getByText("Booking approved", { exact: true }).count(), 1)
+    assert.equal(await page.getByText("Payment Requires Attention — Additional information is needed", { exact: true }).count(), 1)
+    assert.equal(await page.getByText("Nov 7, 2026, 10:45 AM", { exact: true }).count(), 1)
+    assert.equal(await page.getByText("Date not recorded", { exact: true }).count(), 1)
+    await page.getByRole("button", { name: "Read full message", exact: true }).click()
+    assert.equal(await page.getByText(/This full message remains available from the notification\.$/, { exact: false }).count(), 1)
+    await page.getByRole("button", { name: "Show less", exact: true }).click()
     const invalid = page.getByRole("button", { name: /Invalid destination fixture/ })
     await invalid.click()
     assert.equal(await page.evaluate(() => window.fixture.navigation.length), 0)
-     await page.evaluate(() => window.fixture.setNotificationError("Fixture notification outage"))
-     await page.getByRole("button", { name: "Notifications", exact: true }).click()
-     await page.getByRole("alert").getByText("Fixture notification outage", { exact: true }).waitFor()
-     await page.getByRole("button", { name: "Retry notifications", exact: true }).click()
-   })
+    for (const width of [320, 375, 768, 1024, 1440]) {
+      await page.setViewportSize({ width, height: 720 })
+      await page.getByRole("button", { name: "Notifications", exact: true }).click()
+      await page.getByRole("dialog", { name: "Notifications" }).waitFor()
+      const dimensions = await page.getByRole("dialog", { name: "Notifications" }).evaluate((element) => ({
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+      }))
+      assert.ok(dimensions.scrollWidth <= dimensions.clientWidth + 1, `notification popover overflows at ${width}px`)
+      await page.keyboard.press("Escape")
+      await page.getByRole("dialog", { name: "Notifications" }).waitFor({ state: "hidden" })
+    }
+    await page.evaluate(() => window.fixture.setNotificationError("Fixture notification outage"))
+    await page.getByRole("button", { name: "Notifications", exact: true }).click()
+    await page.getByRole("alert").getByText("Fixture notification outage", { exact: true }).waitFor()
+    await page.getByRole("button", { name: "Retry notifications", exact: true }).click()
+  })
 
    await check("notification read failure rolls back optimistic state and preserves unread count", async () => {
      await page.evaluate(() => window.fixture.reset())

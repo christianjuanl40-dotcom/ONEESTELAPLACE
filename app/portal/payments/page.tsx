@@ -575,25 +575,25 @@ function TransactionTable({
 }) {
   return (
     <>
-      <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm md:block">
-        <Table className="min-w-[1180px] table-fixed">
+      <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:block">
+        <Table className="w-full table-fixed">
           <caption className="sr-only">{mode === "history" ? "Transaction history" : "Active transaction overview"}</caption>
           <colgroup>
-            <col style={{ width: "16%" }} />
-            <col style={{ width: "12%" }} />
-            <col style={{ width: "15%" }} />
-            <col style={{ width: "19%" }} />
+            <col style={{ width: "18%" }} />
+            <col style={{ width: "13%" }} />
             <col style={{ width: "17%" }} />
-            <col style={{ width: "21%" }} />
+            <col style={{ width: "22%" }} />
+            <col style={{ width: "14%" }} />
+            <col style={{ width: "16%" }} />
           </colgroup>
           <TableHeader className="bg-slate-50/80">
             <tr>
-               <TableHead className="oe-table-head">Booking</TableHead>
-               <TableHead className="oe-table-head">Reserved Space</TableHead>
-               <TableHead className="oe-table-head">Schedule</TableHead>
-               <TableHead className="oe-table-head">Financial Summary</TableHead>
-                <TableHead className="oe-table-head text-center">Payment Status</TableHead>
-               <TableHead className="oe-table-head text-right">Actions</TableHead>
+              <TableHead className="oe-table-head px-2.5">Booking</TableHead>
+              <TableHead className="oe-table-head px-2.5">Reserved Space</TableHead>
+              <TableHead className="oe-table-head px-2.5">Schedule</TableHead>
+              <TableHead className="oe-table-head px-2.5">Financial Summary</TableHead>
+              <TableHead className="oe-table-head px-2.5 text-center">Payment Status</TableHead>
+              <TableHead className="oe-table-head px-2.5 text-right">Actions</TableHead>
             </tr>
           </TableHeader>
           <TableBody>
@@ -614,7 +614,7 @@ function TransactionTable({
           </TableBody>
         </Table>
       </div>
-      <div className="space-y-2 md:hidden">
+      <div className="space-y-2 xl:hidden">
         {bookings.map((booking) => (
           <TransactionCompactRow
             key={booking.id}
@@ -688,18 +688,18 @@ function TransactionTableRow({
 
   return (
     <>
-      <tr ref={rowRef} data-transaction-target={booking.id} className={cn("border-b border-slate-100 transition-colors hover:bg-slate-50/70", isHighlighted && "notification-target-highlight")}>
-        <TableCell className="min-w-0 align-top whitespace-normal">
-          <div className="flex items-start gap-2">
-            {mode === "history" && onToggle && <button type="button" onClick={() => onToggle(booking)} aria-expanded={expanded} aria-label={expanded ? `Hide transaction summary for ${booking.id}` : `Show transaction summary for ${booking.id}`} className="mt-0.5 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"><ChevronDown className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")} /></button>}
-             <div className="min-w-0"><p className="oe-table-label truncate">{booking.id}</p><p className="oe-table-primary mt-0.5 line-clamp-2">{booking.eventName || booking.companyName || "Untitled booking"}</p><p className="oe-table-secondary mt-0.5 line-clamp-1">{getPaymentMethodLabel(booking.paymentMethod)}</p></div>
-          </div>
-        </TableCell>
-         <TableCell className="min-w-0 align-top whitespace-normal"><p className="oe-table-primary line-clamp-2">{resource.primary}</p>{resource.room && <p className="oe-table-secondary mt-0.5 line-clamp-1">Room: {resource.room}</p>}</TableCell>
-         <TableCell className="min-w-0 max-w-0 align-top whitespace-normal"><p className="oe-table-primary max-w-full line-clamp-2">{schedule.primary}</p><p className="oe-table-secondary mt-0.5 max-w-full line-clamp-2">{schedule.secondary}</p>{booking.status === "pending" && !isCashPending && !isExpired && <p className="mt-1 max-w-full break-words text-xs font-semibold leading-4 text-orange-700">Time left: {formatCountdown(remainingMs)}</p>}</TableCell>
-          <TableCell className="min-w-0 max-w-0 align-top whitespace-normal"><div className="min-w-0 space-y-1.5"><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3"><span className="oe-financial-label">Total</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.displayTotal)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3"><span className="oe-financial-label">Received</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.amountPaid)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3"><span className="oe-financial-label">Balance</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.remaining)}</span></p>{data.pendingReview > 0 && <p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3"><span className="oe-financial-label">Pending review</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.pendingReview)}</span></p>}</div></TableCell>
-          <TableCell data-transaction-status className="min-w-0 whitespace-nowrap text-center align-middle"><span className={cn("oe-status-badge oe-payment-status", data.statusClass)}>{data.statusLabel}</span></TableCell>
-          <TableCell className="min-w-0 align-middle text-right"><div className="oe-transaction-actions">{action}</div></TableCell>
+        <tr ref={rowRef} data-transaction-target={booking.id} className={cn("border-b border-slate-100 transition-colors hover:bg-slate-50/70", isHighlighted && "notification-target-highlight")}>
+          <TableCell className="min-w-0 px-2.5 align-top whitespace-normal">
+            <div className="flex items-start gap-2">
+              {mode === "history" && onToggle && <button type="button" onClick={() => onToggle(booking)} aria-expanded={expanded} aria-label={expanded ? `Hide transaction summary for ${booking.id}` : `Show transaction summary for ${booking.id}`} className="mt-0.5 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"><ChevronDown className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")} /></button>}
+              <div className="min-w-0"><p className="oe-table-label break-words">{booking.id}</p><p className="oe-table-primary mt-0.5 line-clamp-2">{booking.eventName || booking.companyName || "Untitled booking"}</p></div>
+            </div>
+          </TableCell>
+          <TableCell className="min-w-0 px-2.5 align-top whitespace-normal"><p className="oe-table-primary line-clamp-2">{resource.primary}</p>{resource.room && <p className="oe-table-secondary mt-0.5 line-clamp-1">Room: {resource.room}</p>}</TableCell>
+          <TableCell className="min-w-0 max-w-0 px-2.5 align-top whitespace-normal"><p className="oe-table-primary max-w-full line-clamp-2">{schedule.primary}</p><p className="oe-table-secondary mt-0.5 max-w-full line-clamp-2">{schedule.secondary}</p>{booking.status === "pending" && !isCashPending && !isExpired && <p className="mt-1 max-w-full break-words text-xs font-semibold leading-4 text-orange-700">Time left: {formatCountdown(remainingMs)}</p>}</TableCell>
+          <TableCell className="min-w-0 max-w-0 px-2.5 align-top whitespace-normal"><div className="min-w-0 space-y-1.5"><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="oe-financial-label">Total</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.displayTotal)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="oe-financial-label">Received</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.amountPaid)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="oe-financial-label">Balance</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.remaining)}</span></p>{data.pendingReview > 0 && <p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="oe-financial-label">Pending review</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.pendingReview)}</span></p>}</div></TableCell>
+          <TableCell data-transaction-status className="min-w-0 px-2.5 whitespace-nowrap text-center align-middle"><span className={cn("oe-status-badge oe-payment-status", data.statusClass)}>{data.statusLabel}</span></TableCell>
+          <TableCell className="min-w-0 px-2.5 align-middle text-right"><div className="oe-transaction-actions">{action}</div></TableCell>
       </tr>
       {mode === "history" && expanded && (
         <tr className="border-b border-slate-100 bg-slate-50/60">

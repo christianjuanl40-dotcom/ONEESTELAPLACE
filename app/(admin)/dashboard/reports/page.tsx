@@ -2295,66 +2295,49 @@ export default function ReportsPage() {
 
       <div data-report-dashboard>
 
-      <div data-report-print-card className="mb-6 flex min-w-0 flex-col gap-4 py-2 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-bold text-slate-500">
-          <span>
-            Records: <b className="text-slate-950">{filteredData.length}</b>
-          </span>
-          <span>
-            Total Booking Value: <b className="text-slate-950">{formatReportMoney(reportSummary.totalBookingValue)}</b>
-          </span>
-          <span>
-            Received Payments: <b className="text-orange-600">{formatReportMoney(reportSummary.receivedPayments)}</b>
-          </span>
-          <span>
-            Processed Refunds: <b className="text-red-600">{formatReportMoney(reportSummary.processedRefunds)}</b>
-          </span>
-          <span>
-            Net Received Cash: <b className="text-emerald-600">{formatReportMoney(reportSummary.netReceivedAmount)}</b>
-          </span>
-          <span>
-            Confirmed: <b className="text-slate-950">{reportSummary.confirmed}</b>
-          </span>
-        </div>
-
-        <div data-report-print-hidden className="flex w-full min-w-0 flex-col gap-3 print:hidden sm:flex-row sm:flex-wrap sm:items-center sm:justify-end lg:flex-1">
-           <div className="relative w-full sm:w-auto">
-             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-             <label htmlFor="report-search" className="sr-only">Search booking records</label>
-             <input
-               id="report-search"
-               value={searchTerm}
+      <div className="mb-6 min-w-0 space-y-3">
+        <section
+          data-report-controls
+          data-report-print-hidden
+          aria-label="Report controls"
+          className="flex min-w-0 flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm print:hidden sm:flex-row sm:flex-wrap sm:items-center"
+        >
+          <div className="relative min-w-0 w-full sm:flex-1 sm:basis-[220px]">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <label htmlFor="report-search" className="sr-only">Search booking records</label>
+            <input
+              id="report-search"
+              value={searchTerm}
               onChange={(event) => {
                 setSearchTerm(event.target.value)
                 setCurrentPage(1)
               }}
-               placeholder="Search booking..."
-               aria-label="Search booking records"
-               className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-16 text-xs font-bold text-slate-700 outline-none transition focus:border-orange-300 focus:ring-4 focus:ring-orange-100 sm:w-[230px]"
-             />
-             {searchTerm && (
-               <button
-                 type="button"
-                 onClick={() => { setSearchTerm(""); setCurrentPage(1) }}
-                 aria-label="Clear booking search"
-                 className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400 transition hover:bg-slate-100 hover:text-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
-               >
-                 Clear
-               </button>
-             )}
-           </div>
+              placeholder="Search booking..."
+              aria-label="Search booking records"
+              className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-16 text-xs font-bold text-slate-700 outline-none transition focus:border-orange-300 focus:ring-4 focus:ring-orange-100"
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => { setSearchTerm(""); setCurrentPage(1) }}
+                aria-label="Clear booking search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400 transition hover:bg-slate-100 hover:text-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
+              >
+                Clear
+              </button>
+            )}
+          </div>
 
-           <Select
-             value={filterStatus}
+          <Select
+            value={filterStatus}
             onValueChange={(value) => {
               setFilterStatus(value)
               setCurrentPage(1)
             }}
-           >
-             <SelectTrigger aria-label="Booking status filter" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[175px]">
+          >
+            <SelectTrigger aria-label="Booking status filter" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[175px]">
               <SelectValue placeholder="All Status" />
             </SelectTrigger>
-
             <SelectContent className="rounded-xl shadow-xl">
               {statusOptions.map((status) => (
                 <SelectItem key={status} value={status}>
@@ -2382,7 +2365,38 @@ export default function ReportsPage() {
             <Printer className="mr-1.5 h-3.5 w-3.5" />
             Print Report
           </Button>
-        </div>
+        </section>
+
+        <section
+          data-report-summary
+          aria-label="Report summary"
+          className="grid min-w-0 grid-cols-2 gap-x-5 gap-y-4 rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm sm:grid-cols-3 xl:grid-cols-6"
+        >
+          <div className="min-w-0">
+            <p className="oe-table-label">Records</p>
+            <p className="mt-1 text-lg font-bold tabular-nums text-slate-950">{filteredData.length}</p>
+          </div>
+          <div className="min-w-0">
+            <p className="oe-table-label">Confirmed</p>
+            <p className="mt-1 text-lg font-bold tabular-nums text-slate-950">{reportSummary.confirmed}</p>
+          </div>
+          <div className="min-w-0">
+            <p className="oe-table-label">Total Booking Value</p>
+            <p className="mt-1 break-words text-base font-bold tabular-nums text-slate-950">{formatReportMoney(reportSummary.totalBookingValue)}</p>
+          </div>
+          <div className="min-w-0">
+            <p className="oe-table-label">Received Payments</p>
+            <p className="mt-1 break-words text-base font-bold tabular-nums text-orange-700">{formatReportMoney(reportSummary.receivedPayments)}</p>
+          </div>
+          <div className="min-w-0">
+            <p className="oe-table-label">Processed Refunds</p>
+            <p className="mt-1 break-words text-base font-bold tabular-nums text-rose-700">{formatReportMoney(reportSummary.processedRefunds)}</p>
+          </div>
+          <div className="min-w-0">
+            <p className="oe-table-label">Net Received Cash</p>
+            <p className="mt-1 break-words text-base font-bold tabular-nums text-emerald-700">{formatReportMoney(reportSummary.netReceivedAmount)}</p>
+          </div>
+        </section>
       </div>
 
       <div data-report-print-card className="mb-6 rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">

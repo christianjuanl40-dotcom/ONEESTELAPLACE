@@ -6,6 +6,8 @@ Defense Polish 2 direct administrative booking modification/cancellation workflo
 
 Defense Polish 2.1 (**2026-11-06**) changes only presentation: compact admin actions, a padded Modify dialog with one body scroller and explicit keyboard focus return, a single projected admin booking-table status, aligned payment-list badges/actions, title-only main page headers, and removal of the Client Dashboard Payment Overview. Recent Payments, readiness guards, canonical calculations, APIs, permissions, and persistence contracts are unchanged.
 
+The 2026-11-07 booking-list follow-up keeps persisted confirmed rows labeled `Confirmed` and adds only presentation-level `Rejected` filtering and active sort direction indicators.
+
 Defense Polish 2.2 (**2026-11-06**) adds semantic named toolbars with screen-reader-only page headings, explicit loading/error announcements, responsive Staff Management and Users Information table/card renderers, and labeled keyboard/focus states for the 360° tour. Chat read paths preserve the existing authorization scope while classifying errors, keeping canonical missing-index failures visible, and suppressing stale scope/generation callbacks; equality-only reads remain limited to legacy timestamp-less record discovery.
 
 Defense Polish 2.2.2 (**2026-11-07**) is presentation-only: the public `TourButton` keeps its dark premium panel and existing catalog/selection/panorama behavior while using accessible shared orange/slate foreground utilities for venue and office card capacities, icons, descriptions, tab states, and interactive focus/expanded states. No booking capacity, pricing, or scheduling calculation changes.
@@ -13,6 +15,8 @@ Defense Polish 2.2.2 (**2026-11-07**) is presentation-only: the public `TourButt
 The Admin Dashboard presentation-only cleanup removes the Payment Position card group, its helper note, and its empty toolbar spacing. Recent Bookings, Needs Attention, and Total Records remain in the natural content flow; `calculateAdminDashboardMetrics()`, readiness guards, provider streams, navigation, APIs, permissions, and Firestore persistence are unchanged.
 
 The Client Chat index hotfix adds the minimum `chatMessages` collection-scope composite index for `clientId ASCENDING`, `timestamp DESCENDING`, and `__name__ DESCENDING`. Existing ascending history and sender/read indexes remain unchanged. The local manifest is not a deployment; project `oneestela-ae9b5` still requires an authorized index deployment and build completion before the production query can use it.
+
+**Follow-up (2026-11-07):** Notification records accept Firestore, serialized, ISO, Date, and numeric timestamp forms for presentation and ordering; unrecoverable dates remain visibly undated. The client booking toolbar, below-`xl` payment record renderers, admin status/filter/sort presentation, and Reports control/summary layout were rechecked as presentation-only changes; canonical status, authorization, persistence, and financial helpers remain unchanged.
 
 ## System shape
 
@@ -97,6 +101,7 @@ AuthProvider
 - The maintenance listener has no `orderBy` or arbitrary oldest-500 limit: legacy rows without `createdAt` and old blocks covering future dates must remain visible. It exposes separate loading/error state; a failed listener is not an empty, available schedule.
 - Chat surfaces load through `loadChat()` and release through `unloadChat()`. A client or selected admin conversation keeps a latest bounded realtime page, while `loadOlderMessages()` retrieves older records through bounded cursors and stable document IDs. Admins use a bounded conversation index plus a bounded legacy lane for records without valid timestamps. Canonical ordered/index failures classified as Firestore `failed-precondition` remain visible and retryable until the declared composite indexes are deployed; no equality-only result is presented as complete canonical history and permission failures never broaden the query. Unread listeners request one bounded probe page and display `500+` when the probe may be incomplete; read-state updates process bounded pages without counting outgoing messages. Optimistic read-state recovery is guarded by account scope and history generation so stale failures cannot roll back a later conversation. Notification queries are bounded to 100 records.
 - Firestore's browser cache uses shared multi-tab IndexedDB persistence where available; the SDK can fall back to memory when persistence is unsupported. This avoids the reproduced single-tab exclusive-ownership warning. Cache contents never authorize a profile or confirm initial private data readiness.
+- Notification presentation uses the shared timestamp normalizer for Firestore, serialized, ISO, Date, and numeric values, keeps missing dates honest, and offers an accessible disclosure for long messages. These are display behaviors; notification routing, read state, and the 100-record query bound remain unchanged.
 
 ## Identity and authorization
 

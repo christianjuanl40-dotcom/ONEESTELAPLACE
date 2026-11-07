@@ -17,6 +17,7 @@ import {
 } from "firebase/firestore"
 import type { NotificationItem, NotificationType } from "../lib/notifications"
 import { getAdminNotificationTypes } from "../lib/notification-access"
+import { toValidDate } from "../lib/time-format"
 
 interface NotificationContextValue {
   notifications: NotificationItem[]
@@ -102,7 +103,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           relatedUserName: data.relatedUserName,
           isRead: data.isRead ?? false,
           moduleRead: data.moduleRead ?? data.isRead ?? false,
-          createdAt: data.createdAt,
+          // createdAt is the canonical field. The additional read-only
+          // fallbacks keep older exported/serialized records honest without
+          // fabricating a current timestamp or changing Firestore writes.
+          createdAt: data.createdAt ?? data.eventAt ?? data.timestamp ?? data.notificationAt,
           link: data.link,
         })
       })
@@ -111,8 +115,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     function sortDesc(items: NotificationItem[]): NotificationItem[] {
       return items.sort((a, b) => {
-        const ta = a.createdAt?.toDate?.()?.getTime?.() ?? 0
-        const tb = b.createdAt?.toDate?.()?.getTime?.() ?? 0
+        const ta = toValidDate(a.createdAt)?.getTime() ?? null
+        const tb = toValidDate(b.createdAt)?.getTime() ?? null
+        if (ta === null || tb === null) {
+          if (ta === null && tb === null) return 0
+          return ta === null ? 1 : -1
+        }
         return tb - ta
       })
     }

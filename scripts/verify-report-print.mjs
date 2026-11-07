@@ -88,9 +88,11 @@ try {
   assert.equal(await page.locator('[data-report-print-report]').evaluate(element => getComputedStyle(element).display), "none")
 
   const dashboardText = await page.locator('[data-report-dashboard]').innerText()
-  assert.match(dashboardText, /Received Payments:/)
-  assert.match(dashboardText, /Net Received Cash:/)
-  assert.match(dashboardText, /Total Booking Value/i)
+   assert.match(dashboardText, /Received Payments/)
+   assert.match(dashboardText, /Net Received Cash/)
+   assert.match(dashboardText, /Total Booking Value/i)
+   assert.equal(await page.locator('[data-report-controls]').count(), 1)
+   assert.equal(await page.locator('[data-report-summary]').count(), 1)
   assert.match(dashboardText, /₱10,000\.00/)
   assert.match(dashboardText, /₱5,000\.00/)
   assert.match(dashboardText, /₱2,000\.00/)
@@ -120,12 +122,18 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 })
   for (const width of [320, 375, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: width < 768 ? 844 : 1000 })
-    assert.equal(
-      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
-      true,
-      `report dashboard should not create page-level horizontal overflow at ${width}px`,
-    )
-  }
+     assert.equal(
+       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+       true,
+       `report dashboard should not create page-level horizontal overflow at ${width}px`,
+     )
+     const sections = await page.evaluate(() => {
+       const controls = document.querySelector('[data-report-controls]')?.getBoundingClientRect()
+       const summary = document.querySelector('[data-report-summary]')?.getBoundingClientRect()
+       return controls && summary ? { controlsBottom: controls.bottom, summaryTop: summary.top } : null
+     })
+     assert.ok(sections && sections.summaryTop >= sections.controlsBottom - 1, `report summary overlaps controls at ${width}px`)
+   }
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.locator('#report-rows-per-page').selectOption('10')
 

@@ -6,7 +6,7 @@ import { Button } from "./ui/button"
 import { cn } from "../lib/utils"
 import { useNotifications } from "../contexts/notification-context"
 import type { NotificationType } from "../lib/notifications"
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { formatManilaDateTime, toValidDate } from "../lib/time-format"
 
 const typeIcons: Record<NotificationType, typeof Bell> = {
@@ -73,6 +73,11 @@ export function NotificationDropdown({ id, open, onClose }: Props) {
     markAllAsRead,
   } = useNotifications()
   const ref = useRef<HTMLDivElement>(null)
+  const [expandedNotificationIds, setExpandedNotificationIds] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (!open) setExpandedNotificationIds(new Set())
+  }, [open])
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -105,11 +110,11 @@ export function NotificationDropdown({ id, open, onClose }: Props) {
         ref={ref}
         role="dialog"
         aria-label="Notifications"
-        className="fixed left-2 right-2 top-[72px] z-50 mx-auto flex max-h-[70vh] w-auto max-w-[360px] flex-col border border-slate-200 bg-white shadow-2xl rounded-xl sm:absolute sm:left-auto sm:right-0 sm:top-[calc(100%+12px)] sm:mx-0 sm:w-80 sm:max-w-none"
+        className="fixed left-2 right-2 top-[72px] z-50 mx-auto flex max-h-[70vh] w-auto max-w-[360px] min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl sm:absolute sm:left-auto sm:right-0 sm:top-[calc(100%+12px)] sm:mx-0 sm:w-96 sm:max-w-[calc(100vw-1rem)]"
       >
         {/* Sticky Header */}
-         <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-white/95 px-4 py-3 backdrop-blur-sm z-10">
-           <h3 className="text-sm font-bold text-slate-800">Notifications</h3>
+        <div className="z-10 flex shrink-0 items-center justify-between border-b border-slate-100 bg-white/95 px-4 py-3 backdrop-blur-sm">
+          <h3 className="text-sm font-bold text-slate-800">Notifications</h3>
           {unreadCount > 0 && (
             <Button
               type="button"
@@ -126,7 +131,7 @@ export function NotificationDropdown({ id, open, onClose }: Props) {
         </div>
 
         {/* Scrollable Body */}
-        <div className="flex-1 overflow-y-auto overscroll-contain">
+        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
           {isLoading ? (
             <div className="flex min-h-40 items-center justify-center px-4 py-10 text-center" role="status">
               <p className="text-sm font-medium text-slate-500">Loading notifications…</p>
@@ -145,123 +150,119 @@ export function NotificationDropdown({ id, open, onClose }: Props) {
               </div>
               <p className="text-sm font-semibold text-slate-500">No notifications yet</p>
             </div>
-          ) : (
-            <div className="divide-y divide-slate-50/50">
-              {notifications.map((n) => {
-                const IconComponent = typeIcons[n.type] ?? Bell
-                
-                const notificationTitle = n.title || formatNotificationLabel(n.type)
-
+           ) : (
+             <div className="divide-y divide-slate-100/80">
+               {notifications.map((n) => {
+                 const IconComponent = typeIcons[n.type] ?? Bell
+                 const notificationTitle = n.title || formatNotificationLabel(n.type)
+                 const notificationMessage = String(n.message || "")
+                 const timestampDate = toValidDate(n.createdAt)
                  const timestampLabel = formatManilaDateTime(n.createdAt)
+                 const timestampFallback = "Date not recorded"
                  const destination = getSafeInternalDestination(n.link)
+                 const notificationKey = n.id || `${n.type}-${notificationTitle}`
+                 const isExpanded = expandedNotificationIds.has(notificationKey)
+                 const isLongMessage = notificationMessage.length > 180 || notificationMessage.includes("\n")
+
+                 const openNotification = () => {
+                   if (n.bookingId && destination) {
+                     const isPayment = destination.includes("/dashboard/payments")
+                     if (isPayment) {
+                       sessionStorage.setItem("admin_payment_highlight", n.bookingId)
+                       window.dispatchEvent(new CustomEvent("admin-payment-highlight", { detail: { paymentId: n.bookingId } }))
+                     } else if (destination.includes("/portal/payments")) {
+                       sessionStorage.setItem("client_payment_highlight", n.bookingId)
+                       window.dispatchEvent(new CustomEvent("client-payment-highlight", { detail: { bookingId: n.bookingId } }))
+                     } else if (destination.includes("/dashboard")) {
+                       sessionStorage.setItem("admin_booking_highlight", n.bookingId)
+                       window.dispatchEvent(new CustomEvent("admin-booking-highlight", { detail: { bookingId: n.bookingId } }))
+                     } else {
+                       sessionStorage.setItem("client_booking_highlight", n.bookingId)
+                       window.dispatchEvent(new CustomEvent("client-booking-highlight", { detail: { bookingId: n.bookingId } }))
+                     }
+                   }
+                   if (n.id) void markAsRead(n.id)
+                   if (destination) router.push(destination)
+                   onClose()
+                 }
 
                  return (
-                    <button
-                      type="button"
-                      key={n.id}
-                      onClick={() => {
-                        if (n.bookingId && destination) {
-                          const isPayment = destination.includes("/dashboard/payments")
-                          if (isPayment) {
-                           sessionStorage.setItem(
-                             "admin_payment_highlight",
-                             n.bookingId
-                           )
-                           window.dispatchEvent(
-                             new CustomEvent("admin-payment-highlight", {
-                               detail: { paymentId: n.bookingId },
-                             })
-                           )
-                          } else if (destination.includes("/portal/payments")) {
-                           sessionStorage.setItem(
-                             "client_payment_highlight",
-                             n.bookingId
-                           )
-                           window.dispatchEvent(
-                             new CustomEvent("client-payment-highlight", {
-                               detail: { bookingId: n.bookingId },
-                             })
-                           )
-                          } else if (destination.includes("/dashboard")) {
-                           sessionStorage.setItem(
-                             "admin_booking_highlight",
-                             n.bookingId
-                           )
-                           window.dispatchEvent(
-                             new CustomEvent("admin-booking-highlight", {
-                               detail: { bookingId: n.bookingId },
-                             })
-                           )
-                         } else {
-                           sessionStorage.setItem(
-                             "client_booking_highlight",
-                             n.bookingId
-                           )
-                           window.dispatchEvent(
-                             new CustomEvent("client-booking-highlight", {
-                               detail: { bookingId: n.bookingId },
-                             })
-                           )
-                         }
-                        }
-                        if (n.id) void markAsRead(n.id)
-                        if (destination) router.push(destination)
-                        onClose()
-                      }}
-                    className={cn(
-                      "group flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-slate-50 focus:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-orange-500 sm:py-3",
-                      !n.isRead && "bg-blue-50/40"
-                    )}
+                   <div
+                     key={notificationKey}
+                     className={cn(
+                       "flex min-w-0 items-start gap-3 px-4 py-3.5 transition-colors sm:py-3",
+                       !n.isRead ? "bg-blue-50/40" : "bg-white",
+                     )}
                    >
-                    <div
-                      className={cn(
-                        "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors",
-                        !n.isRead
-                          ? "bg-blue-100 text-blue-600"
-                          : "bg-slate-100 text-slate-500 group-hover:bg-slate-200"
-                      )}
-                    >
-                      <IconComponent className="h-4 w-4" />
-                    </div>
+                     <div
+                       className={cn(
+                         "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors",
+                         !n.isRead ? "bg-blue-100 text-blue-600" : "bg-slate-100 text-slate-500",
+                       )}
+                     >
+                       <IconComponent className="h-4 w-4" aria-hidden="true" />
+                     </div>
 
-                    <div className="flex min-w-0 flex-1 flex-col gap-1">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <p
-                          className={cn(
-                            "min-w-0 flex-1 truncate text-sm tracking-tight",
-                            !n.isRead ? "font-bold text-slate-900" : "font-semibold text-slate-700"
-                          )}
-                        >
-                          {notificationTitle}
-                        </p>
-                        <p className="shrink-0 whitespace-nowrap text-[10px] font-medium tabular-nums text-slate-400">
-                           <time dateTime={toValidDate(n.createdAt)?.toISOString()} title={timestampLabel || "Timestamp unavailable"}>
-                             {timestampLabel || "Time unavailable"}
-                           </time>
-                        </p>
-                      </div>
+                     <div className="min-w-0 flex-1">
+                       <button
+                         type="button"
+                         onClick={openNotification}
+                         aria-label={`Open notification: ${notificationTitle}. ${notificationMessage}`}
+                         className="group min-w-0 w-full rounded-md text-left transition-colors hover:bg-slate-50 focus:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-orange-500"
+                       >
+                         <span
+                           className={cn(
+                             "block break-words text-sm leading-5 tracking-tight",
+                             !n.isRead ? "font-bold text-slate-900" : "font-semibold text-slate-700",
+                           )}
+                         >
+                           {notificationTitle}
+                         </span>
+                         <time
+                           dateTime={timestampDate?.toISOString()}
+                           title={timestampLabel || timestampFallback}
+                           className="mt-1 block text-[11px] font-medium tabular-nums leading-4 text-slate-500"
+                         >
+                           {timestampLabel || timestampFallback}
+                         </time>
+                         <span
+                           className={cn(
+                             "mt-1 block break-words text-xs leading-5",
+                             isLongMessage && !isExpanded && "line-clamp-3",
+                             !n.isRead ? "font-medium text-slate-600" : "text-slate-500",
+                           )}
+                         >
+                           {notificationMessage || "No message provided."}
+                         </span>
+                       </button>
+                       {isLongMessage && (
+                         <button
+                           type="button"
+                           aria-expanded={isExpanded}
+                           onClick={() => setExpandedNotificationIds((current) => {
+                             const next = new Set(current)
+                             if (next.has(notificationKey)) next.delete(notificationKey)
+                             else next.add(notificationKey)
+                             return next
+                           })}
+                           className="mt-1 rounded-sm text-[11px] font-bold text-orange-700 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
+                         >
+                           {isExpanded ? "Show less" : "Read full message"}
+                         </button>
+                       )}
+                     </div>
 
-                      <p
-                        className={cn(
-                          "line-clamp-2 text-xs leading-relaxed",
-                          !n.isRead ? "font-medium text-slate-600" : "text-slate-500"
-                        )}
-                      >
-                        {n.message}
-                      </p>
-                    </div>
-
-                    <div className="flex h-9 shrink-0 items-center justify-center">
-                      {!n.isRead ? (
-                        <span className="h-2 w-2 rounded-full bg-blue-500 shadow-sm" />
-                      ) : (
-                        <span className="h-2 w-2 rounded-full bg-transparent" />
-                      )}
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
+                     <div className="flex h-9 shrink-0 items-center justify-center" aria-label={n.isRead ? "Read notification" : "Unread notification"}>
+                       {!n.isRead ? (
+                         <span className="h-2 w-2 rounded-full bg-blue-500 shadow-sm" aria-hidden="true" />
+                       ) : (
+                         <span className="h-2 w-2 rounded-full bg-transparent" aria-hidden="true" />
+                       )}
+                     </div>
+                   </div>
+                 )
+               })}
+             </div>
           )}
         </div>
       </div>

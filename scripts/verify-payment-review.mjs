@@ -292,12 +292,12 @@ try {
       const boxes=await badges.evaluateAll(nodes=>nodes.map(el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,overflow:el.scrollWidth>el.clientWidth+1,whiteSpace:getComputedStyle(el).whiteSpace}}))
       for(const box of boxes){
         assert.equal(box.height,32)
-        assert.equal(box.width,176)
+         assert.equal(box.width,136)
         assert.equal(box.overflow,false)
         assert.equal(box.whiteSpace,'nowrap')
         assert.ok(Math.abs(box.x-boxes[0].x)<1,'badges share a consistent horizontal position')
       }
-      if(width>=768){
+       if(width>=1280){
         const cells=page.locator(surface==='admin'?'[data-payment-review-status]':'[data-transaction-status]')
         for(const cell of await cells.all()){
           const c=await cell.boundingBox(),b=await cell.locator('.oe-payment-status').boundingBox()
@@ -317,8 +317,8 @@ try {
           const paid=id==='ALIGN-INCOMPLETE'?'₱1,500':id==='ALIGN-PARTIAL'?'₱5,000':id==='ALIGN-PENDING'?'₱0':'₱10,000'
           const balance=id==='ALIGN-INCOMPLETE'?'₱8,500':id==='ALIGN-PARTIAL'?'₱5,000':id==='ALIGN-PENDING'?'₱10,000':'₱0'
           const pending=id==='ALIGN-PENDING'?'₱5,000':'₱0'
-          assert.deepEqual((await row.locator('.oe-financial-value').allTextContents()).map(text=>text.trim()),['₱10,000',paid,balance,...(width<768||id==='ALIGN-PENDING'?[pending]:[])])
-          if(width>=768){
+           assert.deepEqual((await row.locator('.oe-financial-value').allTextContents()).map(text=>text.trim()),['₱10,000',paid,balance,...(width<1280||id==='ALIGN-PENDING'?[pending]:[])])
+           if(width>=1280){
             const amounts=await row.locator('.oe-financial-value').evaluateAll(nodes=>nodes.map(el=>el.getBoundingClientRect().right))
             for(const right of amounts)assert.ok(Math.abs(right-amounts[0])<1,'financial amounts share a predictable right edge')
           }
@@ -330,7 +330,7 @@ try {
         }
       }
       await page.screenshot({path:join(output,`${surface}-${width}-aligned-status.png`)})
-      const actionName=surface==='admin'?(width<768?'Review submissions':'Review'):'View Details'
+       const actionName=surface==='admin'?(width<1280?'Review submissions':'Review'):'View Details'
       await page.getByRole('button',{name:actionName,exact:true}).first().click()
       await page.getByRole('dialog').first().waitFor()
       await page.keyboard.press('Escape')

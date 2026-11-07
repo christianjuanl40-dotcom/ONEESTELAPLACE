@@ -10,6 +10,8 @@ Defense Polish 2.2.2 (**2026-11-07**) keeps the dark Take a Tour panel and orang
 
 The Admin Dashboard uses natural content height: its stat cards flow directly into the Recent Bookings and right-side action/Total Records cards without an empty toolbar spacer or the removed Payment Position mini-card group. Keep the shared admin shell's viewport-bounded layout unchanged for other protected routes.
 
+**Follow-up (2026-11-07):** Notification titles wrap with timestamps beneath them, long messages use an accessible disclosure, and missing timestamps display `Date not recorded`. Client/admin payment surfaces use compact labeled records below `xl`; wide tables use flexible widths, centered uniform status badges, and active-only sort direction icons. Reports place controls and financial summary metrics in separate responsive cards.
+
 Office occupancy badges and scheduling notices rechecked **2026-10-26**; customer/admin Booking Details button hierarchy refined **2026-10-27**; CMS responsive/accessibility surfaces rechecked **2026-11-05**. They reuse the existing compact orange/slate language.
 
 ## Visual direction
@@ -145,7 +147,7 @@ For a global color change, inspect both the semantic variables and explicit bran
 | Forms | `h-10`/`h-11`, `rounded-lg`/`rounded-xl`, slate borders, visible focus rings |
 | Badges | Compact `rounded-md`/`rounded-full`, bold text, semantic background/border |
 | Dialogs | Shared Radix primitive, white `rounded-2xl` surface, capped height, scrollable inner body |
-| Tables | Readable labels, approximately 5–7 intelligently grouped columns, compact consistent cells, wider identity/space columns, wrapped schedule/status content, full-width action allowance, aligned status/actions, contained horizontal overflow when needed, and labeled condensed rows on mobile; Staff Management and Users Information use the same semantic table/card pattern |
+ | Tables | Readable labels, approximately 5–7 intelligently grouped columns, compact consistent cells, wider identity/space columns, wrapped schedule/status content, full-width action allowance, aligned status/actions, flexible desktop widths without unnecessary minimums, contained horizontal overflow when needed, and labeled condensed rows below the wide-table breakpoint; Staff Management and Users Information use the same semantic table/card pattern |
 | Icons | Lucide, usually `h-4 w-4` or `h-5 w-5`, `shrink-0` in compact flex rows |
 
 Tailwind's configured `rounded-lg` is **10px**, `rounded-md` **8px**, and `rounded-sm` **6px** through `--radius`. Default `rounded-xl`/`rounded-2xl`/`rounded-3xl` remain 12px/16px/24px.
@@ -161,6 +163,8 @@ These classes are presentation-only and must not replace the canonical status, p
 The main client/admin Dashboard, booking, and payment pages use title-only, visually hidden `h1` headings without generic Client Portal/Operations eyebrows or descriptive subtitles. Necessary section headings, validation, and workflow instructions remain. The Client Dashboard omits Payment Overview and its explanatory note, but keeps Recent Payments and the My Transactions link. The Admin Dashboard keeps Recent Bookings, Needs Attention, and Total Records while omitting the presentation-only Payment Position group; its shared shell sizing remains unchanged. Staff Management and Users Information retain visible page titles because their record surfaces are not part of this title-only group.
 
 The Reports financial table and CMS venue/office/tour catalog tables use the shared Table primitive where their specialized behavior permits it. Reports retain the same financial row projection for desktop cells and mobile disclosure details; sortable headers, page controls, and status badges remain presentation concerns.
+
+Reports keep controls and financial summary metrics in separate responsive sections so filters remain usable without changing the report row projection or calculations.
 
 ### Reusable styling recipes
 

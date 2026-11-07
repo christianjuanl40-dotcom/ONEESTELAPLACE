@@ -4,7 +4,14 @@ export type TimestampLike =
   | Date
   | string
   | number
-  | { toDate?: () => Date }
+  | {
+      toDate?: () => Date
+      toMillis?: () => number
+      seconds?: number | string
+      _seconds?: number | string
+      nanoseconds?: number | string
+      _nanoseconds?: number | string
+    }
   | null
   | undefined
 
@@ -16,20 +23,62 @@ export function toValidDate(value: unknown): Date | null {
     return Number.isNaN(value.getTime()) ? null : value
   }
 
-  if (typeof value === "object" && value !== null && "toDate" in value) {
-    const toDate = (value as { toDate?: unknown }).toDate
-    if (typeof toDate === "function") {
-      try {
-        const date = toDate()
-        return date instanceof Date && !Number.isNaN(date.getTime()) ? date : null
-      } catch {
-        return null
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return null
+    // Firestore exports and older records may store Unix seconds. Browser
+    // timestamps are normally milliseconds, so use the size of the value to
+    // distinguish the two without inventing a date for invalid numbers.
+    const milliseconds = Math.abs(value) < 100_000_000_000 ? value * 1000 : value
+    const date = new Date(milliseconds)
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+
+  if (typeof value === "string") {
+    const text = value.trim()
+    if (!text) return null
+    const numeric = Number(text)
+    const milliseconds = Number.isFinite(numeric)
+      ? Math.abs(numeric) < 100_000_000_000 ? numeric * 1000 : numeric
+      : null
+    const date = new Date(milliseconds === null ? text : milliseconds)
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+
+  if (typeof value !== "object") return null
+
+  const timestamp = value as TimestampLike & Record<string, unknown>
+
+  if (typeof timestamp.toMillis === "function") {
+    try {
+      const milliseconds = timestamp.toMillis()
+      if (typeof milliseconds === "number" && Number.isFinite(milliseconds)) {
+        const date = new Date(milliseconds)
+        if (!Number.isNaN(date.getTime())) return date
       }
+    } catch {
+      // Continue through the other supported timestamp shapes.
     }
   }
 
-  const date = new Date(value as string | number)
-  return Number.isNaN(date.getTime()) ? null : date
+  if (typeof timestamp.toDate === "function") {
+    try {
+      const date = timestamp.toDate()
+      if (date instanceof Date && !Number.isNaN(date.getTime())) return date
+    } catch {
+      // Continue through the other supported timestamp shapes.
+    }
+  }
+
+  const secondsValue = timestamp.seconds ?? timestamp._seconds
+  const nanosecondsValue = timestamp.nanoseconds ?? timestamp._nanoseconds ?? 0
+  const seconds = Number(secondsValue)
+  const nanoseconds = Number(nanosecondsValue)
+  if (Number.isFinite(seconds) && Number.isFinite(nanoseconds)) {
+    const date = new Date(seconds * 1000 + nanoseconds / 1_000_000)
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+
+  return null
 }
 
 function getManilaDateParts(value: unknown): { year: number; month: number; day: number } | null {

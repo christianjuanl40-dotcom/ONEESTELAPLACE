@@ -277,7 +277,7 @@ try {
         { ...base, id: 'STATUS-LEGACY', status: 'confirmed', date: '' },
       ])
     })
-    const expected = ['Pending', 'Upcoming', 'Active', 'Completed', 'Cancelled', 'Rejected', 'Confirmed']
+    const expected = ['Pending', 'Confirmed', 'Active', 'Completed', 'Cancelled', 'Rejected', 'Confirmed']
     for (const width of [320, 375, 768, 1024, 1440]) {
       await page.setViewportSize({ width, height: 720 })
       await waitForPaint()
@@ -290,6 +290,10 @@ try {
       }
       assert.deepEqual(labels.sort(), [...expected].sort())
     }
+    assert.equal(await table().locator('thead svg').count(), 0, 'inactive booking headers should not show decorative sort arrows')
+    await page.getByRole('button', { name: /Sort bookings by Schedule/ }).click()
+    await waitForPaint()
+    assert.equal(await table().locator('thead svg').count(), 1, 'only the active booking sort should show a direction indicator')
     await page.getByRole('combobox', { name: 'Booking status filter', exact: true }).click()
     await page.getByRole('option', { name: 'Confirmed', exact: true }).click()
     await waitForPaint()

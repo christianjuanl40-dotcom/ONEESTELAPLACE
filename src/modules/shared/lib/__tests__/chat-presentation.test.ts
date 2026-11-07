@@ -9,6 +9,7 @@ import {
   formatManilaDayLabel,
   formatManilaTime,
   isSameManilaDay,
+  toValidDate,
 } from "../time-format"
 
 describe("chat presentation helpers", () => {
@@ -49,5 +50,18 @@ describe("chat presentation helpers", () => {
     expect(formatManilaTime(null)).toBeNull()
     expect(formatManilaDateTime(undefined)).toBeNull()
     expect(formatManilaDayLabel(undefined)).toBeNull()
+  })
+
+  it("converts serialized Firestore timestamp shapes without backfilling missing values", () => {
+    const timestamp = Date.parse("2026-11-07T02:45:00.000Z")
+    const serialized = {
+      seconds: String(Math.floor(timestamp / 1000)),
+      nanoseconds: timestamp % 1000 * 1_000_000,
+    }
+
+    expect(toValidDate(serialized)?.getTime()).toBe(timestamp)
+    expect(formatManilaDateTime(serialized)).toMatch(/Nov 7, 2026.*10:45\s*AM/i)
+    expect(toValidDate({ _seconds: Math.floor(timestamp / 1000), _nanoseconds: 0 })?.getTime()).toBe(timestamp)
+    expect(toValidDate(null)).toBeNull()
   })
 })

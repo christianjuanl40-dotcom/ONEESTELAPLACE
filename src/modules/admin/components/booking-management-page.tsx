@@ -19,7 +19,6 @@ import {
   ArrowRight,
   ArrowDown,
   ArrowUp,
-  ArrowUpDown,
   Bell,
   ChevronLeft,
   ChevronRight,
@@ -56,6 +55,7 @@ import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { cn } from "@/src/modules/shared/lib/utils"
 import {
   getBookingSchedulePresentationClass,
+  getBookingListStatusPresentation,
   getBookingStatusPresentationClass,
 } from "@/src/modules/shared/lib/status-presentation"
 import {
@@ -328,9 +328,7 @@ function BookingSortableHeader({
         <span>{label}</span>
         {isActive ? (
           direction === "asc" ? <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" /> : <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
-        ) : (
-          <ArrowUpDown className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
-        )}
+        ) : null}
       </button>
     </TableHead>
   )
@@ -447,6 +445,8 @@ export default function AdminBookingsPage() {
         if (statusFilter !== "all") {
           if (statusFilter === "requests") {
             if (!isCancellationRequestPending(b) && b.status !== "modification_under_review") return false
+          } else if (statusFilter === "rejected") {
+            if (getBookingScheduleClassification(b) !== "rejected") return false
           } else {
             if (getBookingLifecycleStatus(b as unknown as Record<string, unknown>) !== statusFilter) return false
           }
@@ -757,6 +757,7 @@ export default function AdminBookingsPage() {
     { value: "requests", label: "Requests" },
     { value: "completed", label: "Completed" },
     { value: "cancelled", label: "Cancelled" },
+    { value: "rejected", label: "Rejected" },
   ]
 
   const handleBookingSort = (sortKey: BookingSortKey) => {
@@ -1140,19 +1141,14 @@ function getBookingScheduleParts(booking: Booking) {
 }
 
 function AdminBookingStatusBadges({ booking }: { booking: Booking }) {
-  const scheduleClassification = getBookingScheduleClassification(booking)
-  const lifecycle = getBookingLifecycleStatus(booking as unknown as Record<string, unknown>)
-  // Table-only projection. Filters and Booking Details retain lifecycle semantics.
-  const useSchedule = scheduleClassification === "rejected" ||
-    (lifecycle === "confirmed" && scheduleClassification !== "legacy")
-  const label = useSchedule
-    ? scheduleClassification === "active" ? "Active" : getBookingScheduleClassificationLabel(scheduleClassification)
-    : getBookingLifecycleLabel(booking as unknown as Record<string, unknown>)
+  const presentation = getBookingListStatusPresentation(
+    booking as unknown as Record<string, unknown>,
+  )
   return (
     <span data-booking-table-status className={cn(
       "oe-status-badge h-8 max-w-full whitespace-nowrap border",
-      useSchedule ? getBookingSchedulePresentationClass(scheduleClassification) : getStatusBadgeClass(lifecycle),
-    )}>{label}</span>
+      presentation.className,
+    )}>{presentation.label}</span>
   )
 }
 

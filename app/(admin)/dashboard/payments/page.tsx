@@ -8,7 +8,6 @@ import {
   Banknote,
   ArrowDown,
   ArrowUp,
-  ArrowUpDown,
   CheckCircle2,
   Eye,
   FileImage,
@@ -145,9 +144,7 @@ function PaymentSortableHeader({
         <span>{label}</span>
         {isActive ? (
           direction === "asc" ? <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" /> : <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
-        ) : (
-          <ArrowUpDown className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
-        )}
+        ) : null}
       </button>
     </TableHead>
   )
@@ -1036,15 +1033,15 @@ function PaymentVerificationTable({
 }) {
   return (
     <>
-      <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm md:block">
-        <Table className="min-w-[1040px] table-fixed">
+      <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:block">
+        <Table className="w-full table-fixed">
           <caption className="sr-only">Admin payment verification records grouped by booking</caption>
           <colgroup>
             <col style={{ width: "24%" }} />
+            <col style={{ width: "16%" }} />
+            <col style={{ width: "28%" }} />
             <col style={{ width: "17%" }} />
-            <col style={{ width: "27%" }} />
-            <col style={{ width: "20%" }} />
-            <col style={{ width: "12%" }} />
+            <col style={{ width: "15%" }} />
           </colgroup>
           <TableHeader className="bg-slate-50/80">
             <tr>
@@ -1067,7 +1064,7 @@ function PaymentVerificationTable({
           </TableBody>
         </Table>
       </div>
-      <div className="space-y-2 md:hidden">
+      <div className="space-y-2 xl:hidden">
         {payments.map((payment) => (
           <PaymentVerificationCompactRow
             key={payment.id}
@@ -1107,28 +1104,28 @@ function PaymentVerificationTableRow({
 
   return (
     <tr ref={rowRef} className={cn("border-b border-slate-100 transition-colors hover:bg-slate-50/70", isHighlighted && "notification-target-highlight")}>
-      <TableCell className="min-w-0 align-top whitespace-normal">
-        <p className="oe-table-label truncate">{payment.id || "—"}</p>
+      <TableCell className="min-w-0 px-2.5 align-top whitespace-normal">
+        <p className="oe-table-label break-words" title={payment.id || undefined}>{payment.id || "—"}</p>
         <p className="oe-table-primary mt-0.5 line-clamp-2">{payment.eventName || "Untitled booking"}</p>
-        <p className="oe-table-secondary mt-0.5 line-clamp-1">
+        <p className="oe-table-secondary mt-0.5 line-clamp-2 break-words" title={payment.userInfo?.email || undefined}>
           {payment.userInfo?.name || "Customer not listed"}
           {payment.userInfo?.email ? <span> · {payment.userInfo.email}</span> : null}
         </p>
       </TableCell>
-      <TableCell className="min-w-0 align-top whitespace-normal">
+      <TableCell className="min-w-0 px-2.5 align-top whitespace-normal">
         <p className="oe-table-primary line-clamp-2">{resource.primary}</p>
         {resource.room && <p className="oe-table-secondary mt-0.5 line-clamp-1">Room: {resource.room}</p>}
       </TableCell>
-      <TableCell className="min-w-0 align-top whitespace-normal">
+      <TableCell className="min-w-0 px-2.5 align-top whitespace-normal">
         <PaymentMethodLabel payment={payment} className="oe-table-secondary" />
         <p className="oe-table-primary mt-0.5 tabular-nums">{formatCurrency(submittedAmount)}</p>
-        <p className="oe-table-secondary mt-0.5 line-clamp-2">
+        <p className="oe-table-secondary mt-0.5 line-clamp-2 break-words" title={submission?.referenceNo || submission?.id || undefined}>
           Submitted {formatSubmittedAt(submission?.submittedAt || payment.paymentSubmittedAt)}
           <span> · {submission?.referenceNo || submission?.id || "Record"}</span>
         </p>
       </TableCell>
-      <TableCell data-payment-review-status className="min-w-0 whitespace-nowrap text-center align-middle"><PaymentBadge payment={payment} className="oe-payment-status" /></TableCell>
-      <TableCell className="min-w-0 whitespace-nowrap text-right align-middle">
+      <TableCell data-payment-review-status className="min-w-0 px-2.5 whitespace-nowrap text-center align-middle"><PaymentBadge payment={payment} className="oe-payment-status" /></TableCell>
+      <TableCell className="min-w-0 px-2.5 whitespace-nowrap text-right align-middle">
         <Button
           type="button"
           onClick={() => onView(payment)}

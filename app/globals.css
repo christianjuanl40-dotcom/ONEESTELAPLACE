@@ -429,7 +429,8 @@
 .oe-payment-status {
   flex-shrink: 0;
   height: 2rem;
-  width: 11rem;
+  min-width: 8.5rem;
+  width: 8.5rem;
   max-width: 100%;
   white-space: nowrap;
   text-align: center;
