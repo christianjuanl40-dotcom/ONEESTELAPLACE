@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation"
 import {
   ArrowDown,
   ArrowUp,
-  ArrowUpDown,
   BarChart3,
   CalendarDays,
   Download,
@@ -89,16 +88,28 @@ type BookingRecord = {
   bookingCode?: string
   eventName?: string
   eventType?: string
+  customEventType?: string
   bookingCategory?: string
   bookingType?: string
   rentalType?: string
   isOfficeRental?: boolean
+  companyName?: string
   customerName?: string
   clientName?: string
   name?: string
+  userInfo?: {
+    name?: string
+    email?: string
+    phone?: string
+  }
   date?: string
+  endDate?: string
   eventDate?: string
   createdAt?: string
+  time?: string
+  startTime?: string
+  endTime?: string
+  guestCount?: number | string
   venue?: string
   venueId?: string
   officeId?: string
@@ -297,10 +308,18 @@ type EnrichedBooking = BookingRecord & {
 type ReportRow = {
   rowKey: string
   bookingId: string | number
+  bookingCode: string
   eventName: string
+  eventCategory: string
   client: string
+  customerEmail: string
+  customerPhone: string
   date: Date | string
+  schedule: string
   venue: string
+  reservedSpace: string
+  guestCount: string
+  businessNature: string
   bookingStatus: string
   paymentStatus: string
   totalBookingValue: number
@@ -355,6 +374,37 @@ function getReportDateCell(booking: BookingRecord) {
   return dateCell
 }
 
+function getReportReservedSpace(booking: BookingRecord) {
+  const primary = String(
+    booking.venue || booking.officeName || booking.officeSpaceName || booking.venueId || "",
+  ).trim()
+  const secondary = String(
+    booking.roomName || booking.officeRoom || booking.officeSpaceName || "",
+  ).trim()
+
+  if (!primary && !secondary) return "N/A"
+  if (!secondary || secondary.toLowerCase() === primary.toLowerCase()) return primary || secondary
+  return `${primary || "N/A"} · ${secondary}`
+}
+
+function getReportScheduleLabel(booking: BookingRecord, date: Date | string) {
+  const dateLabel = formatReportDate(date)
+  const endDate = String(booking.endDate || "").trim()
+  const endDateLabel = endDate ? formatReportDate(endDate) : ""
+  const timeLabel = String(
+    booking.time || [booking.startTime, booking.endTime].filter(Boolean).join(" – "),
+  ).trim()
+  const datePart = endDateLabel && endDateLabel !== dateLabel ? `${dateLabel} – ${endDateLabel}` : dateLabel
+  return [datePart, timeLabel].filter(Boolean).join(" · ") || "Not available"
+}
+
+function getReportEventCategory(booking: BookingRecord, category: ReportBookingCategory) {
+  const type = String(booking.eventType || booking.customEventType || "").trim()
+  if (category === "office") return type || "Office Reservation"
+  if (category === "venue") return type || "Event Venue"
+  return type || String(booking.bookingCategory || booking.bookingType || "").trim() || "Not available"
+}
+
 function formatReportDate(value: Date | string) {
   if (!(value instanceof Date)) return value || "No date"
 
@@ -389,10 +439,22 @@ function buildReportRows(bookings: EnrichedBooking[]): ReportRow[] {
     return {
       rowKey: String(bookingId === "N/A" ? `${bookingId}-${index}` : bookingId),
       bookingId,
+      bookingCode: String(booking.bookingCode || "").trim(),
       eventName: booking.eventName || booking.eventType || "Untitled Event",
+      eventCategory: getReportEventCategory(booking, booking._category),
       client: getReportClientName(booking),
+      customerEmail: String(booking.userInfo?.email || "").trim(),
+      customerPhone: String(booking.userInfo?.phone || "").trim(),
       date: getReportDateCell(booking),
+      schedule: getReportScheduleLabel(booking, getReportDateCell(booking)),
+      // Keep the established Venue projection intact for Excel/print output;
+      // the compact UI can show the richer resource/room presentation below.
       venue: booking.venue || "N/A",
+      reservedSpace: getReportReservedSpace(booking),
+      guestCount: booking.guestCount === undefined || booking.guestCount === null || booking.guestCount === ""
+        ? ""
+        : String(booking.guestCount),
+      businessNature: String(booking.natureOfBusiness || booking.companyName || "").trim(),
       bookingStatus: getCanonicalBookingLifecycleLabel(booking as ReportBookingLike),
       paymentStatus: financials.paymentStatus,
       totalBookingValue: financials.totalBookingValue,
@@ -502,6 +564,7 @@ function getRefundStatusBadgeClass(status?: string) {
 
 function ReportSortableHeader({
   label,
+  displayLabel,
   sortKey,
   activeSortKey,
   direction,
@@ -509,6 +572,7 @@ function ReportSortableHeader({
   align = "left",
 }: {
   label: string
+  displayLabel?: string
   sortKey: ReportSortKey
   activeSortKey: ReportSortKey
   direction: TableSortDirection
@@ -523,15 +587,13 @@ function ReportSortableHeader({
       <button
         type="button"
         onClick={() => onSort(sortKey)}
-        className={`inline-flex min-h-9 items-center gap-1.5 rounded-md py-1 text-left text-[10px] font-bold uppercase tracking-[0.16em] text-slate-700 transition hover:text-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 ${align === "right" ? "justify-end text-right" : ""}`}
+        className={`inline-flex min-h-9 max-w-full items-center gap-1.5 rounded-md py-1 text-left text-[10px] font-bold uppercase leading-tight tracking-[0.12em] text-slate-700 transition hover:text-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 ${align === "right" ? "justify-end text-right" : ""}`}
         aria-label={`Sort by ${label}${isActive ? `, currently ${direction === "asc" ? "ascending" : "descending"}` : ""}`}
       >
-        <span>{label}</span>
+        <span className="min-w-0 whitespace-normal">{displayLabel || label}</span>
         {isActive ? (
           direction === "asc" ? <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-        ) : (
-          <ArrowUpDown className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden="true" />
-        )}
+        ) : null}
       </button>
     </TableHead>
   )
@@ -539,6 +601,102 @@ function ReportSortableHeader({
 
 function getReportRowDetailsId(row: ReportRow) {
   return `report-row-details-${row.rowKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`
+}
+
+function ReportDetailPanel({ row }: { row: ReportRow }) {
+  const customerContact = [row.customerEmail, row.customerPhone].filter(Boolean).join(" · ")
+  const bookingReference = row.bookingCode && row.bookingCode !== String(row.bookingId)
+    ? `${row.bookingId} · ${row.bookingCode}`
+    : String(row.bookingId)
+
+  return (
+    <div
+      data-report-record-details
+      className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5"
+    >
+      <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="oe-table-label">Complete booking record</p>
+          <p className="mt-1 text-sm font-black text-slate-950">Financial and lifecycle details</p>
+        </div>
+        <p className="text-xs font-semibold text-slate-500">{bookingReference}</p>
+      </div>
+
+      <dl className="grid gap-x-5 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="min-w-0">
+          <dt className="oe-table-label">Customer</dt>
+          <dd className="mt-1 break-words text-sm font-bold text-slate-900">{row.client}</dd>
+          {customerContact && <dd className="mt-0.5 break-words text-xs font-semibold text-slate-500">{customerContact}</dd>}
+        </div>
+        <div className="min-w-0">
+          <dt className="oe-table-label">Event / Category</dt>
+          <dd className="mt-1 break-words text-sm font-bold text-slate-900">{row.eventName}</dd>
+          <dd className="mt-0.5 break-words text-xs font-semibold text-slate-500">{row.eventCategory}</dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="oe-table-label">Reserved Space</dt>
+          <dd className="mt-1 break-words text-sm font-bold text-slate-900">{row.reservedSpace}</dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="oe-table-label">Booking Schedule</dt>
+          <dd className="mt-1 break-words text-sm font-bold text-slate-900">{row.schedule}</dd>
+        </div>
+        {row.guestCount && (
+          <div className="min-w-0">
+            <dt className="oe-table-label">Guest Count</dt>
+            <dd className="mt-1 text-sm font-bold tabular-nums text-slate-900">{row.guestCount}</dd>
+          </div>
+        )}
+        {row.businessNature && (
+          <div className="min-w-0">
+            <dt className="oe-table-label">Business / Organization</dt>
+            <dd className="mt-1 break-words text-sm font-bold text-slate-900">{row.businessNature}</dd>
+          </div>
+        )}
+        <div className="min-w-0">
+          <dt className="oe-table-label">Booking Status</dt>
+          <dd className="mt-1"><span className={`oe-status-badge whitespace-normal ${getStatusBadgeClass(row.bookingStatus)}`}>{row.bookingStatus}</span></dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="oe-table-label">Payment Status</dt>
+          <dd className="mt-1"><span className={`oe-status-badge whitespace-normal ${getPaymentStatusBadgeClass(row.paymentStatus)}`}>{row.paymentStatus}</span></dd>
+        </div>
+      </dl>
+
+      <div className="mt-5 border-t border-slate-200 pt-4">
+        <p className="oe-table-label">Financial breakdown</p>
+        <dl className="mt-3 grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="min-w-0">
+            <dt className="oe-table-label">Booking Value</dt>
+            <dd className="oe-financial-value mt-1 tabular-nums">{formatReportMoney(row.totalBookingValue)}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="oe-table-label">Received / Credited</dt>
+            <dd className="oe-financial-value mt-1 tabular-nums">{formatReportMoney(row.receivedPayments)}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="oe-table-label">Verified Payments</dt>
+            <dd className="oe-financial-value mt-1 tabular-nums">{formatReportMoney(row.verifiedPayments)}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="oe-table-label">Outstanding Balance</dt>
+            <dd className="oe-financial-value mt-1 tabular-nums">{formatReportMoney(row.outstandingBalance)}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="oe-table-label">Refund Status</dt>
+            <dd className="mt-1"><span className={`oe-status-badge whitespace-normal ${getRefundStatusBadgeClass(row.refundStatus)}`}>{row.refundStatus}</span></dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="oe-table-label">Net Received Cash</dt>
+            <dd className="oe-financial-value mt-1 tabular-nums text-emerald-700">{formatReportMoney(row.netReceivedAmount)}</dd>
+          </div>
+        </dl>
+        <p className="mt-3 text-xs font-semibold text-slate-500">
+          Processed refund: <span className="font-black tabular-nums text-slate-700">{formatReportMoney(row.processedRefundAmount)}</span>
+        </p>
+      </div>
+    </div>
+  )
 }
 
 function ReportCompactRow({
@@ -553,28 +711,36 @@ function ReportCompactRow({
   const detailsId = getReportRowDetailsId(row)
 
   return (
-    <article className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <article data-report-record className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="oe-table-label truncate">{row.bookingId}</p>
-          <p className="oe-table-primary mt-0.5 line-clamp-2">{row.client}</p>
-          <p className="oe-table-secondary mt-0.5 line-clamp-2">{row.eventName}</p>
+          <p className="oe-table-primary mt-0.5 line-clamp-2">{row.eventName}</p>
+          <p className="oe-table-secondary mt-0.5 line-clamp-2">{row.client}</p>
         </div>
         <span className={`oe-status-badge max-w-[46%] shrink-0 whitespace-normal break-words ${getStatusBadgeClass(row.bookingStatus)}`}>
           {row.bookingStatus}
         </span>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
+      <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-slate-100 pt-3 sm:grid-cols-4">
         <div className="min-w-0">
-          <p className="oe-table-label">Total Booking Value</p>
-          <p className="oe-financial-value mt-0.5 tabular-nums">{formatReportMoney(row.totalBookingValue)}</p>
+          <dt className="oe-table-label">Event Date</dt>
+          <dd className="oe-table-secondary mt-0.5 break-words">{formatReportDate(row.date)}</dd>
         </div>
         <div className="min-w-0">
-          <p className="oe-table-label">Net Received Cash</p>
-          <p className="oe-financial-value mt-0.5 tabular-nums text-emerald-700">{formatReportMoney(row.netReceivedAmount)}</p>
+          <dt className="oe-table-label">Payment Status</dt>
+          <dd className="mt-1"><span className={`oe-status-badge max-w-full whitespace-normal ${getPaymentStatusBadgeClass(row.paymentStatus)}`}>{row.paymentStatus}</span></dd>
         </div>
-      </div>
+        <div className="min-w-0">
+          <dt className="oe-table-label">Total Booking Value</dt>
+          <dd className="oe-financial-value mt-0.5 tabular-nums whitespace-nowrap">{formatReportMoney(row.totalBookingValue)}</dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="oe-table-label">Outstanding Balance</dt>
+          <dd className="oe-financial-value mt-0.5 tabular-nums whitespace-nowrap">{formatReportMoney(row.outstandingBalance)}</dd>
+        </div>
+      </dl>
 
       <div className="mt-3 flex justify-end border-t border-slate-100 pt-3">
         <Button
@@ -590,40 +756,9 @@ function ReportCompactRow({
       </div>
 
       {expanded && (
-        <dl id={detailsId} className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-slate-100 bg-slate-50/70 pt-3">
-          <div className="min-w-0">
-            <dt className="oe-table-label">Event / Resource</dt>
-            <dd className="oe-table-secondary mt-0.5 break-words">{row.eventName} · {row.venue}</dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="oe-table-label">Booking Date</dt>
-            <dd className="oe-table-secondary mt-0.5">{formatReportDate(row.date)}</dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="oe-table-label">Payment Status</dt>
-            <dd className="mt-1"><span className={`oe-status-badge whitespace-normal ${getPaymentStatusBadgeClass(row.paymentStatus)}`}>{row.paymentStatus}</span></dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="oe-table-label">Received Payments</dt>
-            <dd className="oe-financial-value mt-0.5 tabular-nums">{formatReportMoney(row.receivedPayments)}</dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="oe-table-label">Verified Payments</dt>
-            <dd className="oe-financial-value mt-0.5 tabular-nums">{formatReportMoney(row.verifiedPayments)}</dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="oe-table-label">Outstanding Balance</dt>
-            <dd className="oe-financial-value mt-0.5 tabular-nums">{formatReportMoney(row.outstandingBalance)}</dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="oe-table-label">Refund Status</dt>
-            <dd className="mt-1"><span className={`oe-status-badge whitespace-normal ${getRefundStatusBadgeClass(row.refundStatus)}`}>{row.refundStatus}</span></dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="oe-table-label">Processed Refund</dt>
-            <dd className="oe-financial-value mt-0.5 tabular-nums">{formatReportMoney(row.processedRefundAmount)}</dd>
-          </div>
-        </dl>
+        <div id={detailsId} className="mt-3 border-t border-slate-100 pt-3">
+          <ReportDetailPanel row={row} />
+        </div>
       )}
     </article>
   )
@@ -2728,64 +2863,78 @@ export default function ReportsPage() {
            </div>
          ) : (
            <>
-             <div className="hidden md:block">
-               <Table className="min-w-[1480px] table-fixed xl:min-w-0">
-                 <caption className="sr-only">Filtered booking financial report records</caption>
-                 <colgroup>
-                   <col style={{ width: "9%" }} />
-                   <col style={{ width: "15%" }} />
-                   <col style={{ width: "12%" }} />
-                   <col style={{ width: "9%" }} />
-                   <col style={{ width: "10%" }} />
-                   <col style={{ width: "10%" }} />
-                   <col style={{ width: "9%" }} />
-                   <col style={{ width: "9%" }} />
-                   <col style={{ width: "9%" }} />
-                   <col style={{ width: "10%" }} />
-                   <col style={{ width: "9%" }} />
-                   <col style={{ width: "9%" }} />
-                   <col style={{ width: "10%" }} />
-                 </colgroup>
-                 <TableHeader className="bg-white">
-                   <tr>
-                     <ReportSortableHeader label="Booking ID" sortKey="bookingId" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
-                     <ReportSortableHeader label="Event Details" sortKey="eventName" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
-                     <ReportSortableHeader label="Client" sortKey="client" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
-                     <ReportSortableHeader label="Date" sortKey="date" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
-                     <ReportSortableHeader label="Booking Status" sortKey="bookingStatus" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
-                     <ReportSortableHeader label="Payment Status" sortKey="paymentStatus" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
-                     <ReportSortableHeader label="Total Booking Value" sortKey="totalBookingValue" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} align="right" />
-                     <ReportSortableHeader label="Received Payments" sortKey="receivedPayments" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} align="right" />
-                     <ReportSortableHeader label="Verified Payments" sortKey="verifiedPayments" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} align="right" />
-                     <ReportSortableHeader label="Outstanding Balance" sortKey="outstandingBalance" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} align="right" />
-                     <ReportSortableHeader label="Refund Status" sortKey="refundStatus" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
-                     <ReportSortableHeader label="Processed Refund" sortKey="processedRefundAmount" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} align="right" />
-                     <ReportSortableHeader label="Net Received Cash" sortKey="netReceivedAmount" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} align="right" />
-                   </tr>
-                 </TableHeader>
-                 <TableBody>
-                   {paginatedReportRows.map((row) => (
-                     <tr key={row.rowKey} className="border-b border-slate-100 transition-colors hover:bg-slate-50/70">
-                       <TableCell className="min-w-0 align-top whitespace-normal"><p className="oe-table-label break-words">{row.bookingId}</p></TableCell>
-                       <TableCell className="min-w-0 align-top whitespace-normal"><p className="oe-table-primary line-clamp-2">{row.eventName}</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{row.venue}</p></TableCell>
-                       <TableCell className="min-w-0 align-top whitespace-normal"><p className="oe-table-primary line-clamp-2">{row.client}</p></TableCell>
-                       <TableCell className="min-w-0 align-top whitespace-normal"><p className="oe-table-secondary whitespace-nowrap">{formatReportDate(row.date)}</p></TableCell>
-                       <TableCell className="min-w-0 align-top whitespace-normal"><span className={`oe-status-badge max-w-full whitespace-normal break-words ${getStatusBadgeClass(row.bookingStatus)}`}>{row.bookingStatus}</span></TableCell>
-                       <TableCell className="min-w-0 align-top whitespace-normal"><span className={`oe-status-badge max-w-full whitespace-normal break-words ${getPaymentStatusBadgeClass(row.paymentStatus)}`}>{row.paymentStatus}</span></TableCell>
-                       <TableCell className="min-w-0 align-top text-right"><p className="oe-financial-value tabular-nums whitespace-nowrap">{formatReportMoney(row.totalBookingValue)}</p></TableCell>
-                       <TableCell className="min-w-0 align-top text-right"><p className="oe-financial-value tabular-nums whitespace-nowrap">{formatReportMoney(row.receivedPayments)}</p></TableCell>
-                       <TableCell className="min-w-0 align-top text-right"><p className="oe-financial-value tabular-nums whitespace-nowrap">{formatReportMoney(row.verifiedPayments)}</p></TableCell>
-                       <TableCell className="min-w-0 align-top text-right"><p className="oe-financial-value tabular-nums whitespace-nowrap">{formatReportMoney(row.outstandingBalance)}</p></TableCell>
-                       <TableCell className="min-w-0 align-top whitespace-normal"><span className={`oe-status-badge max-w-full whitespace-normal break-words ${getRefundStatusBadgeClass(row.refundStatus)}`}>{row.refundStatus}</span></TableCell>
-                       <TableCell className="min-w-0 align-top text-right"><p className="oe-financial-value tabular-nums whitespace-nowrap">{formatReportMoney(row.processedRefundAmount)}</p></TableCell>
-                       <TableCell className="min-w-0 align-top text-right"><p className="oe-financial-value tabular-nums whitespace-nowrap">{formatReportMoney(row.netReceivedAmount)}</p></TableCell>
-                     </tr>
-                   ))}
-                 </TableBody>
-               </Table>
-             </div>
+              <div className="hidden xl:block">
+                <Table className="w-full table-fixed">
+                  <caption className="sr-only">Filtered booking financial report records</caption>
+                  <colgroup>
+                    <col style={{ width: "14%" }} />
+                    <col style={{ width: "15%" }} />
+                    <col style={{ width: "10%" }} />
+                    <col style={{ width: "10%" }} />
+                    <col style={{ width: "11%" }} />
+                    <col style={{ width: "11%" }} />
+                    <col style={{ width: "10%" }} />
+                    <col style={{ width: "10%" }} />
+                    <col style={{ width: "9%" }} />
+                  </colgroup>
+                  <TableHeader className="bg-white">
+                    <tr>
+                      <ReportSortableHeader label="Booking / Event" sortKey="eventName" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
+                      <ReportSortableHeader label="Client" sortKey="client" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
+                      <ReportSortableHeader label="Event Date" sortKey="date" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
+                      <ReportSortableHeader label="Booking Status" sortKey="bookingStatus" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
+                      <ReportSortableHeader label="Payment Status" sortKey="paymentStatus" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} />
+                      <ReportSortableHeader label="Total Booking Value" displayLabel="Booking Value" sortKey="totalBookingValue" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} align="right" />
+                      <ReportSortableHeader label="Received Payments" displayLabel="Received" sortKey="receivedPayments" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} align="right" />
+                      <ReportSortableHeader label="Outstanding Balance" displayLabel="Outstanding" sortKey="outstandingBalance" activeSortKey={reportSortKey} direction={reportSortDirection} onSort={handleReportSort} align="right" />
+                      <TableHead className="oe-table-head text-right">Actions</TableHead>
+                    </tr>
+                  </TableHeader>
+                  <TableBody>
+                    {paginatedReportRows.map((row) => (
+                      <React.Fragment key={row.rowKey}>
+                      <tr className="border-b border-slate-100 transition-colors hover:bg-slate-50/70">
+                        <TableCell className="min-w-0 align-top whitespace-normal">
+                          <p className="oe-table-label break-words">{row.bookingId}</p>
+                          <p className="oe-table-primary mt-0.5 line-clamp-2 break-words">{row.eventName}</p>
+                          <p className="oe-table-secondary mt-0.5 line-clamp-2 break-words">{row.reservedSpace}</p>
+                        </TableCell>
+                        <TableCell className="min-w-0 align-top whitespace-normal"><p className="oe-table-primary line-clamp-2">{row.client}</p></TableCell>
+                        <TableCell className="min-w-0 align-top whitespace-normal"><p className="oe-table-secondary whitespace-nowrap">{formatReportDate(row.date)}</p></TableCell>
+                        <TableCell className="min-w-0 align-top whitespace-normal"><span className={`oe-status-badge max-w-full whitespace-normal break-words ${getStatusBadgeClass(row.bookingStatus)}`}>{row.bookingStatus}</span></TableCell>
+                        <TableCell className="min-w-0 align-top whitespace-normal"><span className={`oe-status-badge max-w-full whitespace-normal break-words ${getPaymentStatusBadgeClass(row.paymentStatus)}`}>{row.paymentStatus}</span></TableCell>
+                        <TableCell className="min-w-0 align-top text-right"><p className="oe-financial-value tabular-nums whitespace-nowrap">{formatReportMoney(row.totalBookingValue)}</p></TableCell>
+                        <TableCell className="min-w-0 align-top text-right"><p className="oe-financial-value tabular-nums whitespace-nowrap">{formatReportMoney(row.receivedPayments)}</p></TableCell>
+                        <TableCell className="min-w-0 align-top text-right"><p className="oe-financial-value tabular-nums whitespace-nowrap">{formatReportMoney(row.outstandingBalance)}</p></TableCell>
+                        <TableCell className="min-w-0 align-top text-right">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => toggleExpandedReportRow(row)}
+                            aria-expanded={expandedReportRows.has(row.rowKey)}
+                            aria-controls={getReportRowDetailsId(row)}
+                            className="oe-table-action h-9 w-full rounded-lg border-slate-300 px-2 text-xs text-slate-800 hover:bg-slate-50"
+                          >
+                            {expandedReportRows.has(row.rowKey) ? "Hide Details" : "View Details"}
+                          </Button>
+                        </TableCell>
+                      </tr>
+                      {expandedReportRows.has(row.rowKey) && (
+                        <tr>
+                          <TableCell colSpan={9} className="border-b border-slate-100 bg-slate-50/40 p-3 align-top">
+                            <div id={getReportRowDetailsId(row)}>
+                              <ReportDetailPanel row={row} />
+                            </div>
+                          </TableCell>
+                        </tr>
+                      )}
+                      </React.Fragment>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
 
-             <div className="space-y-2 p-3 md:hidden">
+              <div className="space-y-2 p-3 xl:hidden">
                {paginatedReportRows.map((row) => (
                  <ReportCompactRow
                    key={row.rowKey}

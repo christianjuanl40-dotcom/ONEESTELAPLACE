@@ -120,20 +120,40 @@ try {
   await page.getByRole('button', { name: 'View Details', exact: true }).first().click()
   assert.match(await page.locator('[data-report-dashboard]').innerText(), /Outstanding Balance/)
   await page.setViewportSize({ width: 1440, height: 1000 })
-  for (const width of [320, 375, 768, 1024, 1440]) {
+  for (const width of [320, 375, 768, 1024, 1280, 1366, 1440]) {
     await page.setViewportSize({ width, height: width < 768 ? 844 : 1000 })
-     assert.equal(
-       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
        true,
        `report dashboard should not create page-level horizontal overflow at ${width}px`,
-     )
-     const sections = await page.evaluate(() => {
+      )
+      assert.equal(
+        await page.locator('[data-report-dashboard] [data-slot="table"]').isVisible(),
+        width >= 1280,
+        `summary table breakpoint should be stable at ${width}px`,
+      )
+      assert.equal(
+        await page.locator('[data-report-dashboard] article[data-report-record]').first().isVisible(),
+        width < 1280,
+        `compact report records breakpoint should be stable at ${width}px`,
+      )
+      const sections = await page.evaluate(() => {
        const controls = document.querySelector('[data-report-controls]')?.getBoundingClientRect()
        const summary = document.querySelector('[data-report-summary]')?.getBoundingClientRect()
        return controls && summary ? { controlsBottom: controls.bottom, summaryTop: summary.top } : null
-     })
-     assert.ok(sections && sections.summaryTop >= sections.controlsBottom - 1, `report summary overlaps controls at ${width}px`)
-   }
+      })
+      assert.ok(sections && sections.summaryTop >= sections.controlsBottom - 1, `report summary overlaps controls at ${width}px`)
+      if (width >= 1280) {
+        const headers = await page.locator('[data-report-dashboard] [data-slot="table"] thead th:visible').evaluateAll((nodes) => nodes.map((node) => {
+          const box = node.getBoundingClientRect()
+          return { left: box.left, right: box.right, width: box.width }
+        }))
+        assert.equal(headers.length, 9, `compact summary should expose nine columns at ${width}px`)
+        for (const header of headers) assert.ok(header.width > 0 && header.right > header.left)
+        const detailButtons = page.getByRole('button', { name: 'View Details', exact: true })
+        assert.ok(await detailButtons.count() > 0, `desktop detail action should be available at ${width}px`)
+      }
+    }
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.locator('#report-rows-per-page').selectOption('10')
 

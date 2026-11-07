@@ -658,6 +658,33 @@ export function getReceiptPaymentMethodLabel(value: unknown): string {
   return String(value || "Not specified")
 }
 
+export type PaymentMethodFilter = "all" | "bank" | "office"
+export type PaymentMethodKey = "bank" | "office" | "other"
+
+/**
+ * Resolve the persisted method aliases used by payment submissions without
+ * changing the stored value. Unknown/legacy values stay available in the All
+ * Payments view but are intentionally not guessed into either named filter.
+ */
+export function getReceiptPaymentMethodKey(
+  record: PaymentRecordLike | null | undefined,
+): PaymentMethodKey {
+  const label = getReceiptPaymentMethodLabel(record?.paymentMethod || record?.method)
+  if (label === "Bank Transfer") return "bank"
+  if (label === "Pay at the Office") return "office"
+  return "other"
+}
+
+export function filterPaymentRecordsByMethod<T extends PaymentRecordLike>(
+  records: ReadonlyArray<T> | null | undefined,
+  filter: PaymentMethodFilter,
+): T[] {
+  const source = [...(records || [])]
+  if (filter === "all") return source
+  const method = filter === "bank" ? "bank" : "office"
+  return source.filter((record) => getReceiptPaymentMethodKey(record) === method)
+}
+
 function getReceiptRawType(record: PaymentRecordLike | null | undefined): string {
   return normalizePaymentStatusValue(
     record?.term || record?.paymentPurpose || record?.paymentType,

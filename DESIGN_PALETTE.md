@@ -12,6 +12,8 @@ The Admin Dashboard uses natural content height: its stat cards flow directly in
 
 **Follow-up (2026-11-07):** Notification titles wrap with timestamps beneath them, long messages use an accessible disclosure, and missing timestamps display `Date not recorded`. Client/admin payment surfaces use compact labeled records below `xl`; wide tables use flexible widths, centered uniform status badges, and active-only sort direction icons. Reports place controls and financial summary metrics in separate responsive cards.
 
+**Defense Polish 2.4 follow-up (2026-11-07):** Reports use a restrained summary hierarchy: nine readable wide-desktop columns with right-aligned tabular money, a `View Details` disclosure for secondary financial/lifecycle fields, and compact labeled records below `xl`. Payment review method filters use the existing orange selected state and remain adjacent to the Payment History heading; empty method results replace, rather than overlay, receipt content.
+
 Office occupancy badges and scheduling notices rechecked **2026-10-26**; customer/admin Booking Details button hierarchy refined **2026-10-27**; CMS responsive/accessibility surfaces rechecked **2026-11-05**. They reuse the existing compact orange/slate language.
 
 ## Visual direction

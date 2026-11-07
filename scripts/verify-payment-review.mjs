@@ -39,15 +39,15 @@ const stateModule = `
     {id:'PAY-2', status:'Rejected', amount:3500, rejectionReason:'Payment 2 proof was unreadable.'},
     {id:'PAY-3', status:'Verified', amount:1000, adminNote:'', rejectionReason:'Obsolete rejection reason'},
   ].map((record, i) => ({
-    ...record, bookingId:'BK-REVIEW', customerId:'CLIENT', customerName:'Fixture Client',
-    paymentNumber:i+1, term:'Down Payment', paymentMethod:'bank', submittedAt:date(i+10),
-    proofUrl:${JSON.stringify(image)}, fileName:'payment-proof.png', receiptNumber:'ER-' + (i+1),
+     ...record, bookingId:'BK-REVIEW', customerId:'CLIENT', customerName:'Fixture Client',
+     paymentNumber:i+1, term:'Down Payment', paymentMethod:i===1?'cash':'bank', submittedAt:date(i+10),
+     proofUrl:${JSON.stringify(image)}, fileName:'payment-proof.png', receiptNumber:'ER-' + (i+1),
   }));
   const receipts = records.map(record => ({
     paymentId:record.id, bookingId:record.bookingId, receiptNumber:record.receiptNumber,
     paymentNumber:record.paymentNumber,
-    paymentStatus:record.status, amountPaid:record.amount, paymentAmount:record.amount,
-    paymentSubmittedAt:record.submittedAt, dateGenerated:record.submittedAt, paymentMethod:'Bank Transfer',
+     paymentStatus:record.status, amountPaid:record.amount, paymentAmount:record.amount,
+     paymentSubmittedAt:record.submittedAt, dateGenerated:record.submittedAt, paymentMethod:record.paymentMethod==='cash'?'Pay at the Office':'Bank Transfer',
     adminNote:'Stale receipt note must not override the payment',
     totalBookingAmount:10000, requiredDpAmount:5000,
     acceptedTotalPaid:record.id==='PAY-3'?2500:1500, acceptedDpPaid:record.id==='PAY-3'?2500:1500,
@@ -65,6 +65,7 @@ const stateModule = `
   const listeners = new Set();
   const publish = next => {state=next; listeners.forEach(fn=>fn());};
   export function useBookingData() {return useSyncExternalStore(fn=>{listeners.add(fn); return ()=>listeners.delete(fn)},()=>state)}
+  let methodFilterBackup = null;
   window.paymentFixture = {
     patch(id, patch) {publish({...state,paymentRecords:state.paymentRecords.map(r=>r.id===id?{...r,...patch}:r)})},
     reorder() {publish({...state,paymentRecords:[...state.paymentRecords].reverse()})},
@@ -79,7 +80,17 @@ const stateModule = `
        const paymentRecords=fixtures.map(([key,status,amount])=>({id:'PAY-ALIGN-'+key,bookingId:'ALIGN-'+key,customerId:'CLIENT',status,verificationStatus:status,amount,amountReceived:status==='Incomplete'?amount:undefined,requestedAmount:5000,term:'Down Payment',paymentMethod:'bank',submittedAt:date(20),proofUrl:${JSON.stringify(image)}}));
        publish({...state,bookings,paymentRecords});
      },
-    addOfficeBooking() {publish({...state,bookings:[...state.bookings,{...base,id:'ACTIVE-OFFICE',bookingCategory:'office',isOfficeRental:true,venueId:'wing-b',officeId:'wing-b',spaceId:'other-suite',venue:'South Wing - Other Suite',status:'active_rental'}]})},
+     addOfficeBooking() {publish({...state,bookings:[...state.bookings,{...base,id:'ACTIVE-OFFICE',bookingCategory:'office',isOfficeRental:true,venueId:'wing-b',officeId:'wing-b',spaceId:'other-suite',venue:'South Wing - Other Suite',status:'active_rental'}]})},
+     onlyReviewMethod(method) {
+       methodFilterBackup = state.paymentRecords;
+       publish({...state,paymentRecords:state.paymentRecords.filter(record=>record.bookingId!=='BK-REVIEW'||(method==='office'?record.paymentMethod==='cash':record.paymentMethod==='bank'))});
+     },
+     restoreReviewMethods() {
+       if (!methodFilterBackup) return;
+       const paymentRecords = methodFilterBackup;
+       methodFilterBackup = null;
+       publish({...state,paymentRecords});
+     },
   };
   let cmsState={paymentInfo:{},cmsData:{
     venues:[
@@ -272,6 +283,34 @@ try {
   }
 
   // Actual table/compact-row DOM, not a parallel utility-only presentation test.
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await open('admin')
+  const reviewDialog = () => page.getByRole('dialog').first()
+  const methodRadio = name => reviewDialog().getByRole('radio', { name, exact: true })
+  const allSummaryBeforeMethodFilter = await reviewDialog().getByText('Received / Credited', { exact: true }).locator('..').innerText()
+  await methodRadio('Pay at the Office').click()
+  await noteIs('Payment 2 proof was unreadable.')
+  assert.equal(await reviewDialog().getByRole('button', { name: /^Submission / }).count(), 1)
+  assert.match(await reviewDialog().locator('.receipt-print').innerText(), /Pay at the Office/)
+  await methodRadio('Bank Transfer').click()
+  await noteIs('No review note for this payment.')
+  assert.equal(await reviewDialog().getByRole('button', { name: /^Submission / }).count(), 2)
+  assert.match(await reviewDialog().locator('.receipt-print').innerText(), /Bank Transfer/)
+  await methodRadio('All Payments').click()
+  await noteIs('No review note for this payment.')
+  assert.equal(await reviewDialog().getByRole('button', { name: /^Submission / }).count(), 3)
+  assert.equal(await reviewDialog().getByText('Received / Credited', { exact: true }).locator('..').innerText(), allSummaryBeforeMethodFilter)
+  await page.evaluate(() => window.paymentFixture.onlyReviewMethod('office'))
+  await methodRadio('Bank Transfer').click()
+  await reviewDialog().getByRole('status').filter({ hasText: 'No Bank Transfer transactions recorded' }).waitFor()
+  assert.equal(await reviewDialog().locator('.receipt-print').count(), 0, 'empty method filter must not retain another receipt')
+  await page.evaluate(() => window.paymentFixture.restoreReviewMethods())
+  await methodRadio('All Payments').click()
+  await noteIs('No review note for this payment.')
+  await page.keyboard.press('Escape')
+  await page.getByRole('dialog').waitFor({ state: 'detached' })
+  console.log('PASS admin payment-method filter/receipt synchronization')
+
   for (const surface of ['admin','client']) {
     await page.goto(`${origin}/__payment-review?${surface}`)
     const pageHeading = page.getByRole('heading', {name:surface==='admin'?'Payment Verification':'My Transactions',exact:true})
@@ -282,7 +321,7 @@ try {
       : 'header[aria-label="My transactions toolbar"]').count(), 1)
     await page.evaluate(() => window.paymentFixture.setupAlignment())
     const before=await page.evaluate(() => JSON.stringify(window.paymentFixture.snapshot()))
-    for (const width of [320,375,768,1024,1440]) {
+    for (const width of [320,375,768,1024,1280,1366,1440]) {
       await page.setViewportSize({width,height:844})
       await page.evaluate(() => new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))
       assert.equal(await page.locator('.oe-page-kicker, .oe-page-description').count(),0)

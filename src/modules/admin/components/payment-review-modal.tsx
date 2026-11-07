@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertCircle,
   Banknote,
@@ -33,8 +33,10 @@ import {
 import type { PaymentRecord } from "@/src/modules/client/contexts/booking-context"
 import {
   calculatePaymentSummary,
+  filterPaymentRecordsByMethod,
   findPaymentReceipt,
   getPaymentDisplayModel,
+  getReceiptPaymentMethodLabel,
   getPendingPaymentTotal,
   getPaymentRecordStatusLabel,
   getReceiptPaymentNumber,
@@ -45,6 +47,7 @@ import {
   isRejectedPaymentRecord,
   isUnresolvedPaymentRecord,
   isVerifiedPaymentRecord,
+  type PaymentMethodFilter,
   type PaymentRecordLike,
 } from "@/src/modules/shared/lib/payment-calculations"
 import { cn } from "@/src/modules/shared/lib/utils"
@@ -61,6 +64,19 @@ export type PendingPaymentAction = {
   note?: string
   paymentRecordId?: string
 } | null
+
+const PAYMENT_METHOD_FILTERS: ReadonlyArray<{
+  value: PaymentMethodFilter
+  label: string
+}> = [
+  { value: "all", label: "All Payments" },
+  { value: "bank", label: "Bank Transfer" },
+  { value: "office", label: "Pay at the Office" },
+]
+
+function getPaymentMethodFilterLabel(filter: PaymentMethodFilter) {
+  return PAYMENT_METHOD_FILTERS.find((option) => option.value === filter)?.label || "Payments"
+}
 
 export function PaymentReviewModal({
   payment,
@@ -85,11 +101,29 @@ export function PaymentReviewModal({
       : Array.isArray(payment.incomingPayments)
         ? payment.incomingPayments
         : []
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<PaymentMethodFilter>("all")
+  const visibleSubmissions = useMemo(
+    () => filterPaymentRecordsByMethod(submissions, paymentMethodFilter),
+    [paymentMethodFilter, submissions],
+  )
+  const previousMethodFilter = useRef<PaymentMethodFilter>(paymentMethodFilter)
   const { selected, selectedKey, select } = usePaymentHistorySelection(
     String(payment.id),
-    submissions,
+    visibleSubmissions,
     initialPaymentRecordId,
   )
+  useEffect(() => {
+    if (previousMethodFilter.current === paymentMethodFilter) return
+    previousMethodFilter.current = paymentMethodFilter
+
+    // A method switch keeps the selected transaction when it remains visible.
+    // If it does not, choose the first item in the existing stable history
+    // order (the parent supplies newest-first records). A normal record
+    // removal without a method switch intentionally remains unavailable.
+    if (!selected && visibleSubmissions.length > 0) {
+      select(visibleSubmissions[0])
+    }
+  }, [paymentMethodFilter, select, selected, visibleSubmissions])
   const selectionUnavailable = Boolean(selectedKey) && !selected
   const submissionNumber = selected ? getReceiptPaymentNumber(selected, submissions) : 0
   const submissionLabel = selected
@@ -142,19 +176,21 @@ export function PaymentReviewModal({
   // complete payment history, never from the stored booking fields.
   const paymentSummary = calculatePaymentSummary(summaryBase, submissions)
   const displayModel = getPaymentDisplayModel(summaryBase, selected, paymentSummary)
-  const receiptTarget: PaymentRecordLike | null = selected || (!selected && payment.receipt
-    ? {
-        ...payment.receipt,
-        id: payment.receipt.paymentId,
-        paymentId: payment.receipt.paymentId,
-        receiptNumber: payment.receipt.receiptNumber,
-        paymentPurpose: payment.receipt.paymentPurpose || payment.receipt.paymentType,
-        paymentMethod: payment.receipt.paymentMethod,
-        amount: payment.receipt.amountPaid ?? payment.receipt.paymentAmount,
-        paymentStatus: payment.receipt.paymentStatus,
-        submittedAt: payment.receipt.paymentSubmittedAt || payment.receipt.dateGenerated || payment.receipt.dateIssued,
-      }
-    : null)
+  const receiptTarget: PaymentRecordLike | null = selected || (
+    !selected && payment.receipt && paymentMethodFilter === "all"
+      ? {
+          ...payment.receipt,
+          id: payment.receipt.paymentId,
+          paymentId: payment.receipt.paymentId,
+          receiptNumber: payment.receipt.receiptNumber,
+          paymentPurpose: payment.receipt.paymentPurpose || payment.receipt.paymentType,
+          paymentMethod: payment.receipt.paymentMethod,
+          amount: payment.receipt.amountPaid ?? payment.receipt.paymentAmount,
+          paymentStatus: payment.receipt.paymentStatus,
+          submittedAt: payment.receipt.paymentSubmittedAt || payment.receipt.dateGenerated || payment.receipt.dateIssued,
+        }
+      : null
+  )
   const receiptPresentation = getReceiptPresentation(summaryBase, submissions, receiptTarget, receiptPool)
   const receiptTransaction = receiptPresentation.transaction
   const receiptSummary = receiptPresentation.summary
@@ -176,6 +212,7 @@ export function PaymentReviewModal({
     : payment.proofFileName || "Payment proof"
 
   const matchedReceipt = findPaymentReceipt(payment, receiptTarget, receiptPool) as any
+  const noFilteredSubmissions = paymentMethodFilter !== "all" && visibleSubmissions.length === 0
   const receiptAmountLabel = receiptTransaction.statusLabel === "Incomplete Payment"
     ? "Amount Received"
     : receiptTransaction.isVerified
@@ -327,20 +364,59 @@ export function PaymentReviewModal({
 
       <div className="min-h-0 flex-1 flex flex-col overflow-y-auto md:flex-row">
         <aside className="flex shrink-0 flex-col border-b border-slate-100 md:w-[36%] md:min-h-0 md:border-b-0 md:border-r lg:w-[360px]">
-          <div className="flex shrink-0 items-center gap-1.5 border-b border-slate-100 px-4 py-3">
-            <History className="h-3.5 w-3.5 text-slate-400" />
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
-              Payment History
-            </p>
-            {submissions.length > 0 && (
-              <span className="ml-auto rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">
-                {submissions.length}
-              </span>
-            )}
+          <div className="shrink-0 border-b border-slate-100 px-4 py-3">
+            <div className="flex items-center gap-1.5">
+              <History className="h-3.5 w-3.5 text-slate-400" />
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
+                Payment History
+              </p>
+              {submissions.length > 0 && (
+                <span className="ml-auto rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">
+                  {visibleSubmissions.length}{paymentMethodFilter === "all" ? "" : ` / ${submissions.length}`}
+                </span>
+              )}
+            </div>
+
+            <div
+              role="radiogroup"
+              aria-label="Filter payment history by method"
+              className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-3 md:grid-cols-1 lg:grid-cols-3"
+            >
+              {PAYMENT_METHOD_FILTERS.map((option) => {
+                const isActive = paymentMethodFilter === option.value
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={isActive}
+                    data-payment-method-filter={option.value}
+                    onClick={() => setPaymentMethodFilter(option.value)}
+                    className={cn(
+                      "min-h-9 rounded-lg border px-2 py-1.5 text-[10px] font-black leading-tight transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300",
+                      isActive
+                        ? "border-orange-300 bg-orange-50 text-orange-700"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-orange-200 hover:text-orange-700",
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                )
+              })}
+            </div>
           </div>
 
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-            {submissions.length === 0 ? (
+            {noFilteredSubmissions ? (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center">
+                <p className="text-xs font-black text-slate-900">
+                  No {getPaymentMethodFilterLabel(paymentMethodFilter)} transactions recorded
+                </p>
+                <p className="mt-1 text-[10px] font-semibold text-slate-500">
+                  This booking has no {getPaymentMethodFilterLabel(paymentMethodFilter).toLowerCase()} payment submissions on file.
+                </p>
+              </div>
+            ) : submissions.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center">
                 <p className="text-xs font-black text-slate-900">No payment submissions</p>
                 <p className="mt-1 text-[10px] font-semibold text-slate-500">
@@ -348,11 +424,15 @@ export function PaymentReviewModal({
                 </p>
               </div>
             ) : (
-              submissions.map((submission) => {
-                const isSelected = submission.id === selected?.id
-                const submissionDisplay = getPaymentDisplayModel(summaryBase, submission, paymentSummary)
-                const receiptPaymentNumber = getReceiptPaymentNumber(submission, submissions)
-                return (
+                visibleSubmissions.map((submission) => {
+                  const isSelected = submission.id === selected?.id
+                  const submissionDisplay = getPaymentDisplayModel(summaryBase, submission, paymentSummary)
+                  const receiptPaymentNumber = getReceiptPaymentNumber(submission, submissions)
+                  const submissionMethod = getReceiptPaymentMethodLabel(submission.paymentMethod || submission.method)
+                  const submissionReference = String(
+                    submission.referenceNo || submission.bankReferenceNumber || submission.referenceNumber || "",
+                  ).trim()
+                  return (
                   <button
                     key={submission.id}
                     type="button"
@@ -374,9 +454,12 @@ export function PaymentReviewModal({
                     <span className="mt-1 block text-lg font-black tracking-tight text-slate-950">
                       {formatCurrency(submissionDisplay.amount)}
                     </span>
-                    <span className="mt-0.5 block text-[10px] font-semibold text-slate-500">
-                      Submitted {formatSubmittedAt(submission.submittedAt)}
-                    </span>
+                      <span className="mt-0.5 block text-[10px] font-semibold text-slate-500">
+                        Submitted {formatSubmittedAt(submission.submittedAt)}
+                      </span>
+                      <span className="mt-1 block break-words text-[10px] font-bold text-slate-700">
+                        {submissionMethod}{submissionReference ? ` · ${submissionReference}` : ""}
+                      </span>
                     <span
                       className={cn(
                         "mt-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[9px] font-black uppercase tracking-[0.2em]",
@@ -416,13 +499,22 @@ export function PaymentReviewModal({
                   </p>
                 )}
               </ModalSection>
-              {selectionUnavailable ? (
-              <p role="status" className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                The selected submission is no longer available. Choose a submission from history.
-              </p>
-            ) : (
               <ModalSection title="Payment Transaction Receipt">
-                {matchedReceipt ? (
+                {noFilteredSubmissions ? (
+                  <div role="status" className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center">
+                    <FileText className="mx-auto mb-3 h-10 w-10 text-slate-300" />
+                    <p className="text-sm font-black text-slate-900">
+                      No {getPaymentMethodFilterLabel(paymentMethodFilter)} transactions recorded for this booking.
+                    </p>
+                    <p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-slate-500">
+                      Choose another payment-history filter to inspect a recorded transaction and its receipt.
+                    </p>
+                  </div>
+                ) : selectionUnavailable ? (
+                  <p role="status" className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                    The selected submission is no longer available. Choose a submission from history.
+                  </p>
+                ) : matchedReceipt ? (
                   <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3 sm:p-4">
                     <ReceiptPaper {...paperData} beforeNotice={receiptSupplement} />
                   </div>
@@ -446,7 +538,6 @@ export function PaymentReviewModal({
                   </div>
                 )}
               </ModalSection>
-            )}
           </div>
         </div>
       </div>

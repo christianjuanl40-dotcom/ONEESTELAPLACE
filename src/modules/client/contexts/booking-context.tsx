@@ -214,6 +214,8 @@ export interface PaymentRecord {
   // only asked for the true remainder.
   amountReceived?: number;
   referenceNo?: string;
+  referenceNumber?: string;
+  bankReferenceNumber?: string;
   proofUrl?: string;
   fileName?: string;
   status?: string;
