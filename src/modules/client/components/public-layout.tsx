@@ -321,7 +321,7 @@ export function PublicLayout({ children }: PublicLayoutProps) {
           </div>
         </div>
 
-        <div className="container mx-auto mt-12 flex max-w-7xl flex-col items-center justify-between gap-4 border-t border-slate-800 px-4 pt-8 text-xs text-slate-500 md:flex-row">
+        <div className="container mx-auto mt-12 flex max-w-7xl flex-col items-center justify-between gap-4 border-t border-slate-800 px-4 pt-8 text-xs text-slate-400 md:flex-row">
           <p className="text-center md:text-left">© {new Date().getFullYear()} {cmsData?.footer?.copyrightText || "One Estela Place. All rights reserved."}</p>
 
           <div className="flex gap-6">

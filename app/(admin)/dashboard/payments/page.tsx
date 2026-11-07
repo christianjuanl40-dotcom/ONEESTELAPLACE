@@ -629,8 +629,9 @@ export default function AdminPaymentsPage() {
   if (bookingCtx?.isLoading) {
     return (
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
-        <div className="flex min-h-[50vh] items-center justify-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-orange-600" />
+        <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3" role="status" aria-live="polite">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-orange-600" aria-hidden="true" />
+          <span className="text-sm font-semibold text-slate-500">Loading payment records…</span>
         </div>
       </div>
     )
@@ -722,9 +723,9 @@ export default function AdminPaymentsPage() {
             })
           }}
         />}
-        <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <header aria-label="Payment verification toolbar" className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <h1 className="oe-page-title">Payment Verification</h1>
+            <h1 className="sr-only">Payment Verification</h1>
           </div>
           <div className="flex w-full flex-col items-stretch gap-2 sm:ml-auto sm:w-fit sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
               <Select value={venueFilter} onValueChange={setVenueFilter}>
@@ -794,7 +795,7 @@ export default function AdminPaymentsPage() {
                 )}
               </div>
           </div>
-        </div>
+        </header>
 
         <section className="mt-2 space-y-2">
           {filteredPayments.length === 0 ? (

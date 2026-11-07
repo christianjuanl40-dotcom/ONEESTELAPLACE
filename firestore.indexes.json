@@ -44,6 +44,15 @@
       "collectionGroup": "chatMessages",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "clientId", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "chatMessages",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "sender", "order": "ASCENDING" },
         { "fieldPath": "isRead", "order": "ASCENDING" }
       ]

@@ -61,9 +61,6 @@ import {
 
 interface DashboardStats {
   bookedValue: number
-  receivedPayments: number
-  pendingPaymentTotal: number
-  outstandingBalance: number
   pending: number
   verifying: number
   confirmed: number
@@ -373,6 +370,7 @@ export default function AdminDashboardPage() {
     return (
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
         <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-center" role="status" aria-live="polite">
+          <h1 className="sr-only">Dashboard</h1>
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-orange-600" />
           <p className="text-sm font-semibold text-slate-500">Loading dashboard data…</p>
         </div>
@@ -491,11 +489,7 @@ export default function AdminDashboardPage() {
       />
 
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
-        <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="min-w-0">
-            <h1 className="oe-page-title">Dashboard</h1>
-          </div>
-        </header>
+        <h1 className="sr-only">Dashboard</h1>
         <section className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5 xl:gap-5 mb-6">
           <StatCard
             href={ROUTES.reports}
@@ -618,26 +612,6 @@ export default function AdminDashboardPage() {
                  value={stats.cancellationRequests + stats.modificationRequests}
                  tone="rose"
                />
-              </div>
-              <div className="mt-5 border-t border-slate-100 pt-4">
-                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Payment position</p>
-                <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  <div className="rounded-xl bg-emerald-50 p-3">
-                    <dt className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">Credited</dt>
-                    <dd className="mt-1 text-sm font-black tabular-nums text-emerald-900">{formatCurrency(stats.receivedPayments)}</dd>
-                  </div>
-                  <div className="rounded-xl bg-amber-50 p-3">
-                    <dt className="text-[10px] font-bold uppercase tracking-wide text-amber-700">Pending verification</dt>
-                    <dd className="mt-1 text-sm font-black tabular-nums text-amber-900">{formatCurrency(stats.pendingPaymentTotal)}</dd>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 p-3">
-                    <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Outstanding</dt>
-                    <dd className="mt-1 text-sm font-black tabular-nums text-slate-900">{formatCurrency(stats.outstandingBalance)}</dd>
-                  </div>
-                </dl>
-                <p className="mt-2 text-[10px] font-medium leading-4 text-slate-500">
-                  Credited amounts use the canonical payment ledger; pending submissions are not counted as received.
-                </p>
               </div>
             </div>
 

@@ -211,7 +211,10 @@ export function TourButton({ children, className, size = "lg" }: TourButtonProps
         if (viewerRef.current?.on) {
           viewerRef.current.on("load", markReady)
           viewerRef.current.on("error", () => {
-            if (!cancelled) setIsViewerReady(true)
+            if (!cancelled) {
+              setViewerError("Unable to load this 360 panorama.")
+              setIsViewerReady(true)
+            }
           })
         }
 
@@ -295,31 +298,38 @@ export function TourButton({ children, className, size = "lg" }: TourButtonProps
           <button
             type="button"
             onClick={() => setOpen(false)}
-            className="absolute right-3 top-3 z-50 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/30 lg:right-4 lg:top-4"
+            aria-label="Close 360 tour"
+            className="absolute right-3 top-3 z-50 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-2 focus-visible:ring-offset-black lg:right-4 lg:top-4"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
 
           {/* ── VIEWER ── */}
           <div className="relative h-[45%] min-h-[160px] shrink-0 overflow-hidden bg-slate-950 lg:h-full lg:min-h-0">
             <div
               id="one-estela-tour-panorama"
+              role="region"
+              aria-label={`${selectedSpace?.name || "Selected space"} 360 panorama`}
               className="h-full w-full"
             />
 
             {/* Loading / error overlay */}
             {(!isViewerReady || viewerError) && (
-              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/80">
+              <div
+                className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/80 px-6 text-center"
+                role={viewerError ? "alert" : "status"}
+                aria-live="polite"
+              >
                 {!viewerError ? (
                   <>
-                    <div className="mb-4 h-8 w-8 animate-spin rounded-full border-[3px] border-orange-600 border-t-transparent" />
+                    <div className="mb-4 h-8 w-8 animate-spin rounded-full border-[3px] border-orange-600 border-t-transparent" aria-hidden="true" />
                     <p className="text-xs font-black uppercase tracking-[0.2em] text-white/80">
                       Loading 360° View...
                     </p>
                   </>
                 ) : (
                   <>
-                    <Camera className="mb-3 h-10 w-10 text-orange-500" />
+                    <Camera className="mb-3 h-10 w-10 text-orange-500" aria-hidden="true" />
                     <p className="text-sm font-bold text-white">{viewerError}</p>
                     <p className="mt-1 text-xs font-semibold text-slate-400">
                       Upload a panorama image in CMS Settings.
@@ -334,10 +344,12 @@ export function TourButton({ children, className, size = "lg" }: TourButtonProps
               <button
                 type="button"
                 onClick={handleToggleAutoPan}
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-orange-600 transition hover:bg-orange-700"
+                aria-label={isAutoPanning ? "Pause auto-rotate" : "Start auto-rotate"}
+                aria-pressed={isAutoPanning}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-600 transition hover:bg-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                 title={isAutoPanning ? "Pause auto-rotate" : "Start auto-rotate"}
               >
-                {isAutoPanning ? <PauseCircle className="h-4 w-4" /> : <PlayCircle className="h-4 w-4" />}
+                {isAutoPanning ? <PauseCircle className="h-4 w-4" aria-hidden="true" /> : <PlayCircle className="h-4 w-4" aria-hidden="true" />}
               </button>
 
               <div className="mx-0.5 h-5 w-px bg-white/15" />
@@ -345,7 +357,8 @@ export function TourButton({ children, className, size = "lg" }: TourButtonProps
               <button
                 type="button"
                 onClick={handleZoomOut}
-                className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white transition hover:bg-white/10"
+                aria-label="Zoom out"
+                className="flex h-10 w-10 items-center justify-center rounded-full text-lg font-bold text-white transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                 title="Zoom out"
               >
                 -
@@ -354,16 +367,18 @@ export function TourButton({ children, className, size = "lg" }: TourButtonProps
               <button
                 type="button"
                 onClick={handleResetView}
-                className="flex h-9 w-9 items-center justify-center rounded-full text-white transition hover:bg-white/10"
+                aria-label="Reset panorama view"
+                className="flex h-10 w-10 items-center justify-center rounded-full text-white transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                 title="Reset view"
               >
-                <RefreshCcw className="h-4 w-4" />
+                <RefreshCcw className="h-4 w-4" aria-hidden="true" />
               </button>
 
               <button
                 type="button"
                 onClick={handleZoomIn}
-                className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white transition hover:bg-white/10"
+                aria-label="Zoom in"
+                className="flex h-10 w-10 items-center justify-center rounded-full text-lg font-bold text-white transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                 title="Zoom in"
               >
                 +
@@ -374,10 +389,11 @@ export function TourButton({ children, className, size = "lg" }: TourButtonProps
               <button
                 type="button"
                 onClick={handleFullscreen}
-                className="flex h-9 w-9 items-center justify-center rounded-full text-white transition hover:bg-white/10"
+                aria-label="Enter fullscreen panorama"
+                className="flex h-10 w-10 items-center justify-center rounded-full text-white transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                 title="Fullscreen"
               >
-                <Maximize2 className="h-4 w-4" />
+                <Maximize2 className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -412,10 +428,11 @@ export function TourButton({ children, className, size = "lg" }: TourButtonProps
                 <button
                   type="button"
                   onClick={() => handleSwitchType("venues")}
-                  className={`flex-1 rounded-md py-2 text-[11px] font-bold uppercase tracking-[0.1em] transition ${
-                    activeType === "venues"
-                      ? "bg-orange-600 text-white shadow-sm"
-                      : "text-slate-400 hover:text-white"
+                  aria-pressed={activeType === "venues"}
+                  className={`flex-1 rounded-md py-2 text-[11px] font-bold uppercase tracking-[0.1em] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-inset ${
+                     activeType === "venues"
+                       ? "bg-orange-700 text-white shadow-sm"
+                       : "text-slate-300 hover:bg-white/10 hover:text-white"
                   }`}
                 >
                   Venues
@@ -423,10 +440,11 @@ export function TourButton({ children, className, size = "lg" }: TourButtonProps
                 <button
                   type="button"
                   onClick={() => handleSwitchType("offices")}
-                  className={`flex-1 rounded-md py-2 text-[11px] font-bold uppercase tracking-[0.1em] transition ${
-                    activeType === "offices"
-                      ? "bg-orange-600 text-white shadow-sm"
-                      : "text-slate-400 hover:text-white"
+                  aria-pressed={activeType === "offices"}
+                  className={`flex-1 rounded-md py-2 text-[11px] font-bold uppercase tracking-[0.1em] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-inset ${
+                     activeType === "offices"
+                       ? "bg-orange-700 text-white shadow-sm"
+                       : "text-slate-300 hover:bg-white/10 hover:text-white"
                   }`}
                 >
                   Offices
@@ -476,7 +494,7 @@ export function TourButton({ children, className, size = "lg" }: TourButtonProps
                           }`}>
                             {space.name}
                           </p>
-                          <div className="mt-0.5 flex items-center gap-2 text-[11px] font-semibold text-slate-500">
+                          <div className="mt-0.5 flex items-center gap-2 text-[11px] font-semibold text-slate-300">
                             {space.capacity && (
                               <span className="inline-flex items-center gap-1">
                                 <Users className="h-3 w-3" />
@@ -509,9 +527,9 @@ export function TourButton({ children, className, size = "lg" }: TourButtonProps
                 </div>
               ) : (
                 <div className="mt-4 rounded-xl border border-dashed border-white/10 bg-white/[0.03] px-5 py-8 text-center">
-                  <Camera className="mx-auto mb-2 h-8 w-8 text-slate-500" />
+                  <Camera className="mx-auto mb-2 h-8 w-8 text-slate-300" />
                   <p className="font-bold text-white">No spaces available</p>
-                  <p className="mt-1 text-xs font-semibold text-slate-500">
+                  <p className="mt-1 text-xs font-semibold text-slate-300">
                     Add venues or offices in CMS Settings first.
                   </p>
                 </div>

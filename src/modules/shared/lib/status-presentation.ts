@@ -4,6 +4,14 @@
  * their respective domain helpers.
  */
 
+import {
+  hasActiveCancellationRequest,
+  hasActiveModificationRequest,
+  getBookingLifecycleStatus,
+  getBookingScheduleClassification,
+  type BookingScheduleInput,
+} from "./booking-helpers"
+
 const normalize = (value?: string) => String(value || "").trim().toLowerCase()
 const normalizeToken = (value?: string) => normalize(value).replace(/[\s-]+/g, "_")
 
@@ -46,6 +54,77 @@ export function getBookingSchedulePresentationClass(classification?: string) {
   if (value === "cancelled") return STATUS_CLASSES.cancellation
   if (value === "rejected") return STATUS_CLASSES.danger
   return STATUS_CLASSES.neutralMuted
+}
+
+export type BookingListStatusPresentation = {
+  label: string
+  className: string
+  scheduleClassification: string
+}
+
+/**
+ * Projects a booking into the one status badge used by compact client rows.
+ * This is deliberately display-only: lifecycle fields and schedule helpers
+ * remain unchanged, and Booking Details still exposes the full state.
+ */
+export function getBookingListStatusPresentation(
+  booking: BookingScheduleInput & Record<string, unknown>,
+  now = new Date(),
+): BookingListStatusPresentation {
+  const rawStatus = normalizeToken(String(booking.status || booking.bookingStatus || ""))
+  const scheduleClassification = getBookingScheduleClassification(booking, now)
+  const lifecycle = getBookingLifecycleStatus(booking)
+
+  if (hasActiveCancellationRequest(booking)) {
+    return {
+      label: "Cancellation Requested",
+      className: STATUS_CLASSES.warning,
+      scheduleClassification,
+    }
+  }
+
+  if (hasActiveModificationRequest(booking)) {
+    return {
+      label: "Modification Under Review",
+      className: STATUS_CLASSES.purple,
+      scheduleClassification,
+    }
+  }
+
+  if (rawStatus === "contract_signing_required") {
+    return {
+      label: "Contract Signing Required",
+      className: STATUS_CLASSES.attention,
+      scheduleClassification,
+    }
+  }
+
+  if (scheduleClassification === "rejected") {
+    return { label: "Rejected", className: STATUS_CLASSES.cancellation, scheduleClassification }
+  }
+  if (scheduleClassification === "cancelled" || lifecycle === "cancelled") {
+    return { label: "Cancelled", className: STATUS_CLASSES.cancellation, scheduleClassification }
+  }
+  if (lifecycle === "pending") {
+    return { label: "Pending", className: STATUS_CLASSES.pending, scheduleClassification }
+  }
+  if (scheduleClassification === "active") {
+    return { label: "Active", className: STATUS_CLASSES.success, scheduleClassification }
+  }
+  if (lifecycle === "completed" || scheduleClassification === "completed") {
+    return { label: "Completed", className: STATUS_CLASSES.info, scheduleClassification }
+  }
+  if (lifecycle === "confirmed") {
+    // Future and legacy confirmed bookings intentionally remain Confirmed;
+    // Upcoming is schedule context, not a second lifecycle badge.
+    return { label: "Confirmed", className: STATUS_CLASSES.success, scheduleClassification }
+  }
+
+  return {
+    label: String(booking.status || booking.bookingStatus || "Pending") || "Pending",
+    className: getBookingStatusPresentationClass(String(booking.status || booking.bookingStatus || "pending")),
+    scheduleClassification,
+  }
 }
 
 /** Report rows intentionally use the narrower report status vocabulary. */

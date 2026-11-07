@@ -400,7 +400,7 @@ export default function ClientDashboardPage() {
     return (
       <div className="mx-auto flex min-h-[50vh] w-full max-w-7xl flex-col items-center justify-center gap-6 px-4 sm:px-6 lg:px-8" aria-busy="true">
         <div className="flex flex-col items-center gap-3 text-center" role="status" aria-live="polite">
-          <h1 className="oe-page-title">Dashboard</h1>
+          <h1 className="sr-only">Dashboard</h1>
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-orange-600" />
           <p className="text-sm font-semibold text-slate-500">Loading your dashboard…</p>
         </div>
@@ -419,12 +419,12 @@ export default function ClientDashboardPage() {
     <TooltipProvider delayDuration={400}>
     <div className="w-full min-w-0 max-w-full overflow-x-hidden">
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 animate-in fade-in duration-500">
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <header aria-label="Dashboard toolbar" className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
-            <h1 className="oe-page-title">Dashboard</h1>
+            <h1 className="sr-only">Dashboard</h1>
           </div>
           {newBookingAction}
-        </div>
+        </header>
 
         <div className="space-y-6">
           {activeRental && (

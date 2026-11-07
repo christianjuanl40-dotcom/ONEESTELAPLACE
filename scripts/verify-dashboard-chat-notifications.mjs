@@ -215,9 +215,12 @@ try {
    }
    const waitForPaint = () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
 
-   await check("client dashboard removes Payment Overview and keeps recent activity and transactions navigation", async () => {
+  await check("client dashboard removes Payment Overview and keeps recent activity and transactions navigation", async () => {
     await goto("dashboard")
-    await page.getByRole("heading", { name: "Dashboard", exact: true }).waitFor()
+    const dashboardHeading = page.getByRole("heading", { name: "Dashboard", exact: true })
+    await dashboardHeading.waitFor()
+    assert.match(await dashboardHeading.getAttribute("class") || "", /\bsr-only\b/)
+    assert.equal(await page.locator('header[aria-label="Dashboard toolbar"]').count(), 1)
     assert.equal(await page.getByText("Payment Overview", { exact: true }).count(), 0)
     assert.equal(await page.getByText("Pending submissions are shown separately and do not count as received payments.", { exact: true }).count(), 0)
     await page.getByRole('heading', {name:'Recent Payments',exact:true}).waitFor()
@@ -273,10 +276,34 @@ try {
      assert.equal(await page.getByText("Payment Overview", { exact: true }).count(), 0)
    })
 
-   await check("admin combined and permission-denied reads fail closed", async () => {
-     await page.evaluate(() => window.fixture.reset())
-     await goto("admin-dashboard", "admin")
-     await page.evaluate(() => window.fixture.update({
+    await check("admin combined and permission-denied reads fail closed", async () => {
+      await page.evaluate(() => window.fixture.reset())
+      await goto("admin-dashboard", "admin")
+      await page.getByRole("heading", { name: "Recent Bookings", exact: true }).waitFor()
+      await page.getByRole("heading", { name: "Needs Attention", exact: true }).waitFor()
+      await page.getByText("Total Records", { exact: true }).waitFor()
+      assert.equal(await page.getByRole("link", { name: "View All", exact: true }).getAttribute("href"), "/dashboard/bookings")
+      assert.equal(await page.getByText("Payment position", { exact: true }).count(), 0)
+      assert.equal(await page.getByText("Credited", { exact: true }).count(), 0)
+      assert.equal(await page.getByText("Pending verification", { exact: true }).count(), 0)
+      assert.equal(await page.getByText("Outstanding", { exact: true }).count(), 0)
+      assert.equal(await page.getByText("Credited amounts use the canonical payment ledger; pending submissions are not counted as received.", { exact: true }).count(), 0)
+      for (const width of [320, 375, 768, 1024, 1440]) {
+        await page.setViewportSize({ width, height: 720 })
+        await waitForPaint()
+        const metrics = await page.evaluate(() => {
+          const content = document.querySelector("h1.sr-only")?.parentElement
+          const contentBottom = content ? content.getBoundingClientRect().bottom + window.scrollY : 0
+          return {
+            width: window.innerWidth,
+            scrollWidth: document.documentElement.scrollWidth,
+            pageBottomGap: Math.max(0, document.documentElement.scrollHeight - contentBottom),
+          }
+        })
+        assert.ok(metrics.scrollWidth <= metrics.width + 1, `admin dashboard has horizontal overflow at ${width}px`)
+        assert.ok(metrics.pageBottomGap < 240, `admin dashboard leaves excessive bottom space at ${width}px: ${metrics.pageBottomGap}px`)
+      }
+      await page.evaluate(() => window.fixture.update({
        dataError: "Bookings and Payments could not be authorized for this account.",
        dataErrors: { bookings: "Bookings could not be authorized.", payments: "Payments could not be authorized." },
        isLoading: false,
@@ -285,10 +312,12 @@ try {
      assert.equal(await page.getByText("₱0", { exact: true }).count(), 0)
      assert.equal(await page.getByText("Fixture Reservation", { exact: true }).count(), 0)
      await page.getByRole("button", { name: "Retry dashboard data", exact: true }).click()
-     await page.getByRole("status").waitFor()
-     await page.evaluate(() => window.fixture.resolveDataRetry())
-     await page.getByRole("heading", { name: "Dashboard", exact: true }).waitFor()
-     assert.equal(await page.locator('.oe-page-kicker, .oe-page-description').count(), 0)
+    await page.getByRole("status").waitFor()
+    await page.evaluate(() => window.fixture.resolveDataRetry())
+    const dashboardHeading = page.getByRole("heading", { name: "Dashboard", exact: true })
+    await dashboardHeading.waitFor()
+    assert.match(await dashboardHeading.getAttribute("class") || "", /\bsr-only\b/)
+    assert.equal(await page.locator('.oe-page-kicker, .oe-page-description').count(), 0)
      assert.equal(await page.getByText("₱10,000", { exact: true }).count() > 0, true)
    })
 
@@ -437,9 +466,20 @@ try {
         await waitForPaint()
         const metrics = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.documentElement.scrollWidth }))
         assert.ok(metrics.scrollWidth <= metrics.width + 1, `${view} has horizontal overflow at ${width}px`)
-        if (view.endsWith('dashboard')) {
-          assert.equal(await page.getByRole('heading',{name:'Dashboard',exact:true}).count(),1)
-          assert.equal(await page.locator('.oe-page-kicker, .oe-page-description').count(),0)
+         if (view.endsWith('dashboard')) {
+           const heading = page.getByRole('heading',{name:'Dashboard',exact:true})
+           assert.equal(await heading.count(),1)
+           assert.match(await heading.getAttribute('class') || '', /\bsr-only\b/)
+           if (view === 'admin-dashboard') {
+             assert.equal(await page.getByRole('heading', { name: 'Recent Bookings', exact: true }).count(), 1)
+             assert.equal(await page.getByRole('heading', { name: 'Needs Attention', exact: true }).count(), 1)
+             assert.equal(await page.getByText('Total Records', { exact: true }).count(), 1)
+             assert.equal(await page.getByText('Payment position', { exact: true }).count(), 0)
+             assert.equal(await page.getByText('Credited', { exact: true }).count(), 0)
+             assert.equal(await page.getByText('Pending verification', { exact: true }).count(), 0)
+             assert.equal(await page.getByText('Outstanding', { exact: true }).count(), 0)
+           }
+           assert.equal(await page.locator('.oe-page-kicker, .oe-page-description').count(),0)
         }
       }
     }

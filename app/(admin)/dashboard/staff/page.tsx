@@ -20,6 +20,8 @@ import { useToast } from "@shared/hooks/use-toast"
 import { Checkbox } from "@shared/components/ui/checkbox"
 import { Edit2, Plus, Search, ShieldCheck, Users, Trash2 } from "lucide-react"
 import { UserAvatar } from "@/src/modules/shared/components/user-avatar"
+import { Table, TableBody, TableCell, TableHead, TableHeader } from "@shared/components/ui/table"
+import { formatBookingDateTime } from "@/src/modules/shared/lib/booking-helpers"
 import type { StaffPermissions } from "@/src/modules/shared/types/permissions"
 import { DEFAULT_STAFF_PERMISSIONS, PERMISSION_LABELS } from "@/src/modules/shared/types/permissions"
 
@@ -67,6 +69,16 @@ function getInitials(firstName?: string, lastName?: string) {
   const first = firstName?.charAt(0) || ""
   const last = lastName?.charAt(0) || ""
   return `${first}${last}`.toUpperCase() || "ST"
+}
+
+function getStaffStatusClass(status?: string) {
+  return normalizeStaffStatus(status) === "Active"
+    ? "border-emerald-100 bg-emerald-50 text-emerald-700"
+    : "border-slate-200 bg-slate-50 text-slate-600"
+}
+
+function formatStaffDate(value?: string) {
+  return value ? formatBookingDateTime(value, "short") || "—" : "—"
 }
 
 export default function StaffManagementPage() {
@@ -454,141 +466,233 @@ export default function StaffManagementPage() {
 
   if (loading) {
     return (
-<div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
-        <div className="flex min-h-[300px] items-center justify-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-orange-600" />
+      <div className="mx-auto w-full max-w-7xl px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
+        <div className="flex min-h-[300px] flex-col items-center justify-center gap-3" role="status" aria-live="polite">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-orange-600" aria-hidden="true" />
+          <span className="text-sm font-semibold text-slate-500">Loading staff accounts…</span>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-x-hidden">
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-        <Dialog
-          open={isAddDialogOpen}
-          onOpenChange={(open) => {
-            setIsAddDialogOpen(open)
-            if (!open) resetForm()
-          }}
-        >
-          <DialogTrigger asChild>
-            <Button variant="brand" className="h-10 rounded-full px-6 text-sm font-black shadow-sm">
-              <Plus className="mr-2 h-4 w-4" />
-              Add Staff
-            </Button>
-          </DialogTrigger>
-
-          <DialogContent className="w-[95vw] sm:max-w-[560px] max-h-[90dvh] overflow-y-auto">
-            <DialogHeader className="shrink-0 px-6 pt-6 pb-0">
-              <DialogTitle className="text-xl font-black text-slate-950">
-                Add New Staff
-              </DialogTitle>
-              <DialogDescription className="text-sm font-medium text-slate-500">
-                Create a staff account. Required fields are marked with an asterisk.
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="flex-1 overflow-y-auto min-h-0 px-6 py-5 max-h-[60vh]">
-              {renderStaffForm("add")}
-            </div>
-
-            <DialogFooter className="shrink-0 px-6 pb-6 pt-2 gap-2 flex-col-reverse sm:flex-row sm:justify-end">
-              <Button
-                variant="outline"
-                onClick={() => setIsAddDialogOpen(false)}
-                className="rounded-xl font-bold w-full sm:w-auto"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleAddStaff}
-                disabled={isSaving}
-                className="rounded-xl bg-orange-600 px-5 font-bold text-white hover:bg-orange-700 disabled:opacity-60 w-full sm:w-auto"
-              >
-                {isSaving ? "Creating..." : "Add Staff"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-          <Input
-            placeholder="Search staff..."
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-            className="h-10 rounded-xl border-slate-200 bg-white pl-9 text-xs focus-visible:ring-orange-600 sm:w-[290px]"
-          />
+    <div className="mx-auto w-full max-w-7xl min-w-0 overflow-x-hidden px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
+      <header className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <h1 className="oe-page-title">Staff Management</h1>
         </div>
-      </div>
+        <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end lg:w-auto">
+          <Dialog
+            open={isAddDialogOpen}
+            onOpenChange={(open) => {
+              setIsAddDialogOpen(open)
+              if (!open) resetForm()
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button variant="brand" className="h-10 rounded-full px-6 text-sm font-black shadow-sm">
+                <Plus className="mr-2 h-4 w-4" />
+                Add Staff
+              </Button>
+            </DialogTrigger>
+
+            <DialogContent className="w-[95vw] sm:max-w-[560px] max-h-[90dvh] overflow-y-auto">
+              <DialogHeader className="shrink-0 px-6 pt-6 pb-0">
+                <DialogTitle className="text-xl font-black text-slate-950">
+                  Add New Staff
+                </DialogTitle>
+                <DialogDescription className="text-sm font-medium text-slate-500">
+                  Create a staff account. Required fields are marked with an asterisk.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="flex-1 overflow-y-auto min-h-0 px-6 py-5 max-h-[60vh]">
+                {renderStaffForm("add")}
+              </div>
+
+              <DialogFooter className="shrink-0 px-6 pb-6 pt-2 gap-2 flex-col-reverse sm:flex-row sm:justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsAddDialogOpen(false)}
+                  className="rounded-xl font-bold w-full sm:w-auto"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleAddStaff}
+                  disabled={isSaving}
+                  className="rounded-xl bg-orange-600 px-5 font-bold text-white hover:bg-orange-700 disabled:opacity-60 w-full sm:w-auto"
+                >
+                  {isSaving ? "Creating..." : "Add Staff"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+            <Input
+              placeholder="Search staff..."
+              aria-label="Search staff accounts"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              className="h-10 rounded-xl border-slate-200 bg-white pl-9 text-xs focus-visible:ring-orange-600 sm:w-[290px]"
+            />
+          </div>
+        </div>
+      </header>
 
       {filteredStaff.length > 0 ? (
         <>
-          <div className="space-y-3">
+          <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm md:block">
+            <Table className="min-w-[900px] table-fixed xl:min-w-0">
+              <caption className="sr-only">Staff accounts and module permissions</caption>
+              <colgroup>
+                <col style={{ width: "25%" }} />
+                <col style={{ width: "24%" }} />
+                <col style={{ width: "13%" }} />
+                <col style={{ width: "18%" }} />
+                <col style={{ width: "20%" }} />
+              </colgroup>
+              <TableHeader className="bg-slate-50/80">
+                <tr>
+                  <TableHead className="oe-table-head">Staff member</TableHead>
+                  <TableHead className="oe-table-head">Email / joined</TableHead>
+                  <TableHead className="oe-table-head">Status</TableHead>
+                  <TableHead className="oe-table-head">Access</TableHead>
+                  <TableHead className="oe-table-head text-right">Actions</TableHead>
+                </tr>
+              </TableHeader>
+              <TableBody>
+                {paginatedStaff.map((staffMember: StaffAccount) => {
+                  const fullName = getFullName(staffMember)
+                  const grantedCount = Object.values(staffMember.permissions).filter(Boolean).length
+
+                  return (
+                    <tr key={staffMember.uid} className="border-b border-slate-100 transition-colors hover:bg-slate-50/70">
+                      <TableCell className="min-w-0 align-top whitespace-normal">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <UserAvatar
+                            name={fullName}
+                            picture={staffMember.profilePicture}
+                            className="h-10 w-10 shrink-0"
+                            ringClassName=""
+                            fallbackClassName="bg-orange-50 text-orange-600"
+                            textClassName="text-sm font-black uppercase"
+                          />
+                          <div className="min-w-0">
+                            <p className="oe-table-primary line-clamp-2">{fullName || "Unnamed Staff"}</p>
+                            <p className="oe-table-secondary mt-0.5 line-clamp-1">{staffMember.position || "No position"}</p>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="min-w-0 align-top whitespace-normal">
+                        <p className="oe-table-primary break-words">{staffMember.email || "—"}</p>
+                        <p className="oe-table-secondary mt-0.5">Joined {formatStaffDate(staffMember.createdAt)}</p>
+                      </TableCell>
+                      <TableCell className="align-top whitespace-nowrap">
+                        <span className={`oe-status-badge border ${getStaffStatusClass(staffMember.status)}`}>
+                          {normalizeStaffStatus(staffMember.status)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="align-top whitespace-normal">
+                        <p className="oe-table-primary">{grantedCount}/{Object.keys(staffMember.permissions).length} modules</p>
+                        <p className="oe-table-secondary mt-0.5">Permissions can be changed in Edit.</p>
+                      </TableCell>
+                      <TableCell className="align-top whitespace-nowrap text-right">
+                        <div className="oe-table-actions">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="oe-table-action h-9 min-w-[78px] whitespace-nowrap border-slate-200 px-2.5 text-xs text-slate-700 hover:bg-slate-50"
+                            onClick={() => handleOpenEditDialog(staffMember)}
+                          >
+                            <Edit2 className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                            Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            aria-label={`Delete ${fullName || "staff member"}`}
+                            title={`Delete ${fullName || "staff member"}`}
+                            className="oe-table-action h-9 min-w-[78px] whitespace-nowrap px-2.5 text-xs"
+                            onClick={() => handleDeleteStaff(staffMember)}
+                          >
+                            <Trash2 className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                            Delete
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </tr>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+
+          <div className="space-y-2 md:hidden">
             {paginatedStaff.map((staffMember: StaffAccount) => {
               const fullName = getFullName(staffMember)
               const grantedCount = Object.values(staffMember.permissions).filter(Boolean).length
 
               return (
-                <div
+                <article
                   key={staffMember.uid}
-                  className="group flex w-full max-w-full min-w-0 flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-4"
+                  className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
                 >
-                  <div className="flex shrink-0 items-center gap-3 sm:w-[200px]">
-                    <UserAvatar
-                      name={fullName}
-                      picture={staffMember.profilePicture}
-                      className="h-11 w-11 shrink-0"
-                      ringClassName=""
-                      fallbackClassName="bg-orange-50 text-orange-600"
-                      textClassName="text-sm font-black uppercase"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black">
-                        Staff
-                      </p>
-                      <p className="break-words whitespace-normal text-sm font-black text-slate-900">
-                        {fullName || "Unnamed Staff"}
-                      </p>
-                      <p className="break-words whitespace-normal text-[11px] font-bold text-slate-500">
-                        {staffMember.position || "No position"}
-                      </p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <UserAvatar
+                        name={fullName}
+                        picture={staffMember.profilePicture}
+                        className="h-10 w-10 shrink-0"
+                        ringClassName=""
+                        fallbackClassName="bg-orange-50 text-orange-600"
+                        textClassName="text-sm font-black uppercase"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="oe-table-primary line-clamp-2">{fullName || "Unnamed Staff"}</p>
+                        <p className="oe-table-secondary mt-0.5 line-clamp-1">{staffMember.position || "No position"}</p>
+                      </div>
                     </div>
+                    <span className={`oe-status-badge shrink-0 border ${getStaffStatusClass(staffMember.status)}`}>
+                      {normalizeStaffStatus(staffMember.status)}
+                    </span>
                   </div>
-
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-black">
-                      Email
-                    </p>
-                    <p className="break-words whitespace-normal text-xs font-black text-slate-800">
-                      {staffMember.email}
-                    </p>
-                    <p className="mt-1 text-[10px] font-semibold text-slate-400">
-                      {grantedCount}/{Object.keys(staffMember.permissions).length} modules
-                    </p>
-                  </div>
-
-                  <div className="flex shrink-0 items-center gap-1.5">
+                  <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
+                    <div className="min-w-0">
+                      <dt className="oe-table-label">Email</dt>
+                      <dd className="oe-table-secondary mt-0.5 break-words">{staffMember.email || "—"}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="oe-table-label">Joined</dt>
+                      <dd className="oe-table-secondary mt-0.5">{formatStaffDate(staffMember.createdAt)}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="oe-table-label">Access</dt>
+                      <dd className="oe-table-secondary mt-0.5">{grantedCount}/{Object.keys(staffMember.permissions).length} modules</dd>
+                    </div>
+                  </dl>
+                  <div className="mt-3 flex gap-2 border-t border-slate-100 pt-3">
                     <Button
                       variant="outline"
-                      size="sm"
-                      className="h-8 shrink-0 whitespace-nowrap rounded-lg border-slate-200 px-2.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50"
+                      className="h-10 flex-1 rounded-lg border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50"
                       onClick={() => handleOpenEditDialog(staffMember)}
                     >
-                      <Edit2 className="mr-1 h-3 w-3" />
+                      <Edit2 className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
                       Edit
                     </Button>
                     <Button
-                      size="sm"
                       variant="destructive"
-                      className="h-8 shrink-0 whitespace-nowrap rounded-lg px-2.5 text-[10px] font-bold"
+                      aria-label={`Delete ${fullName || "staff member"}`}
+                      className="h-10 flex-1 rounded-lg text-xs font-bold"
                       onClick={() => handleDeleteStaff(staffMember)}
                     >
-                      <Trash2 className="h-3 w-3" />
+                      <Trash2 className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                      Delete
                     </Button>
                   </div>
-                </div>
+                </article>
               )
             })}
           </div>

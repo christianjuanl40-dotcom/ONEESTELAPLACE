@@ -421,6 +421,7 @@
   flex-wrap: wrap;
   gap: 0.5rem;
   justify-content: flex-end;
+  max-width: 100%;
   min-width: 0;
 }
 

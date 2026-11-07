@@ -156,7 +156,10 @@ try {
   const pageScrollMetrics = () => page.evaluate(() => ({ innerWidth: window.innerWidth, scrollWidth: document.documentElement.scrollWidth, scrollY: window.scrollY }))
 
   await page.goto(`${origin}/__booking-table`)
-  await page.getByRole("heading", { name: "Booking Management", exact: true }).waitFor()
+  const bookingHeading = page.getByRole("heading", { name: "Booking Management", exact: true })
+  await bookingHeading.waitFor()
+  assert.match(await bookingHeading.getAttribute("class") || "", /\bsr-only\b/)
+  assert.equal(await page.locator('header[aria-label="Booking management toolbar"]').count(), 1)
 
   await check("default newest-created ordering and post-sort pagination", async () => {
     await page.setViewportSize({ width: 768, height: 720 })
@@ -295,6 +298,7 @@ try {
     await page.getByRole('dialog').getByText('Confirmed', { exact: true }).first().waitFor()
     await page.keyboard.press('Escape')
     assert.equal(await page.getByRole('heading', { name: 'Booking Management', exact: true }).count(), 1)
+    assert.match(await page.getByRole('heading', { name: 'Booking Management', exact: true }).getAttribute('class') || '', /\bsr-only\b/)
     assert.equal(await page.locator('.oe-page-kicker, .oe-page-description').count(), 0)
   })
 

@@ -77,6 +77,7 @@ import {
 import { cn } from "@/src/modules/shared/lib/utils"
 import {
   getBookingSchedulePresentationClass,
+  getBookingListStatusPresentation,
   getBookingStatusPresentationClass,
 } from "@/src/modules/shared/lib/status-presentation"
 import {
@@ -312,20 +313,6 @@ function getStatusBadgeClass(status?: string) {
   return getBookingStatusPresentationClass(status)
 }
 
-function getStatusLabel(status?: string) {
-  return getBookingLifecycleLabel({ status })
-}
-
-function hasPendingCancellationIndicator(booking: Booking) {
-  const cancellationStatus = normalizeStatus(booking.cancellationStatus)
-  return Boolean(
-    booking.cancellationRequested === true ||
-      booking.status === "cancellation_requested" ||
-      ["pending", "under review", "requested"].includes(cancellationStatus) ||
-      normalizeStatus((booking as any).cancelRequestStatus) === "pending",
-  )
-}
-
 function readStoredReceipts(bookingId?: string): Promise<BookingReceipt[]> {
   const constraints: any[] = bookingId
     ? [where("bookingId", "==", bookingId)]
@@ -414,28 +401,11 @@ function getClientBookingScheduleParts(booking: Booking) {
 }
 
 function ClientBookingStatusBadges({ booking }: { booking: Booking }) {
-  const scheduleClassification = getBookingScheduleClassification(booking)
-  const showScheduleBadge = ["upcoming", "active", "legacy"].includes(scheduleClassification) ||
-    (scheduleClassification === "completed" && getBookingLifecycleStatus(booking as unknown as Record<string, unknown>) !== "completed")
+  const presentation = getBookingListStatusPresentation(booking as unknown as Record<string, unknown>)
   return (
-    <div className="flex min-w-0 flex-col items-start gap-1.5">
-      <span className={cn("oe-status-badge max-w-full whitespace-normal break-words", getStatusBadgeClass(booking.status))}>
-        {getStatusLabel(booking.status)}
-      </span>
-      {showScheduleBadge && (
-        <span className={cn(
-          "oe-status-badge max-w-full whitespace-normal break-words",
-          getBookingSchedulePresentationClass(scheduleClassification),
-        )}>
-          {getBookingScheduleClassificationLabel(scheduleClassification)}
-        </span>
-      )}
-      {hasPendingCancellationIndicator(booking) && (
-        <span className="oe-status-badge max-w-full whitespace-normal break-words border border-amber-200 bg-amber-50 text-amber-700">
-          Cancellation Requested
-        </span>
-      )}
-    </div>
+    <span className={cn("oe-status-badge max-w-full whitespace-normal break-words", presentation.className)}>
+      {presentation.label}
+    </span>
   )
 }
 
@@ -2689,10 +2659,10 @@ export default function MyBookingsPage() {
   const pageContent = isLoading || dataError ? (
       <div className="w-full min-w-0 max-w-full overflow-x-hidden">
         <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <h1 className="oe-page-title">My Bookings</h1>
+          <header aria-label="My bookings toolbar" className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <h1 className="sr-only">My Bookings</h1>
             {newBookingButton}
-          </div>
+          </header>
           {isLoading ? (
             <section className="mt-6" aria-busy="true" aria-live="polite">
               <p className="mb-3 text-sm font-semibold text-slate-600">Loading your bookings…</p>
@@ -2779,9 +2749,9 @@ export default function MyBookingsPage() {
           receiptPresentation={receiptPresentation}
         />
 
-        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <header aria-label="My bookings toolbar" className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <h1 className="oe-page-title">My Bookings</h1>
+            <h1 className="sr-only">My Bookings</h1>
           </div>
           <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-center sm:justify-end lg:w-auto">
             <div className="relative w-full sm:max-w-xs">
@@ -2803,15 +2773,14 @@ export default function MyBookingsPage() {
                 </button>
               )}
             </div>
-          </div>
-          <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
-                 <TooltipProvider delayDuration={400}>
-                 <Tooltip>
-                   <TooltipTrigger asChild>
-                     <span className="inline-flex">
-                       {newBookingButton}
-                     </span>
-                   </TooltipTrigger>
+            <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+              <TooltipProvider delayDuration={400}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      {newBookingButton}
+                    </span>
+                  </TooltipTrigger>
                   <TooltipContent side="bottom" className="text-[10px] font-semibold">
                     Create a new reservation
                   </TooltipContent>
@@ -2827,6 +2796,7 @@ export default function MyBookingsPage() {
               </Button>
             </div>
           </div>
+        </header>
 
       {/* Current Booking */}
       {!showHistory && (
@@ -2918,26 +2888,7 @@ export default function MyBookingsPage() {
       {/* Booking History (hidden by default) */}
       {showHistory && (
         <>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <Input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by ID, event, venue, status..."
-                className="h-9 rounded-xl border-slate-200 pl-9 pr-9 text-sm focus-visible:ring-2 focus-visible:ring-orange-500"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  aria-label="Clear search"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-600"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
-            </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <select
               value={filter}
               onChange={(e) => setFilter(e.target.value as BookingFilter)}

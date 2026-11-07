@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   getBookingStatusPresentationClass,
   getBookingSchedulePresentationClass,
+  getBookingListStatusPresentation,
   getPaymentStatusPresentationClass,
   getRefundStatusPresentationClass,
   getReportBookingStatusPresentationClass,
@@ -22,6 +23,17 @@ describe("status presentation mappings", () => {
     expect(getBookingStatusPresentationClass("cancelled")).toContain("rose")
     expect(getBookingStatusPresentationClass("rental_expired")).toContain("red")
     expect(getBookingStatusPresentationClass("active_rental")).toContain("sky")
+  })
+
+  it("projects client rows to one status badge without changing lifecycle data", () => {
+    const now = new Date("2026-11-06T04:00:00.000Z")
+    expect(getBookingListStatusPresentation({ status: "pending" }, now).label).toBe("Pending")
+    expect(getBookingListStatusPresentation({ status: "confirmed", date: "2099-01-01" }, now).label).toBe("Confirmed")
+    expect(getBookingListStatusPresentation({ status: "confirmed", date: "2026-11-06", startTime: "10:00", endTime: "16:00" }, now).label).toBe("Active")
+    expect(getBookingListStatusPresentation({ status: "completed", date: "2026-01-01" }, now).label).toBe("Completed")
+    expect(getBookingListStatusPresentation({ status: "cancelled", date: "2099-01-01" }, now).label).toBe("Cancelled")
+    expect(getBookingListStatusPresentation({ status: "rejected", date: "2099-01-01" }, now).label).toBe("Rejected")
+    expect(getBookingListStatusPresentation({ status: "confirmed" }, now).label).toBe("Confirmed")
   })
 
   it("gives refund state precedence without mutating payment state", () => {

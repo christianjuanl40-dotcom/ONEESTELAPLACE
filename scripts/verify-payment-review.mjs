@@ -274,7 +274,12 @@ try {
   // Actual table/compact-row DOM, not a parallel utility-only presentation test.
   for (const surface of ['admin','client']) {
     await page.goto(`${origin}/__payment-review?${surface}`)
-    await page.getByRole('heading', {name:surface==='admin'?'Payment Verification':'My Transactions',exact:true}).waitFor()
+    const pageHeading = page.getByRole('heading', {name:surface==='admin'?'Payment Verification':'My Transactions',exact:true})
+    await pageHeading.waitFor()
+    assert.match(await pageHeading.getAttribute('class') || '', /\bsr-only\b/)
+    assert.equal(await page.locator(surface === 'admin'
+      ? 'header[aria-label="Payment verification toolbar"]'
+      : 'header[aria-label="My transactions toolbar"]').count(), 1)
     await page.evaluate(() => window.paymentFixture.setupAlignment())
     const before=await page.evaluate(() => JSON.stringify(window.paymentFixture.snapshot()))
     for (const width of [320,375,768,1024,1440]) {

@@ -22,6 +22,7 @@ import {
   startAfter,
 } from "firebase/firestore"
 import { getChatTimestampMs, sortChatMessages } from "../lib/chat-presentation"
+import { getChatErrorMessage } from "../lib/chat-errors"
 
 export interface ChatMessageItem {
   id?: string
@@ -149,7 +150,7 @@ async function markUnreadMessagesInPages(constraints: any[], field: "isRead" | "
       limit(CHAT_HISTORY_PAGE_SIZE),
     ))
     if (snapshot.empty) return
-    await Promise.all(snapshot.docs.map((docSnap) => updateDoc(
+    await Promise.all(snapshot.docs.map((docSnap: any) => updateDoc(
       doc(db, "chatMessages", docSnap.id),
       { [field]: true },
     )))
@@ -193,6 +194,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const scope = JSON.stringify([currentUserId, currentUserRole, canAccessChat])
   const [loadedScope, setLoadedScope] = useState("")
   const scopeIsCurrent = Boolean(currentUserId) && loadedScope === scope
+  const scopeRef = useRef(scope)
+  // Keep stale async callbacks from an account/permission transition from
+  // publishing an error or rolling back another account's optimistic state.
+  useEffect(() => {
+    scopeRef.current = scope
+  }, [scope])
   const liveMessagesRef = useRef(new Map<string, ChatMessageItem>())
   const historicalMessagesRef = useRef(new Map<string, ChatMessageItem>())
   const legacyMessagesRef = useRef(new Map<string, ChatMessageItem>())
@@ -269,49 +276,51 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     if (currentUserRole === "staff" && !isAdminScope) {
       return
     }
-    const unreadQuery = isAdminScope
-       ? query(chatMessagesRef, where("sender", "==", "client"), where("isRead", "==", false), limit(CHAT_UNREAD_LIMIT + 1))
-       : query(
-           chatMessagesRef,
-           where("clientId", "==", currentUserId),
-           where("sender", "==", "admin"),
-           where("isReadByClient", "==", false),
-           limit(CHAT_UNREAD_LIMIT + 1),
-         )
     console.log("[Firestore Listener START] ChatUnread", isAdminScope ? "(admin scope)" : `(client: ${currentUserId})`)
     let disposed = false
     perfListener("ChatUnread", "START")
-    const unsub = onSnapshot(
+    const unreadQuery = isAdminScope
+      ? query(chatMessagesRef, where("sender", "==", "client"), where("isRead", "==", false), limit(CHAT_UNREAD_LIMIT + 1))
+      : query(
+          chatMessagesRef,
+          where("clientId", "==", currentUserId),
+          where("sender", "==", "admin"),
+          where("isReadByClient", "==", false),
+          limit(CHAT_UNREAD_LIMIT + 1),
+        )
+    const unsubscribe = onSnapshot(
       unreadQuery,
       (snapshot) => {
         if (disposed) return
-         perfListener("ChatUnread", "FIRST_SNAPSHOT", snapshot.size)
-          const isBounded = snapshot.size > CHAT_UNREAD_LIMIT
-          setUnreadMessages(isBounded ? CHAT_UNREAD_LIMIT : snapshot.size)
-          setUnreadMessagesIsBounded(isBounded)
-         setUnreadError(null)
-       },
+        const isBounded = snapshot.size > CHAT_UNREAD_LIMIT
+        perfListener("ChatUnread", "FIRST_SNAPSHOT", snapshot.size)
+        setUnreadMessages(isBounded ? CHAT_UNREAD_LIMIT : snapshot.size)
+        setUnreadMessagesIsBounded(isBounded)
+        setUnreadError(null)
+      },
       (error) => {
         if (disposed) return
-         perfListener("ChatUnread", "ERROR")
-         console.error("[ChatUnread snapshot error]", { code: error.code, message: error.message, error })
-         setUnreadError("Unread messages could not be refreshed. Retry chat loading to try again.")
+        perfListener("ChatUnread", "ERROR")
+        console.error("[ChatUnread snapshot error]", { code: error.code, message: error.message, error })
+        setUnreadMessages(0)
+        setUnreadMessagesIsBounded(false)
+        setUnreadError(getChatErrorMessage(error, "Unread messages"))
       },
     )
     return () => {
       disposed = true
       console.log("[Firestore Listener STOP] ChatUnread")
       perfListener("ChatUnread", "STOP")
-      unsub()
+      unsubscribe()
     }
   }, [currentUserId, currentUserRole, canAccessChat, chatRetryAttempt])
 
   const fetchLegacyPage = useCallback(async (conversationId: string, generation: number) => {
     if (generation !== historyGenerationRef.current || !conversationId) return
 
-    // A query without an explicit order uses Firestore's deterministic
-    // document-ID order. Keeping the fallback equality-only avoids requiring
-    // a new composite index solely for legacy records.
+    // A separate equality-only query uses Firestore's deterministic
+    // document-ID order only to discover timestamp-less legacy records. It is
+    // never a substitute for the canonical timestamp-ordered history query.
     const legacyConstraints: any[] = [
       where("clientId", "==", conversationId),
       ...(legacyCursorRef.current ? [startAfter(legacyCursorRef.current)] : []),
@@ -369,30 +378,29 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         ]))
       }
       const indexQuery = query(chatMessagesRef, orderBy("timestamp", "desc"), limit(CHAT_INDEX_LIMIT))
-      const unsub = onSnapshot(indexQuery, (snapshot) => {
+      const unsubscribe = onSnapshot(indexQuery, (snapshot) => {
         if (disposed) return
         canonicalIndex.clear()
+        legacyIndex.clear()
         snapshot.forEach((docSnap) => canonicalIndex.set(docSnap.id, mapChatDocument(docSnap)))
         publishConversationIndex()
         setMessages([])
         setIsChatLoading(false)
         setChatError(null)
         setIsChatLoaded(true)
-        perfListener("Chat", "FIRST_SNAPSHOT", canonicalIndex.size)
+        perfListener("Chat", "FIRST_SNAPSHOT", snapshot.size)
       }, (error) => {
         if (disposed) return
         perfListener("Chat", "ERROR")
         console.error("[Chat conversation index error]", { code: error.code, message: error.message, error })
         setIsChatLoading(false)
-        setChatError(error.code === "permission-denied"
-          ? "Chat is not authorized for this account."
-          : "Chat conversations could not be loaded. Check your connection and retry.")
+        setChatError(getChatErrorMessage(error, "Chat conversations"))
       })
 
       // Timestamp ordering omits legacy documents whose timestamp field is
-      // missing or invalid. Keep a separate bounded fallback lane so an
-      // admin can still discover conversations represented only by legacy
-      // records. The canonical index remains the primary/latest lane.
+      // missing or invalid. Keep a separate bounded legacy lane so an admin
+      // can discover those conversations without presenting it as canonical
+      // message history.
       void getDocs(query(chatMessagesRef, limit(CHAT_INDEX_LIMIT))).then((snapshot) => {
         if (disposed) return
         snapshot.forEach((docSnap) => {
@@ -411,7 +419,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         disposed = true
         console.log("[Firestore Listener STOP] ChatConversationIndex")
         perfListener("Chat", "STOP")
-        unsub()
+        unsubscribe()
       }
     }
 
@@ -425,7 +433,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       orderBy("timestamp", "asc"),
       limitToLast(CHAT_HISTORY_PAGE_SIZE),
     )
-    const unsub = onSnapshot(messagesQuery, (snapshot) => {
+    const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
       if (disposed || generation !== historyGenerationRef.current) return
       const nextLive = new Map<string, ChatMessageItem>()
       snapshot.forEach((docSnap) => nextLive.set(docSnap.id, mapChatDocument(docSnap)))
@@ -450,9 +458,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       perfListener("Chat", "ERROR")
       console.error("[Chat snapshot error]", { code: error.code, message: error.message, error })
       setIsChatLoading(false)
-      setChatError(error.code === "permission-denied"
-        ? "Chat is not authorized for this account."
-        : "Chat messages could not be loaded. Check your connection and retry.")
+      setChatError(getChatErrorMessage(error))
     })
 
     if (legacyCursorRef.current === null) {
@@ -463,7 +469,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       disposed = true
       console.log("[Firestore Listener STOP] Chat", { conversationId })
       perfListener("Chat", "STOP")
-      unsub()
+      unsubscribe()
     }
   }, [activeConversationId, canAccessChat, currentUserId, currentUserRole, fetchLegacyPage, isMessagesActive, chatRetryAttempt, publishActiveMessages])
 
@@ -536,7 +542,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       if (generation !== historyGenerationRef.current) return
       console.error("[Chat] Failed to load older messages", error)
-      setChatError("Older messages could not be loaded. Retry and try again.")
+      setChatError(getChatErrorMessage(error, "Older messages"))
     } finally {
       if (generation === historyGenerationRef.current) setIsLoadingOlder(false)
     }
@@ -638,6 +644,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const markAsRead = useCallback(async (clientId: string) => {
     if (!user || (user.role === "client" && clientId !== user.id) || (user.role === "staff" && user.permissions?.chat !== true)) return
+    const operationScope = scope
+    const operationGeneration = historyGenerationRef.current
     const previousMessages = messagesStateRef.current
     setMessages((prev) =>
       prev.map((m) =>
@@ -652,15 +660,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         where("sender", "==", "client"),
         where("isRead", "==", false),
       ], "isRead")
+      if (scopeRef.current === operationScope && operationGeneration === historyGenerationRef.current) {
+        setChatError(null)
+      }
     } catch (error) {
-      console.error("[Chat] Failed to mark admin messages as read", error)
+      console.error("[Chat] Failed to mark client messages as read", error)
+      if (scopeRef.current !== operationScope || operationGeneration !== historyGenerationRef.current) return
       setMessages(previousMessages)
-      setChatError("Messages could not be marked as read. Retry chat loading to try again.")
+      setChatError(getChatErrorMessage(error, "Chat read status"))
     }
-  }, [user])
+  }, [scope, user])
 
   const markAsReadByClient = useCallback(async (clientId: string) => {
     if (!user || user.role !== "client" || clientId !== user.id) return
+    const operationScope = scope
+    const operationGeneration = historyGenerationRef.current
     const previousMessages = messagesStateRef.current
     setMessages((prev) =>
       prev.map((m) =>
@@ -675,12 +689,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         where("sender", "==", "admin"),
         where("isReadByClient", "==", false),
       ], "isReadByClient")
+      if (scopeRef.current === operationScope && operationGeneration === historyGenerationRef.current) {
+        setChatError(null)
+      }
     } catch (error) {
       console.error("[Chat] Failed to mark client messages as read", error)
+      if (scopeRef.current !== operationScope || operationGeneration !== historyGenerationRef.current) return
       setMessages(previousMessages)
-      setChatError("Messages could not be marked as read. Retry chat loading to try again.")
+      setChatError(getChatErrorMessage(error, "Chat read status"))
     }
-  }, [user])
+  }, [scope, user])
 
   const markAdminAsRead = useCallback(() => {
     setNewMessageNotifications([])
