@@ -70,7 +70,7 @@ const modules = {
     export const notifications={markByBookingId:async()=>{}};
     export const toast=()=>{};
     const nativeFetch=window.fetch.bind(window);const availabilitySlots=[{startMinutes:480,endMinutes:840,startTimeLabel:'8:00 AM',endTimeLabel:'2:00 PM',label:'8:00 AM - 2:00 PM'},{startMinutes:540,endMinutes:900,startTimeLabel:'9:00 AM',endTimeLabel:'3:00 PM',label:'9:00 AM - 3:00 PM'},{startMinutes:600,endMinutes:960,startTimeLabel:'10:00 AM',endTimeLabel:'4:00 PM',label:'10:00 AM - 4:00 PM'}];
-    const availabilityResponse=(url)=>{const from=url.searchParams.get('from')||'2099-03-01',to=url.searchParams.get('to')||from,dates={};for(let day=new Date(from+'T00:00:00Z');day<=new Date(to+'T00:00:00Z');day.setUTCDate(day.getUTCDate()+1)){const key=day.toISOString().slice(0,10);dates[key]={status:'available',availableSlots:availabilitySlots,occupiedIntervals:[]};}return new Response(JSON.stringify({space:{category:url.searchParams.get('category')==='office'?'office':'venue',venueId:url.searchParams.get('venueId'),officeId:url.searchParams.get('officeId')||undefined,spaceId:url.searchParams.get('spaceId')||url.searchParams.get('venueId')},dates}),{status:200,headers:{'content-type':'application/json'}})};
+    const availabilityResponse=(url)=>{const from=url.searchParams.get('from')||'2099-03-01',to=url.searchParams.get('to')||from,category=url.searchParams.get('category')==='office'?'office':'venue',dates={};for(let day=new Date(from+'T00:00:00Z');day<=new Date(to+'T00:00:00Z');day.setUTCDate(day.getUTCDate()+1)){const key=day.toISOString().slice(0,10);const dayState={status:'available',availableSlots:availabilitySlots,occupiedIntervals:[]};if(category==='venue'&&key==='2099-03-03')Object.assign(dayState,{status:'few',availableSlots:[availabilitySlots[2]],occupiedIntervals:[{startMinutes:480,endMinutes:840,startTimeLabel:'8:00 AM',endTimeLabel:'2:00 PM'}]});if(category==='venue'&&key==='2099-03-04')Object.assign(dayState,{status:'maintenance',availableSlots:[],occupiedIntervals:[]});if(category==='venue'&&key==='2099-03-05')Object.assign(dayState,{status:'full',availableSlots:[],occupiedIntervals:[{startMinutes:480,endMinutes:840,startTimeLabel:'8:00 AM',endTimeLabel:'2:00 PM'},{startMinutes:900,endMinutes:1260,startTimeLabel:'3:00 PM',endTimeLabel:'9:00 PM'}]});dates[key]=dayState;}const searchFrom=url.searchParams.get('searchFrom'),searchTo=url.searchParams.get('searchTo');const officeSearch=category==='office'&&searchFrom&&searchTo?{from:searchFrom,to:searchTo,earliestAvailableStartDate:searchFrom}:undefined;return new Response(JSON.stringify({space:{category,venueId:url.searchParams.get('venueId'),officeId:url.searchParams.get('officeId')||undefined,spaceId:url.searchParams.get('spaceId')||url.searchParams.get('venueId')},dates,...(officeSearch?{officeSearch}: {})}),{status:200,headers:{'content-type':'application/json'}})};
     window.fetch=(input,options)=>{const url=new URL(typeof input==='string'?input:input.url,location.href);if(url.pathname==='/api/availability')return Promise.resolve(availabilityResponse(url));if(url.pathname.startsWith('/api/')||url.origin!==location.origin)throw Error('Unexpected live request');return nativeFetch(input,options)};
   `,
   booking: `export {useBookingData,useBookings} from 'virtual:admin-actions-state';`,
@@ -155,7 +155,7 @@ try {
   page.on("console", message => { if (message.type() === "error") errors.push(message.text()) })
 
   const adminModal = () => page.getByRole("dialog").filter({ has: page.getByRole("region", { name: "Booking details content", exact: true }) })
-  const modifyModal = () => page.getByRole("dialog").filter({ has: page.getByRole("tab", { name: "Event Details", exact: true }) })
+  const modifyModal = () => page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: "Modify Booking", exact: true }) })
   const openDetails = async (role = "admin") => {
     await page.goto(`${origin}/__admin-booking-actions?role=${role}`)
     await page.getByRole("button", { name: "View Details", exact: true }).click()
@@ -213,14 +213,14 @@ try {
     assert.equal(await dialog.evaluate(el => el.scrollWidth > el.clientWidth + 1), false)
     const footer = await dialog.locator('[data-slot="dialog-footer"]').boundingBox()
     assert.ok(footer.y + footer.height <= box.y + box.height + 1)
-    for (const control of await dialog.locator('input,textarea,[role="combobox"],[role="tablist"],[data-slot="calendar"]').all()) {
+    for (const control of await dialog.locator('input,textarea,[role="combobox"],[data-modify-calendar]').all()) {
       const r = await control.boundingBox()
       if (r) assert.ok(r.x >= box.x + 15 && r.x + r.width <= box.x + box.width - 15, 'form controls retain safe horizontal gutters')
       if (r && await control.evaluate(el => el.matches('input,[role="combobox"]'))) assert.equal(r.height,44,'consistent input and selector heights')
       assert.equal(await control.evaluate(el => el.scrollWidth > el.clientWidth + 1), false, 'no clipped form controls')
     }
-    const tabs = await dialog.getByRole('tab').all()
-    assert.ok(Math.abs((await tabs[0].boundingBox()).width - (await tabs[1].boundingBox()).width) < 1)
+    assert.equal(await dialog.getByRole('tab').count(), 0, 'modify flow is a single unified screen')
+    assert.equal(await dialog.getByText('Continue', { exact: true }).count(), 0, 'modify flow has no separated Continue step')
   }
 
   for (const width of [320, 375, 768, 1024, 1280, 1366, 1440]) {
@@ -238,24 +238,34 @@ try {
     const modify = modifyModal()
     await modify.waitFor()
     await assertModifyFits(modify)
+    await modify.getByText('Current saved schedule', { exact: true }).waitFor()
+    await modify.getByText('Fixture Client', { exact: true }).waitFor()
+    await modify.getByText('Available', { exact: true }).waitFor()
+    await modify.getByText('Few slots', { exact: true }).waitFor()
+    await modify.getByText('Full', { exact: true }).waitFor()
+    await modify.getByText('Maint.', { exact: true }).waitFor()
     await modify.getByLabel('Event Name', {exact:true}).fill('Editable temporary title')
-    await modify.getByRole('tab', {name:'Date & Time',exact:true}).click()
-    await assertModifyFits(modify)
     assert.match(await modify.getByRole('combobox',{name:'Start Time',exact:true}).innerText(),/8:00 AM/,'retain the stored time label on unrelated edits')
     assert.match(await modify.getByRole('combobox',{name:'End Time',exact:true}).innerText(),/2:00 PM/)
-    const calendarDay=modify.locator('button[data-day="3/2/2099"]')
-    await calendarDay.click()
-    assert.equal(await calendarDay.getAttribute('data-selected-single'),'true')
+    if (width === 320) {
+      const fewDay = modify.getByRole('button', { name:'Select 2099-03-03', exact:true })
+      assert.equal(await fewDay.isDisabled(), false, 'partially occupied dates remain selectable')
+      await fewDay.click()
+      await modify.getByRole('region', { name:'Selected date availability', exact:true }).waitFor()
+      assert.equal(await modify.getByText('Existing booking(s)', { exact:true }).count(), 1)
+      assert.equal(await modify.getByText('Available start times', { exact:true }).count(), 1)
+      assert.equal(await modify.getByRole('button', { name:'Select 2099-03-04', exact:true }).isDisabled(), true, 'maintenance dates are disabled')
+      assert.equal(await modify.getByRole('button', { name:'Select 2099-03-05', exact:true }).isDisabled(), true, 'fully booked dates are disabled')
+    }
+    const calendarDay=modify.getByRole('button',{name:'Select 2099-03-02',exact:true})
+     await calendarDay.click()
+     assert.equal(await calendarDay.getAttribute('data-selected-single'),'true')
     await modify.getByRole('combobox',{name:'Start Time',exact:true}).click()
     await page.getByRole('option',{name:'9:00 AM',exact:true}).click()
     assert.match(await modify.getByRole('combobox',{name:'Start Time',exact:true}).innerText(),/9:00 AM/)
-    await page.screenshot({path:join(output, `${width}-modify-date-time.png`)})
-    assert.equal(await modify.getByRole('tabpanel').count(), 1)
-    await modify.getByRole('tab', {name:'Event Details',exact:true}).focus()
-    await page.keyboard.press('ArrowRight')
-    await modify.locator('[role="tab"][aria-selected="true"]').filter({hasText:'Date & Time'}).waitFor()
-    assert.equal(await modify.getByRole('tab', {name:'Date & Time',exact:true}).getAttribute('aria-selected'), 'true')
-    await modify.getByRole('tab', {name:'Event Details',exact:true}).click()
+    await page.screenshot({path:join(output, `${width}-modify-unified.png`)})
+    assert.equal(await modify.getByRole('tab').count(), 0)
+    assert.equal(await modify.getByText('Schedule comparison', { exact: true }).count(), 1)
     assert.equal(await modify.getByLabel('Event Name', {exact:true}).inputValue(), 'Editable temporary title')
     if (width < 640) await modify.getByRole('button', {name:'Cancel',exact:true}).tap()
     else await modify.getByRole('button', {name:'Cancel',exact:true}).click()
@@ -285,8 +295,7 @@ try {
   assert.equal(await modifyDialog.getByLabel("Special Requests", { exact: true }).count(), 0)
   assert.equal(await modifyDialog.getByLabel("Venue", { exact: true }).count(), 0)
   await modifyDialog.getByLabel("Event Name", { exact: true }).fill("Admin Updated Planning Session")
-  await modifyDialog.getByRole("button", { name: "Continue", exact: true }).click()
-  await modifyDialog.getByRole("button", { name: "Save Changes", exact: true }).click()
+  await modifyDialog.getByRole("button", { name: "Update Booking", exact: true }).click()
   await adminModal().waitFor()
   await adminModal().getByRole("heading", { name: "Admin Updated Planning Session", exact: true }).waitFor()
   assert.deepEqual(await page.evaluate(() => window.fixture.modifications.map(item => item.patch.eventName)), ["Admin Updated Planning Session"])
@@ -339,14 +348,12 @@ try {
     await adminModal().getByText('Company Name',{exact:true}).waitFor()
     await adminModal().getByRole('button',{name:'Modify Booking',exact:true}).click()
     const modify=modifyModal()
-    await modify.getByRole('tab',{name:'Event Details',exact:true}).waitFor()
+    await modify.getByText('Editable event details',{exact:true}).waitFor()
     await assertModifyFits(modify)
+    assert.equal(await modify.getByRole('tab').count(), 0)
     assert.equal(await modify.getByLabel('Company / Tenant Name',{exact:true}).count(), 0)
     assert.equal(await modify.getByRole('combobox',{name:'Rental Term',exact:true}).count(), 0)
-    await modify.getByRole('tab',{name:'Date & Time',exact:true}).click()
-    await assertModifyFits(modify)
-    await modify.getByRole('button',{name:'Back',exact:true}).click()
-    await modify.getByRole('button',{name:'Cancel',exact:true}).click()
+     await modify.getByRole('button',{name:'Cancel',exact:true}).click()
     await modify.waitFor({state:'detached'})
     await page.waitForFunction(()=>document.activeElement?.textContent?.trim()==='View Details')
     passed.push(current)
