@@ -22,6 +22,11 @@ import { isOfficeResourceBooking, resolveResourceSpace } from "@/src/modules/sha
 import { isTerminalAvailabilityBooking } from "@/src/modules/shared/lib/booking-helpers"
 import { isCatalogPublished } from "@/src/modules/shared/lib/catalog-status"
 import { validateCatalogGuestCount } from "@/src/modules/shared/lib/catalog-capacity"
+import {
+  areBookingScheduleSnapshotsEqual,
+  buildBookingScheduleHistoryUpdate,
+  getBookingScheduleSnapshot,
+} from "@/src/modules/shared/lib/booking-schedule-history"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -48,6 +53,7 @@ const CHANGE_KEYS = new Set([
   "contractTerm",
   "officeRentalTerm",
 ])
+const ADMIN_CHANGE_KEYS = new Set(["date", "eventName", "startTime", "endTime"])
 
 function isRecord(value: unknown): value is DataRecord {
   return typeof value === "object" && value !== null
@@ -97,11 +103,11 @@ function appendLog(
   return [...existing, { action, message, createdAt, ...metadata }]
 }
 
-function normalizeChanges(value: unknown): DataRecord {
+function normalizeChanges(value: unknown, allowedKeys = CHANGE_KEYS): DataRecord {
   if (!isRecord(value)) throw new ApiAuthError(400, "Invalid modification changes.")
   const changes: DataRecord = {}
   for (const [key, entry] of Object.entries(value)) {
-    if (!CHANGE_KEYS.has(key)) throw new ApiAuthError(400, `The modification field ${key} is not allowed.`)
+    if (!allowedKeys.has(key)) throw new ApiAuthError(400, `The modification field ${key} is not allowed.`)
     if (typeof entry === "string" && entry.length > 500) throw new ApiAuthError(400, `The modification field ${key} is too long.`)
     if (key === "guestCount") {
       const guests = typeof entry === "number" ? entry : Number(entry)
@@ -133,6 +139,9 @@ function buildCandidate(booking: DataRecord, changes: DataRecord): DataRecord {
     throw new ApiAuthError(400, "A modification cannot change the booking's resource category.")
   }
   if (isOfficeBooking(booking)) {
+    if (changes.startTime !== undefined || changes.endTime !== undefined) {
+      throw new ApiAuthError(400, "Office rentals do not have event start and end times.")
+    }
     const previousTerm = booking.officeRentalTerm || booking.rentalTerm || booking.contractTerm || "6_months"
     const term = changes.officeRentalTerm || changes.rentalTerm || changes.contractTerm
       || previousTerm
@@ -155,6 +164,33 @@ function buildCandidate(booking: DataRecord, changes: DataRecord): DataRecord {
     candidate.time = `${candidate.startTime} - ${candidate.endTime}`
   }
   return candidate
+}
+
+function adminEditableFields(candidate: DataRecord, booking: DataRecord): DataRecord {
+  const keys = ["eventName", "date", "startTime", "endTime", "time"]
+  const fields: DataRecord = {}
+  for (const key of keys) {
+    if (candidate[key] !== undefined && JSON.stringify(candidate[key] ?? null) !== JSON.stringify(booking[key] ?? null)) {
+      fields[key] = candidate[key]
+    }
+  }
+  // endDate is derived from the selected date (and, for offices, the
+  // unchanged trusted rental term). It is not an editable client field.
+  if (candidate.endDate !== undefined
+    && JSON.stringify(candidate.endDate ?? null) !== JSON.stringify(booking.endDate ?? null)) {
+    fields.endDate = candidate.endDate
+  }
+  if (candidate.startDate !== undefined
+    && JSON.stringify(candidate.startDate ?? null) !== JSON.stringify(booking.startDate ?? null)) {
+    fields.startDate = candidate.startDate
+  }
+  return fields
+}
+
+function scheduleChanged(booking: DataRecord, candidate: DataRecord): boolean {
+  const previous = getBookingScheduleSnapshot(booking)
+  const current = getBookingScheduleSnapshot(candidate)
+  return Boolean(previous && current && !areBookingScheduleSnapshotsEqual(previous, current))
 }
 
 function scheduleFields(candidate: DataRecord): DataRecord {
@@ -379,25 +415,35 @@ export async function POST(request: NextRequest) {
       }
 
       if (action === "admin_update") {
-        const changes = normalizeChanges(body.changes)
+        const changes = normalizeChanges(body.changes, ADMIN_CHANGE_KEYS)
         const candidate = buildCandidate(booking, changes)
-        const eventLock = await assertAvailable(transaction, firestore, bookingId, booking, candidate, hasScheduleChanges(changes, booking))
-        const editableFields: DataRecord = {
-          ...changes,
-          ...scheduleFields(candidate),
-          ...resourceFields(candidate),
-          ...(candidate.endDate ? { endDate: candidate.endDate } : {}),
-        }
+        const schedulingChange = scheduleChanged(booking, candidate)
+        const editableFields = adminEditableFields(candidate, booking)
         const changedFieldNames = Object.keys(editableFields).filter((key) => (
           JSON.stringify(editableFields[key] ?? null) !== JSON.stringify(booking[key] ?? null)
         ))
         if (changedFieldNames.length === 0) {
           return { changed: false, booking: { ...booking, id: bookingId }, userId: String(booking.userId || "") }
         }
+
+        // Keep the existing resource/capacity/hold validation for every
+        // Admin update, but only commit the shared schedule lock when the
+        // effective date/time actually changes.
+        const eventLock = await assertAvailable(transaction, firestore, bookingId, booking, candidate, schedulingChange)
         const previousValues = Object.fromEntries(changedFieldNames.map((key) => [key, booking[key] ?? null]))
         const updatedValues = Object.fromEntries(changedFieldNames.map((key) => [key, editableFields[key] ?? null]))
+        const scheduleHistory = schedulingChange
+          ? buildBookingScheduleHistoryUpdate(
+            booking,
+            candidate,
+            now,
+            user.uid,
+            user.fullName || user.email || "Administrator",
+          )
+          : {}
         const fields: DataRecord = {
           ...editableFields,
+          ...scheduleHistory,
           modifiedAt: now,
           modifiedBy: user.uid,
           modifiedByName: user.fullName || user.email || "Administrator",
@@ -417,8 +463,10 @@ export async function POST(request: NextRequest) {
             },
           ),
         }
-        commitEventAvailabilityLock(transaction, eventLock)
-        commitExpiredAvailabilityHolds(transaction, firestore, eventLock.expiredBookings)
+        if (schedulingChange) {
+          commitEventAvailabilityLock(transaction, eventLock)
+          commitExpiredAvailabilityHolds(transaction, firestore, eventLock.expiredBookings)
+        }
         transaction.update(bookingRef, fields as any)
         return { changed: true, booking: { ...booking, ...fields, id: bookingId }, userId: String(booking.userId || "") }
       }
@@ -429,13 +477,18 @@ export async function POST(request: NextRequest) {
       const changes = normalizeChanges(booking.requestedChanges)
       if (action === "approve") {
         const candidate = buildCandidate(booking, changes)
-        const eventLock = await assertAvailable(transaction, firestore, bookingId, booking, candidate, hasScheduleChanges(changes, booking))
+        const schedulingChange = scheduleChanged(booking, candidate)
+        const eventLock = await assertAvailable(transaction, firestore, bookingId, booking, candidate, schedulingChange)
         const restored = restoredStatus(booking)
+        const scheduleHistory = schedulingChange
+          ? buildBookingScheduleHistoryUpdate(booking, candidate, now, user.uid, user.fullName || user.email || "Administrator")
+          : {}
         const fields: DataRecord = {
           ...changes,
           ...scheduleFields(candidate),
           ...resourceFields(candidate),
           ...(candidate.endDate ? { endDate: candidate.endDate } : {}),
+          ...scheduleHistory,
           status: restored.status,
           bookingStatus: restored.bookingStatus,
           modificationRequested: false,

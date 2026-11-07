@@ -41,7 +41,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/src/modules/shared/components/ui/dialog"
-import { ModifyBookingDialog } from "@/src/modules/admin/components/modify-booking-dialog"
+import { ModifyBookingDialog, type AdminBookingChanges } from "@/src/modules/admin/components/modify-booking-dialog"
 import {
   buildPaymentReviewQueue,
   DashboardPaymentReviewQueueModal,
@@ -351,14 +351,16 @@ export default function AdminDashboardPage() {
     setEditBookingTarget(target)
   }
 
-  const saveEditedBooking = async (updatedBooking: Booking) => {
+  const saveEditedBooking = async (changes: AdminBookingChanges) => {
     if (isEditingBooking || !canManageBookings) return
+    const target = editBookingTarget
+    if (!target) return
     setIsEditingBooking(true)
     try {
-      const updated = await bookingCtx.modifyBooking(updatedBooking.id, updatedBooking)
+      const updated = await bookingCtx.modifyBooking(target.id, changes)
       setEditBookingTarget(null)
       setSelectedBooking(updated)
-      toastSuccess("Booking Updated", `Booking ${updatedBooking.id} has been updated.`)
+      toastSuccess("Booking Updated", `Booking ${target.id} has been updated.`)
     } catch (error) {
       toastError("Booking Update Failed", error)
     } finally {

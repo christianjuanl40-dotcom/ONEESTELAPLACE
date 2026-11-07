@@ -13,6 +13,7 @@ import { createPaymentReviewClient, type PaymentReviewRequest } from "@/src/modu
 import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-identity"
 import { getOfficeRentalEndDate } from "@/src/modules/shared/lib/availability"
 import type { FinalizedPaymentSnapshot } from "@/src/modules/shared/lib/payment-calculations"
+import type { BookingScheduleRevision, BookingScheduleSnapshot } from "@/src/modules/shared/lib/booking-schedule-history"
 import {
   collection,
   doc,
@@ -306,6 +307,9 @@ export interface Booking {
   modifiedByName?: string;
   requestedChanges?: Record<string, unknown>;
   originalBookingSnapshot?: Record<string, unknown>;
+  originalSchedule?: BookingScheduleSnapshot;
+  originalScheduleCapturedAt?: string;
+  scheduleHistory?: BookingScheduleRevision[];
   modificationPreviousStatus?: BookingStatus;
   modificationPreviousBookingStatus?: BookingStatusLabel;
 
@@ -1639,24 +1643,9 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
 
   const modifyBooking = async (id: string, updates: Partial<Booking>): Promise<Booking> => {
     const updateRecord = updates as Record<string, unknown>
-    const allowedKeys = [
-      "date",
-      "eventName",
-      "eventType",
-      "guestCount",
-      "specialRequests",
-      "time",
-      "startTime",
-      "endTime",
-      "companyName",
-      "natureOfBusiness",
-      "bookingType",
-      "bookingCategory",
-      "isOfficeRental",
-      "rentalTerm",
-      "contractTerm",
-      "officeRentalTerm",
-    ] as const
+    // Direct Admin edits are intentionally narrower than the shared client
+    // request workflow. The API repeats this allowlist server-side.
+    const allowedKeys = ["date", "eventName", "startTime", "endTime"] as const
     const changes = Object.fromEntries(
       allowedKeys
         .filter((key) => updateRecord[key] !== undefined)

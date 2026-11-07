@@ -25,6 +25,8 @@ const modules = {
       officeRentalTerm:office?'6_months':'',createdAt:'2026-10-19T04:00:00Z',totalPrice:10000,amountPaid:10000,paymentStatus:office?'slot_verified':'paid',isSlotSecured:true,
       status:active?'confirmed':pending?'cancellation_requested':'cancelled',bookingStatus:active?'Confirmed':pending?'Cancellation Under Review':'Cancelled',
       contractStatus:'Signed',contractSigned:true,contractSignedDate:'2026-10-20',receipt,specialRequests:'Please provide accessible room arrangements.\\n'+('Additional arrangements and guest considerations. '.repeat(10)),
+      originalSchedule:{date:'2099-02-01',endDate:office?'2099-08-01':'',startTime:office?'':'08:00',endTime:office?'':'14:00',time:office?'':'08:00 - 14:00'},
+      scheduleHistory:[{revision:1,previousSchedule:{date:'2099-02-01',endDate:office?'2099-08-01':'',startTime:office?'':'08:00',endTime:office?'':'14:00'},currentSchedule:{date:'2099-03-01',endDate:office?'2099-09-01':'',startTime:office?'':'08:00',endTime:office?'':'14:00'},changedAt:'2026-11-01T04:00:00Z'}],
       cancellationStatus:active?'None':pending?'Pending':'Approved',cancellationRequested:pending,cancellationRequestedAt:active?undefined:'2026-10-21T03:15:00Z',
       cancellationSource:'client',cancellationType:'client_request',cancellationActorName:'Fixture Customer',cancellationReason:'Our organization needs to adjust its long-term plans.\\n'+('ReasonWithoutSpaces'.repeat(30)),
       cancellationNotes:'Keep the receipt and contact management for processing. '+('Detailed review notes. '.repeat(12)),
@@ -158,7 +160,17 @@ try {
     const padding = await footer.evaluate(el => { const style = getComputedStyle(el);return { left: parseFloat(style.paddingLeft), right: parseFloat(style.paddingRight) } })
     assert.equal(padding.left, page.viewportSize().width >= 640 ? 24 : 16)
     const stacked = await dialog.getByRole("region", { name: "Booking details content", exact: true }).count() > 0
-    await equalWidthActions(actions, { x: footerBox.x + padding.left, width: footerBox.width - padding.left - padding.right }, stacked)
+    const contractActions = footer.locator('button[data-contract-action="true"]')
+    if (await contractActions.count()) {
+      assert.equal(await contractActions.count(), 1, "only one contract action is rendered")
+      await actionStyle(contractActions.first(), true)
+      const contractBox = await contractActions.first().boundingBox()
+      assert.ok(Math.abs(contractBox.width - (footerBox.width - padding.left - padding.right)) < 1, "contract action spans both footer columns")
+      const ordinaryActions = footer.locator('button:not([data-contract-action="true"])')
+      if (await ordinaryActions.count()) await equalWidthActions(ordinaryActions, { x: footerBox.x + padding.left, width: footerBox.width - padding.left - padding.right }, stacked)
+    } else {
+      await equalWidthActions(actions, { x: footerBox.x + padding.left, width: footerBox.width - padding.left - padding.right }, stacked)
+    }
     const dominant = await actions.evaluateAll(nodes => nodes.filter(el => !el.disabled && getComputedStyle(el).color === 'rgb(255, 255, 255)').length)
     assert.ok(dominant <= 1, "at most one visually dominant primary action")
   }
@@ -234,7 +246,7 @@ try {
     assert.deepEqual(await dialog.locator("header").boundingBox(), header)
     if (footer && !shortPhone) assert.deepEqual(await dialog.locator("footer").boundingBox(), footer)
   }
-  for (const [width, height] of [[1366, 768], [1280, 720], [768, 1024], [640, 960], [390, 844], [320, 568]]) {
+  for (const [width, height] of [[320, 568], [375, 667], [768, 1024], [1024, 768], [1280, 720], [1366, 768], [1440, 900]]) {
     await page.setViewportSize({ width, height })
     for (const category of ["office", "event"]) {
       let receiptStyle
@@ -243,6 +255,9 @@ try {
         await page.goto(`${origin}/__details?bookingId=LOCAL-BOOKING&category=${category}&state=${state}`)
         await page.mouse.move(0, 0)
         await modal().waitFor()
+        await modal().getByText("Schedule Updated", { exact: true }).waitFor()
+        await modal().getByText("Original Schedule", { exact: true }).waitFor()
+        await modal().getByText("Current Schedule", { exact: true }).waitFor()
         await geometry()
         await footerArrangement(state === "active" ? ["Modify Booking", "Cancel Booking"]
           : state === "approved" ? ["Request Refund"] : [])
@@ -334,6 +349,9 @@ try {
       await page.goto(`${origin}/__details?surface=admin&category=${category}&state=approved`)
       await page.getByRole("button", { name: "View Details", exact: true }).click()
       await adminModal().waitFor()
+      await adminModal().getByText("Schedule Updated", { exact: true }).waitFor()
+      await adminModal().getByText("Original Schedule", { exact: true }).waitFor()
+      await adminModal().getByText("Current Schedule", { exact: true }).waitFor()
       await adminGeometry(); await footerArrangement([], adminModal())
       await adminModal().getByText("Awaiting refund request from customer", { exact: true }).waitFor()
       await captureScreenshot({ path: join(output, `${width}-admin-${category}-eligible.png`) })

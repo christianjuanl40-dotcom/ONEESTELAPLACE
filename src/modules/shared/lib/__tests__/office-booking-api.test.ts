@@ -571,8 +571,12 @@ describe("office schedule commits and modifications", () => {
   })
 
   it.each(["admin_update", "approve"])("serializes office %s versus overlapping creation with different start dates", async (action) => {
-    store.seed("bookings/MOVING", officeBooking({ date: oldDate, endDate: "2098-09-01", officeRentalTerm: "6_months", rentalTerm: "6_months", contractTerm: "6_months" }))
-    const changes = { date, officeRentalTerm: "2_years" }
+    const directAdminUpdate = action === "admin_update"
+    store.seed("bookings/MOVING", officeBooking({ date: oldDate, endDate: "2098-09-01",
+      officeRentalTerm: directAdminUpdate ? "2_years" : "6_months",
+      rentalTerm: directAdminUpdate ? "2_years" : "6_months",
+      contractTerm: directAdminUpdate ? "2_years" : "6_months" }))
+    const changes = directAdminUpdate ? { date } : { date, officeRentalTerm: "2_years" }
     if (action === "approve") {
       expect((await modify(post({ action: "request", bookingId: "MOVING", changes, reason: "Move lease" }))).status).toBe(200)
     }
@@ -595,7 +599,7 @@ describe("office schedule commits and modifications", () => {
     ["approve", "date"], ["approve", "startDate"],
   ])("rejects office %s when future %s maintenance intersects the changed two-year term", async (action, field) => {
     store.seed("bookings/MOVING", officeBooking({ date: oldDate, endDate: "2098-09-01" }))
-    const changes = { date, officeRentalTerm: "2_years" }
+    const changes = action === "admin_update" ? { date } : { date, officeRentalTerm: "2_years" }
     if (action === "approve") {
       expect((await modify(post({ action: "request", bookingId: "MOVING", changes, reason: "Move lease" }))).status).toBe(200)
     }
@@ -618,7 +622,7 @@ describe("office schedule commits and modifications", () => {
 
   it.each(["admin_update", "approve"])("persists the recomputed full office term on %s while excluding its own booking", async (action) => {
     store.seed("bookings/MOVING", officeBooking({ officeRentalTerm: "6_months", rentalTerm: "6_months", contractTerm: "6_months", endDate: "2099-09-01" }))
-    const changes = { date: "2099-08-31", officeRentalTerm: "6_months" }
+    const changes = action === "admin_update" ? { date: "2099-08-31" } : { date: "2099-08-31", officeRentalTerm: "6_months" }
     if (action === "approve") {
       expect((await modify(post({ action: "request", bookingId: "MOVING", changes, reason: "New start" }))).status).toBe(200)
     }
@@ -651,7 +655,9 @@ describe("office schedule commits and modifications", () => {
   it.each(["admin_update", "approve"])("keeps venue identity and schedule when %s changes only office-like event labels", async (action) => {
     const original = eventBooking({ eventName: "A Celebration", eventType: "Custom Celebration" })
     store.seed("bookings/EVENT", original)
-    const changes = { eventName: "Office Rental - Room 1", eventType: "Unlisted / Office Space Rental" }
+     const changes = action === "admin_update"
+       ? { eventName: "Office Rental - Room 1" }
+       : { eventName: "Office Rental - Room 1", eventType: "Unlisted / Office Space Rental" }
     if (action === "approve") {
       expect((await modify(post({ action: "request", bookingId: "EVENT", changes, reason: "Title only" }))).status).toBe(200)
     }
@@ -687,8 +693,7 @@ describe.each([
   it.each(["request", "admin_update", "approve"])("rejects %s against the current parent/room bookability", async (action) => {
     const office = target !== "venue"
     store.seed("bookings/MOVING", office ? officeBooking() : eventBooking())
-    const changes = office && flag === "isHidden" ? { officeRentalTerm: "1_year" }
-      : office ? { date: "2099-08-31" } : { startTime: "15:00", endTime: "21:00" }
+     const changes = office ? { date: "2099-08-31" } : { startTime: "15:00", endTime: "21:00" }
     if (action === "approve") {
       expect((await modify(post({ action: "request", bookingId: "MOVING", changes, reason: "New schedule" }))).status).toBe(200)
     }

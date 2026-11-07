@@ -10,7 +10,7 @@ import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { useBookingData, type Booking } from "@client/contexts/booking-context"
 import { usePaymentProof } from "@admin/contexts/payment-proof-context"
 import { CancellationDialog } from "@admin/components/cancellation-dialog"
-import { ModifyBookingDialog } from "@admin/components/modify-booking-dialog"
+import { ModifyBookingDialog, type AdminBookingChanges } from "@admin/components/modify-booking-dialog"
 import { PaymentProofUpload } from "@admin/components/payment-proof-upload"
 import { calculatePaymentSummary, getRecordsForBooking } from "@/src/modules/shared/lib/payment-calculations"
 
@@ -103,9 +103,10 @@ export function TransactionsDialog({ open, onOpenChange }: TransactionsDialogPro
     }
   }
 
-  const saveModifiedBooking = async (updatedBooking: Booking) => {
+  const saveModifiedBooking = async (changes: AdminBookingChanges) => {
+    if (!selectedBooking) return
     try {
-      await modifyBooking(updatedBooking.id, updatedBooking)
+      await modifyBooking(selectedBooking.id, changes)
       toast({
         title: "Booking updated",
         description: "Your booking has been successfully updated.",

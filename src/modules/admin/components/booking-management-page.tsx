@@ -93,11 +93,12 @@ import {
 } from "@/src/modules/shared/lib/payment-calculations"
 import { Textarea } from "@/src/modules/shared/components/ui/textarea"
 import { Label } from "@/src/modules/shared/components/ui/label"
-import { ModifyBookingDialog } from "@/src/modules/admin/components/modify-booking-dialog"
+import { ModifyBookingDialog, type AdminBookingChanges } from "@/src/modules/admin/components/modify-booking-dialog"
 import { useCMS } from "@/src/modules/admin/contexts/cms-context"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/src/modules/shared/components/ui/tabs"
 import { stableSortBy, type TableSortDirection, type TableSortableValue } from "@/src/modules/shared/lib/report-table-utils"
 import { getBookingCreationTime, sortBookingsByCreationTime } from "@/src/modules/shared/lib/booking-sorting"
+import { BookingScheduleHistory } from "@/src/modules/shared/components/booking-schedule-history"
 
 const adminBookingDetailsActionColors = {
   reminder: "bg-[#FFF7ED] text-[#C2410C] border border-[#FED7AA] hover:bg-[#FFEDD5] hover:text-[#C2410C]",
@@ -223,14 +224,16 @@ function MarkCompletedAction({
 
 function ContractSigningAction({ onClick, secondary = false, disabled = false }: { onClick: () => void; secondary?: boolean; disabled?: boolean }) {
   return (
-    <TooltipProvider delayDuration={400}>
+    <div className="col-span-full min-w-0 w-full">
+      <TooltipProvider delayDuration={400}>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               onClick={onClick}
-              disabled={disabled}
-              variant={secondary ? "outline" : "default"}
-              className={cn(bookingDetailsStackedActionClassName, adminBookingDetailsActionColors.contract)}
+               disabled={disabled}
+               variant={secondary ? "outline" : "default"}
+               data-contract-action="true"
+               className={cn(bookingDetailsStackedActionClassName, adminBookingDetailsActionColors.contract)}
             >
               <ShieldCheck className="size-4" />
               Mark Contract as Signed
@@ -240,7 +243,8 @@ function ContractSigningAction({ onClick, secondary = false, disabled = false }:
             Confirm contract signing
           </TooltipContent>
         </Tooltip>
-    </TooltipProvider>
+      </TooltipProvider>
+    </div>
   )
 }
 
@@ -652,17 +656,19 @@ export default function AdminBookingsPage() {
     setEditBookingTarget(target)
   }
 
-  const saveEditedBooking = async (updatedBooking: Booking) => {
+  const saveEditedBooking = async (changes: AdminBookingChanges) => {
     if (isEditingBooking || !canManageBookings || typeof bookingCtx.modifyBooking !== "function") return
+    const target = editBookingTarget
+    if (!target) return
     setIsEditingBooking(true)
     setEditBookingError(null)
     try {
-      const updated = await bookingCtx.modifyBooking(updatedBooking.id, updatedBooking)
+      const updated = await bookingCtx.modifyBooking(target.id, changes)
       setEditBookingTarget(null)
       setSelectedBooking(updated)
       toast({
         title: "Booking Updated",
-        description: `Booking ${updatedBooking.id} has been updated and the client has been notified.`,
+        description: `Booking ${target.id} has been updated and the client has been notified.`,
         className: "border-none bg-emerald-500 text-white",
       })
     } catch (error) {
@@ -1746,7 +1752,7 @@ export function BookingDetailsModal({
         <div data-admin-booking-scroll className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div role="region" aria-label="Booking details content" tabIndex={0} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-orange-600 sm:px-6">
 
-          <section className="mb-3 rounded-xl border border-orange-100 bg-orange-50/50 p-3 sm:p-4">
+           <section className="mb-3 rounded-xl border border-orange-100 bg-orange-50/50 p-3 sm:p-4">
             <div className="mb-3 flex items-center gap-2">
               <div className="h-1.5 w-1.5 rounded-full bg-orange-500" />
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-orange-800">Payment Summary</p>
@@ -1758,10 +1764,16 @@ export function BookingDetailsModal({
               <BookingDetail label="Verified Payments" value={`₱${paymentSummary.acceptedVerifiedTotal.toLocaleString()}`} />
               <BookingDetail label="Pending Review" value={`₱${pendingPaymentAmount.toLocaleString()}`} />
               <BookingDetail label="Remaining Balance" value={`₱${remainingBalance.toLocaleString()}`} />
-            </dl>
-          </section>
+             </dl>
+           </section>
 
-           {isCancelled && (
+           <BookingScheduleHistory
+             booking={booking as unknown as Record<string, unknown>}
+             showHistory
+             className="mb-3"
+           />
+
+            {isCancelled && (
             <div className="space-y-5">
               {(isCancelled || (booking.cancellationStatus && booking.cancellationStatus !== "None")) && (
                 <section>

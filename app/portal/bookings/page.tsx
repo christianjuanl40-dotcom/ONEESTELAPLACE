@@ -100,6 +100,7 @@ import { getAvailabilityTimeRange, getEventSlots } from "@/src/modules/shared/li
 import { isOfficeResourceBooking, resolveResourceSpace } from "@/src/modules/shared/lib/resource-identity"
 import type { AvailabilityRequest } from "@/src/modules/shared/lib/availability-client"
 import { Progress } from "@/src/modules/shared/components/ui/progress"
+import { BookingScheduleHistory } from "@/src/modules/shared/components/booking-schedule-history"
 import {
   Tooltip,
   TooltipContent,
@@ -819,7 +820,9 @@ function BookingDetailsModal({
                  </dl>
                </BookingDetailSection>
 
-              <BookingDetailSection title="Payment Summary">
+               <BookingScheduleHistory booking={booking as unknown as Record<string, unknown>} />
+
+               <BookingDetailSection title="Payment Summary">
                 <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
                   <BookingDetailField label="Payment Status">{paymentStatusLabel}</BookingDetailField>
                   <BookingDetailField label="Total Booking Amount">₱{paymentSummary.bookingTotal.toLocaleString()}</BookingDetailField>

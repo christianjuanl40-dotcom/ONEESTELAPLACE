@@ -119,9 +119,69 @@ describe("server event scheduling commits", () => {
     expect((await modify(post({ action: "admin_update", bookingId: "MOVING", changes: { eventName: "Updated" }, reason: "Repeat" }, "admin"))).status).toBe(200)
     expect([...store.data.keys()].filter((key) => key.startsWith("notifications/")).map((key) => store.data.get(key)?.type)).toEqual(["booking_updated"])
     store.seed("bookings/LATER", existing({ startTime: "15:00", endTime: "21:00" }))
-    expect((await modify(post({ action: "admin_update", bookingId: "MOVING", changes: { time: "9:00 AM - 3:00 PM" }, reason: "Edit" }, "admin"))).status).toBe(409)
-    expect((await modify(post({ action: "admin_update", bookingId: "MOVING", changes: { time: "8:00 AM - 2:00 PM" }, reason: "Edit" }, "admin"))).status).toBe(200)
+    expect((await modify(post({ action: "admin_update", bookingId: "MOVING", changes: { time: "9:00 AM - 3:00 PM" }, reason: "Edit" }, "admin"))).status).toBe(400)
+    expect((await modify(post({ action: "admin_update", bookingId: "MOVING", changes: { startTime: "08:00", endTime: "14:00" }, reason: "Edit" }, "admin"))).status).toBe(200)
     expect(store.data.get("bookings/MOVING")?.endTime).toBe("14:00")
+  })
+
+  it("preserves the original schedule and appends later revisions", async () => {
+    store.seed("bookings/MOVING", existing())
+    const first = await modify(post({
+      action: "admin_update",
+      bookingId: "MOVING",
+      changes: { date: "2099-04-01", startTime: "09:00", endTime: "15:00" },
+      reason: "Move the event.",
+    }, "admin"))
+    expect(first.status).toBe(200)
+    const afterFirst = store.data.get("bookings/MOVING") as any
+    expect(afterFirst.originalSchedule).toMatchObject({
+      date: "2099-03-01",
+      startTime: "8:00 AM",
+      endTime: "2:00 PM",
+    })
+    expect(afterFirst.scheduleHistory).toHaveLength(1)
+    expect(afterFirst.scheduleHistory[0]).toMatchObject({
+      revision: 1,
+      previousSchedule: afterFirst.originalSchedule,
+      currentSchedule: { date: "2099-04-01", startTime: "9:00 AM", endTime: "3:00 PM" },
+    })
+
+    const second = await modify(post({
+      action: "admin_update",
+      bookingId: "MOVING",
+      changes: { date: "2099-05-01", startTime: "10:00", endTime: "16:00" },
+      reason: "Move it again.",
+    }, "admin"))
+    expect(second.status).toBe(200)
+    const afterSecond = store.data.get("bookings/MOVING") as any
+    expect(afterSecond.originalSchedule).toMatchObject({ date: "2099-03-01", startTime: "8:00 AM", endTime: "2:00 PM" })
+    expect(afterSecond.scheduleHistory).toHaveLength(2)
+    expect(afterSecond.scheduleHistory[1]).toMatchObject({
+      revision: 2,
+      previousSchedule: { date: "2099-04-01", startTime: "9:00 AM", endTime: "3:00 PM" },
+      currentSchedule: { date: "2099-05-01", startTime: "10:00 AM", endTime: "4:00 PM" },
+    })
+  })
+
+  it("does not create schedule history for no-op or failed changes", async () => {
+    store.seed("bookings/MOVING", existing())
+    const noOp = await modify(post({
+      action: "admin_update", bookingId: "MOVING",
+      changes: { date, startTime: "08:00", endTime: "14:00" }, reason: "No change.",
+    }, "admin"))
+    expect(noOp.status).toBe(200)
+    expect(store.data.get("bookings/MOVING")).not.toHaveProperty("scheduleHistory")
+    expect(store.data.get("bookings/MOVING")).not.toHaveProperty("originalSchedule")
+
+    store.seed("bookings/CONFLICT", existing({ date: "2099-04-01", startTime: "09:00", endTime: "15:00" }))
+    const failed = await modify(post({
+      action: "admin_update", bookingId: "MOVING",
+      changes: { date: "2099-04-01", startTime: "10:00", endTime: "16:00" }, reason: "Conflicting change.",
+    }, "admin"))
+    expect(failed.status).toBe(409)
+    expect(store.data.get("bookings/MOVING")).not.toHaveProperty("scheduleHistory")
+    expect(store.data.get("bookings/MOVING")).not.toHaveProperty("originalSchedule")
+    expect(store.data.get("bookings/MOVING")).toMatchObject({ date, startTime: "08:00", endTime: "14:00" })
   })
 
   it("allows a buffered modification on approval and preserves maintenance blocks", async () => {
@@ -130,6 +190,8 @@ describe("server event scheduling commits", () => {
     expect((await modify(post({ action: "request", bookingId: "MOVING", changes: { date, startTime: "15:00", endTime: "21:00" }, reason: "Move" }))).status).toBe(200)
     expect((await modify(post({ action: "approve", bookingId: "MOVING" }, "admin"))).status).toBe(200)
     expect(store.data.get("bookings/MOVING")?.startTime).toBe("15:00")
+    expect(store.data.get("bookings/MOVING")?.originalSchedule).toMatchObject({ date: "2099-02-01", startTime: "8:00 AM", endTime: "2:00 PM" })
+    expect((store.data.get("bookings/MOVING")?.scheduleHistory as any[])).toHaveLength(1)
     store.seed("maintenanceRecords/BLOCK", { spaceId: "V2", date, status: "active" })
     expect((await create(post(input("08:00", "14:00", { venueId: "V2" })))).status).toBe(409)
   })
@@ -160,11 +222,11 @@ describe("server event scheduling commits", () => {
       changes: { eventName: "Operations Workshop", guestCount: 50 },
       reason: "Client requested an updated event description.",
     }, "admin"))
-    expect(response.status).toBe(200)
+    expect(response.status).toBe(400)
     expect(store.data.get("bookings/MOVING")).toMatchObject({
       userId: "CLIENT",
-      eventName: "Operations Workshop",
-      guestCount: 50,
+      eventName: "Fixture",
+      guestCount: 10,
       amountPaid: 2500,
       paymentStatus: "partial",
     })
@@ -192,7 +254,7 @@ describe("server event scheduling commits", () => {
       action: "admin_update", bookingId: "MOVING", changes: { guestCount: 51 }, reason: "Too many guests",
     }, "admin"))
     expect(adminUpdate.status).toBe(400)
-    expect((await adminUpdate.json()).error).toMatch(/50 guests/i)
+    expect((await adminUpdate.json()).error).toMatch(/not allowed/i)
     expect(store.data.get("bookings/MOVING")).toMatchObject({ guestCount: 10, status: "confirmed" })
   })
 

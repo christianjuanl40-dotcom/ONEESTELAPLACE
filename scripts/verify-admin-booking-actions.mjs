@@ -34,12 +34,17 @@ const modules = {
       getUserBookings:()=>state.bookings,
       getBookingById:id=>state.bookings.find(item=>item.id===id),
       modifyBooking:async(id,updates)=>{
-        const guests=Number(updates.guestCount);
-        if(Number.isInteger(guests)&&guests>60) throw new Error('The selected space can accommodate up to 60 guests.');
-        const allowed=['date','eventName','eventType','guestCount','specialRequests','startTime','endTime','time','companyName','natureOfBusiness','rentalTerm','contractTerm','officeRentalTerm'];
+        const allowed=['date','eventName','startTime','endTime'];
         const patch=Object.fromEntries(allowed.filter(key=>updates[key]!==undefined).map(key=>[key,updates[key]]));
         window.fixture.modifications.push({id,patch});
-        patchBooking(patch); return {...state.bookings[0],...patch};
+        const previous=state.bookings[0];
+        const scheduleChanged=patch.date!==undefined||patch.startTime!==undefined||patch.endTime!==undefined;
+        const current={date:previous.date,startTime:previous.startTime,endTime:previous.endTime};
+        const next={...current,...patch};
+        const history=previous.scheduleHistory||[];
+        const scheduleFields=scheduleChanged&&!previous.originalSchedule?{originalSchedule:current}:{};
+        const historyFields=scheduleChanged?{...scheduleFields,scheduleHistory:[...history,{revision:history.length+1,previousSchedule:current,currentSchedule:next,changedAt:'2099-01-01T00:00:00.000Z'}]}:{};
+        patchBooking({...patch,...historyFields}); return {...previous,...patch,...historyFields};
       },
       adminCancelBooking:async(id,reason)=>{
         window.fixture.adminCancellations.push({id,reason});
@@ -64,12 +69,14 @@ const modules = {
     export const fixtureUser=user;
     export const notifications={markByBookingId:async()=>{}};
     export const toast=()=>{};
-    const nativeFetch=window.fetch.bind(window);window.fetch=(input,options)=>{const url=new URL(typeof input==='string'?input:input.url,location.href);if(url.pathname.startsWith('/api/')||url.origin!==location.origin)throw Error('Unexpected live request');return nativeFetch(input,options)};
+    const nativeFetch=window.fetch.bind(window);const availabilitySlots=[{startMinutes:480,endMinutes:840,startTimeLabel:'8:00 AM',endTimeLabel:'2:00 PM',label:'8:00 AM - 2:00 PM'},{startMinutes:540,endMinutes:900,startTimeLabel:'9:00 AM',endTimeLabel:'3:00 PM',label:'9:00 AM - 3:00 PM'},{startMinutes:600,endMinutes:960,startTimeLabel:'10:00 AM',endTimeLabel:'4:00 PM',label:'10:00 AM - 4:00 PM'}];
+    const availabilityResponse=(url)=>{const from=url.searchParams.get('from')||'2099-03-01',to=url.searchParams.get('to')||from,dates={};for(let day=new Date(from+'T00:00:00Z');day<=new Date(to+'T00:00:00Z');day.setUTCDate(day.getUTCDate()+1)){const key=day.toISOString().slice(0,10);dates[key]={status:'available',availableSlots:availabilitySlots,occupiedIntervals:[]};}return new Response(JSON.stringify({space:{category:url.searchParams.get('category')==='office'?'office':'venue',venueId:url.searchParams.get('venueId'),officeId:url.searchParams.get('officeId')||undefined,spaceId:url.searchParams.get('spaceId')||url.searchParams.get('venueId')},dates}),{status:200,headers:{'content-type':'application/json'}})};
+    window.fetch=(input,options)=>{const url=new URL(typeof input==='string'?input:input.url,location.href);if(url.pathname==='/api/availability')return Promise.resolve(availabilityResponse(url));if(url.pathname.startsWith('/api/')||url.origin!==location.origin)throw Error('Unexpected live request');return nativeFetch(input,options)};
   `,
   booking: `export {useBookingData,useBookings} from 'virtual:admin-actions-state';`,
   auth: `import {fixtureUser} from 'virtual:admin-actions-state';export const useAuth=()=>({user:fixtureUser,isLoading:false});`,
   notifications: `import {notifications} from 'virtual:admin-actions-state';export const useNotifications=()=>notifications;`,
-  cms: `const cmsData={venues:[],offices:[],officeRentalContract:null,eventVenueContract:null};export const useCMS=()=>({cmsData,offices:[],getOfficeRooms:()=>[]});`,
+  cms: `const cmsData={venues:[{id:'VENUE-1',name:'Fixture Hall',price:10000,capacity:'60'}],offices:[{id:'OFFICE',name:'Fixture Office',rooms:[{id:'ROOM',name:'Room 1'}]}],officeRentalContract:null,eventVenueContract:null};export const useCMS=()=>({cmsData,offices:cmsData.offices,getOfficeRooms:()=>cmsData.offices[0].rooms});`,
   toast: `import {toast} from 'virtual:admin-actions-state';export const useToast=()=>({toast});`,
   navigation: `const params=new URLSearchParams(location.search);export const useRouter=()=>({push:url=>window.fixture.navigation.push(url),replace:()=>{}});export const useSearchParams=()=>params;`,
   firebase: `export const db={};`,
@@ -148,6 +155,7 @@ try {
   page.on("console", message => { if (message.type() === "error") errors.push(message.text()) })
 
   const adminModal = () => page.getByRole("dialog").filter({ has: page.getByRole("region", { name: "Booking details content", exact: true }) })
+  const modifyModal = () => page.getByRole("dialog").filter({ has: page.getByRole("tab", { name: "Event Details", exact: true }) })
   const openDetails = async (role = "admin") => {
     await page.goto(`${origin}/__admin-booking-actions?role=${role}`)
     await page.getByRole("button", { name: "View Details", exact: true }).click()
@@ -171,14 +179,19 @@ try {
     const columns = page.viewportSize().width >= 640 ? 2 : 1
     assert.equal(await grid.evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length), columns)
     const boxes = await footer.getByRole('button').evaluateAll(nodes => nodes.map(el => {
-      const r = el.getBoundingClientRect(); return { x:r.x, y:r.y, width:r.width, height:r.height, overflow:el.scrollWidth > el.clientWidth + 1 }
+      const r = el.getBoundingClientRect(); return { contract:el.hasAttribute('data-contract-action'), x:r.x, y:r.y, width:r.width, height:r.height, overflow:el.scrollWidth > el.clientWidth + 1 }
     }))
     assert.ok(boxes.length >= 5, 'exercise the crowded five-action state, not just two controls')
-    for (const [index, box] of boxes.entries()) {
+    const gridBox = await grid.boundingBox()
+    const contract = boxes.find(box => box.contract)
+    assert.ok(contract && gridBox && Math.abs(contract.width - gridBox.width) < 1, 'contract action spans the full action grid')
+    const ordinary = boxes.filter(box => !box.contract)
+    const ordinaryWidth = gridBox ? (columns === 1 ? gridBox.width : (gridBox.width - 8) / 2) : 0
+    for (const [index, box] of ordinary.entries()) {
       assert.equal(box.height, 44)
       assert.equal(box.overflow, false)
-      assert.ok(Math.abs(box.width - boxes[0].width) < 1)
-      if (index >= columns) assert.ok(Math.abs(box.y - boxes[index-columns].y - 52) < 1, '44px buttons with 8px row gaps')
+      assert.ok(Math.abs(box.width - ordinaryWidth) < 1, 'ordinary actions retain two-column width')
+      if (index >= columns) assert.ok(Math.abs(box.y - ordinary[index-columns].y - 52) < 1, '44px buttons with 8px row gaps')
     }
     const shortPhone = page.viewportSize().width < 640 && page.viewportSize().height <= 680
     const scroller = shortPhone ? dialog.locator('[data-admin-booking-scroll]') : body
@@ -210,7 +223,7 @@ try {
     assert.ok(Math.abs((await tabs[0].boundingBox()).width - (await tabs[1].boundingBox()).width) < 1)
   }
 
-  for (const width of [320, 375, 768, 1024, 1440]) {
+  for (const width of [320, 375, 768, 1024, 1280, 1366, 1440]) {
     current = `responsive details at ${width}px`
     await page.setViewportSize({ width, height: width === 320 ? 568 : 844 })
     await openDetails()
@@ -222,14 +235,14 @@ try {
     await assertActionGrid()
     await page.screenshot({path:join(output, `${width}-details-grid.png`)})
     await adminModal().getByRole('button', { name:'Modify Booking', exact:true }).click()
-    const modify = page.getByRole('dialog', { name:'Modify Booking', exact:true })
+    const modify = modifyModal()
     await modify.waitFor()
     await assertModifyFits(modify)
     await modify.getByLabel('Event Name', {exact:true}).fill('Editable temporary title')
     await modify.getByRole('tab', {name:'Date & Time',exact:true}).click()
     await assertModifyFits(modify)
-    assert.match(await modify.getByRole('combobox',{name:'Start Time',exact:true}).innerText(),/08:00/,'retain the stored time label on unrelated edits')
-    assert.match(await modify.getByRole('combobox',{name:'End Time',exact:true}).innerText(),/14:00/)
+    assert.match(await modify.getByRole('combobox',{name:'Start Time',exact:true}).innerText(),/8:00 AM/,'retain the stored time label on unrelated edits')
+    assert.match(await modify.getByRole('combobox',{name:'End Time',exact:true}).innerText(),/2:00 PM/)
     const calendarDay=modify.locator('button[data-day="3/2/2099"]')
     await calendarDay.click()
     assert.equal(await calendarDay.getAttribute('data-selected-single'),'true')
@@ -266,16 +279,13 @@ try {
   await page.setViewportSize({ width: 1440, height: 844 })
   await openDetails()
   await adminModal().getByRole("button", { name: "Modify Booking", exact: true }).click()
-  const modifyDialog = page.getByRole("dialog", { name: "Modify Booking", exact: true })
+  const modifyDialog = modifyModal()
   await modifyDialog.waitFor()
-  await modifyDialog.getByLabel("Expected Guests", { exact: true }).fill("0")
-  await modifyDialog.getByRole("button", { name: "Save Changes", exact: true }).click()
-  await modifyDialog.getByRole('alert').getByText(/at least one expected guest/).waitFor()
-  await modifyDialog.getByLabel("Expected Guests", { exact: true }).fill("999")
-  await modifyDialog.getByRole("button", { name: "Save Changes", exact: true }).click()
-  await modifyDialog.getByRole('alert').getByText(/up to 60 guests/).waitFor()
-  await modifyDialog.getByLabel("Expected Guests", { exact: true }).fill("60")
+  assert.equal(await modifyDialog.getByLabel("Expected Guests", { exact: true }).count(), 0)
+  assert.equal(await modifyDialog.getByLabel("Special Requests", { exact: true }).count(), 0)
+  assert.equal(await modifyDialog.getByLabel("Venue", { exact: true }).count(), 0)
   await modifyDialog.getByLabel("Event Name", { exact: true }).fill("Admin Updated Planning Session")
+  await modifyDialog.getByRole("button", { name: "Continue", exact: true }).click()
   await modifyDialog.getByRole("button", { name: "Save Changes", exact: true }).click()
   await adminModal().waitFor()
   await adminModal().getByRole("heading", { name: "Admin Updated Planning Session", exact: true }).waitFor()
@@ -321,22 +331,21 @@ try {
   passed.push(current)
   console.log(`PASS ${current}`)
 
-  for (const width of [320,375,768,1024,1440]) {
+  for (const width of [320,375,768,1024,1280,1366,1440]) {
     current=`responsive office modification at ${width}px`
     await page.setViewportSize({width,height:width===320?568:844})
     await openDetails()
     await page.evaluate(()=>window.fixture.patchBooking({bookingCategory:'office',bookingType:'office',isOfficeRental:true,officeId:'OFFICE',spaceId:'ROOM',guestCount:1,companyName:'Fixture Company',natureOfBusiness:'Services',officeRentalTerm:'6_months',endDate:'2099-08-31'}))
     await adminModal().getByText('Company Name',{exact:true}).waitFor()
     await adminModal().getByRole('button',{name:'Modify Booking',exact:true}).click()
-    const modify=page.getByRole('dialog',{name:'Modify Booking',exact:true})
-    await modify.getByRole('tab',{name:'Tenant Details',exact:true}).waitFor()
+    const modify=modifyModal()
+    await modify.getByRole('tab',{name:'Event Details',exact:true}).waitFor()
     await assertModifyFits(modify)
-    await modify.getByLabel('Company / Tenant Name',{exact:true}).fill('Editable Company')
-    await modify.getByRole('combobox',{name:'Rental Term',exact:true}).click()
-    await page.getByRole('option',{name:'1 Year',exact:true}).click()
-    assert.match(await modify.getByRole('combobox',{name:'Rental Term',exact:true}).innerText(),/1 Year/)
-    await modify.getByRole('tab',{name:'Rental Dates',exact:true}).click()
+    assert.equal(await modify.getByLabel('Company / Tenant Name',{exact:true}).count(), 0)
+    assert.equal(await modify.getByRole('combobox',{name:'Rental Term',exact:true}).count(), 0)
+    await modify.getByRole('tab',{name:'Date & Time',exact:true}).click()
     await assertModifyFits(modify)
+    await modify.getByRole('button',{name:'Back',exact:true}).click()
     await modify.getByRole('button',{name:'Cancel',exact:true}).click()
     await modify.waitFor({state:'detached'})
     await page.waitForFunction(()=>document.activeElement?.textContent?.trim()==='View Details')
