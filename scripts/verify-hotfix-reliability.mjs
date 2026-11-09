@@ -66,14 +66,15 @@ const modules = {
     import {NotificationProvider,useNotifications} from '@/src/modules/shared/contexts/notification-context';
      import {useChatSuggestions} from '@/src/modules/shared/hooks/use-chat-suggestions';
      import {ChatSuggestionPills} from '@/src/modules/shared/components/chat-suggestion-pills';
+     import {isHumanSupportReply} from '@/src/modules/shared/lib/chat-suggestions';
     import {ChatWelcome} from '@/src/modules/shared/components/chat-welcome';
     import {useAuth} from 'virtual:hotfix-state';import '@/app/globals.css';
     const h=React.createElement;
-     function Chat(){const chat=useChat();const {user}=useAuth();const suggestionState=useChatSuggestions({visible:!!user,chatReady:chat.isChatLoaded});
+     function Chat(){const chat=useChat();const {user}=useAuth();const hasHumanSupportReply=chat.messages.some(isHumanSupportReply);const suggestionState=useChatSuggestions({visible:!!user,chatReady:chat.isChatLoaded,hasHumanSupportReply});
        useEffect(()=>{chat.loadChat();return chat.unloadChat},[chat.loadChat,chat.unloadChat]);
-       const selectSuggestion=async suggestion=>{await chat.sendPredefinedQuestion(suggestion.id);suggestionState.dismiss()};
+        const selectSuggestion=async suggestion=>{await chat.sendPredefinedQuestion(suggestion.id)};
        window.chatActions=chat;
-       return h('section',{'aria-label':'Chat regression'},h('p',{'data-chat-ready':true},String(chat.isChatLoaded)),h('p',{'data-chat-error':true},chat.chatError),h(ChatWelcome,{ready:chat.isChatLoaded,empty:!chat.messages.length,error:chat.chatError}),h('div',{'data-messages':true},chat.messages.map(m=>h('p',{key:m.id},m.text))),h(ChatSuggestionPills,{suggestions:suggestionState.suggestions,bookingLabel:suggestionState.context?.bookingId?suggestionState.context.bookingLabel:undefined,onSelect:selectSuggestion,onDismiss:suggestionState.dismiss,disabled:false}));
+        return h('section',{'aria-label':'Chat regression'},h('p',{'data-chat-ready':true},String(chat.isChatLoaded)),h('p',{'data-chat-error':true},chat.chatError),h(ChatWelcome,{ready:chat.isChatLoaded,empty:!chat.messages.length,error:chat.chatError}),h('div',{'data-messages':true},chat.messages.map(m=>h('p',{key:m.id},m.text))),h(ChatSuggestionPills,{suggestions:suggestionState.suggestions,bookingLabel:suggestionState.context?.bookingId?suggestionState.context.bookingLabel:undefined,onSelect:selectSuggestion,disabled:false}));
     }
     function App(){const [visible,setVisible]=useState(true);const notifications=useNotifications();window.notificationActions=notifications;
       return h('main',{className:'mx-auto max-w-4xl p-4'},h('button',{onClick:()=>setVisible(v=>!v)},'Toggle conversation'),visible&&h(Chat),h('section',{'aria-label':'Saved notifications'},h('p',{'data-notification-loading':true},String(notifications.isLoading)),h('p',{'data-notification-error':true},notifications.error),notifications.notifications.map(n=>h('article',{key:n.id},h('h2',null,n.title),h('p',null,n.message)))));
@@ -141,7 +142,7 @@ try {
    await page.setViewportSize({ width: 1440, height: 900 })
    await page.getByRole("button", { name: "How do I book a venue?" }).click()
    assert.equal(answerRequests, 1, "selecting a predefined question reaches the existing answer endpoint")
-   assert.equal(await page.getByRole("button", { name: "How do I book a venue?" }).count(), 0, "selecting a predefined question dismisses only after the answer request succeeds")
+    assert.equal(await page.getByRole("button", { name: "How do I book a venue?" }).count(), 1, "automated answers do not dismiss predefined questions")
    checks += 5
   await page.evaluate(() => { window.chatActions.loadChat(); window.chatActions.loadChat() })
   await page.waitForFunction(() => window.chatActions.isChatLoaded)
@@ -154,7 +155,7 @@ try {
   await page.evaluate(() => window.fixture.ready())
   await page.getByRole("heading", { name: "Welcome to One Estela Place!" }).waitFor()
   await page.getByRole("heading", { name: "Remaining Balance Reminder" }).waitFor()
-  assert.equal(await page.getByRole("button", { name: "How do I book a venue?" }).count(), 0, "a new session respects persisted suggestion cooldown")
+   assert.equal(await page.getByRole("button", { name: "How do I book a venue?" }).count(), 1, "a new session preserves suggestions until a human support reply")
   checks += 3
   await page.evaluate(() => window.fixture.identity(null))
   await page.waitForFunction(() => window.notificationActions.notifications.length === 0)

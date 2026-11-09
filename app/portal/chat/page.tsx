@@ -8,7 +8,7 @@ import { ShieldCheck, Paperclip, Send, X } from "lucide-react"
 import { UserAvatar } from "@/src/modules/shared/components/user-avatar"
 import { ChatSuggestionPills } from "@/src/modules/shared/components/chat-suggestion-pills"
 import { useChatSuggestions } from "@/src/modules/shared/hooks/use-chat-suggestions"
-import type { ChatSuggestion } from "@/src/modules/shared/lib/chat-suggestions"
+import { isHumanSupportReply, type ChatSuggestion } from "@/src/modules/shared/lib/chat-suggestions"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { useChatScroll } from "@/src/modules/shared/hooks/use-chat-scroll"
 import { ChatWelcome } from "@/src/modules/shared/components/chat-welcome"
@@ -34,10 +34,6 @@ export default function ClientSupportChatPage() {
     unloadChat,
   } = useChat()
   const { toast } = useToast()
-  const { suggestions, context: suggestionContext, dismiss: dismissSuggestions } = useChatSuggestions({
-    visible: Boolean(user),
-    chatReady: isChatLoaded,
-  })
   
   const [inputValue, setInputValue] = useState("")
   const [imagePreview, setImagePreview] = useState<string | null>(null)
@@ -59,6 +55,12 @@ export default function ClientSupportChatPage() {
   const sendInProgress = useRef(false)
 
   const myMessages = sortChatMessages(messages.filter((m: any) => m.clientId === user?.id))
+  const hasHumanSupportReply = myMessages.some(isHumanSupportReply)
+  const { suggestions, context: suggestionContext } = useChatSuggestions({
+    visible: Boolean(user),
+    chatReady: isChatLoaded,
+    hasHumanSupportReply,
+  })
 
   const unreadCount = myMessages.filter((m: any) => m.sender === "admin" && !m.isReadByClient).length
 
@@ -123,7 +125,6 @@ export default function ClientSupportChatPage() {
     setIsSending(true)
     try {
       await sendPredefinedQuestion(suggestion.id)
-      dismissSuggestions()
     } catch (error) {
       console.error("[ClientChat] predefined question send failed", error)
       toast({ title: "Question not sent", description: error instanceof Error ? error.message : "Check your connection and try again." })
@@ -230,7 +231,6 @@ export default function ClientSupportChatPage() {
             suggestions={suggestions}
             bookingLabel={suggestionContext?.bookingId ? suggestionContext.bookingLabel : undefined}
             onSelect={handleSuggestionSelect}
-            onDismiss={dismissSuggestions}
             disabled={isSending}
           />
 

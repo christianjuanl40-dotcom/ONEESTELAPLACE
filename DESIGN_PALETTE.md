@@ -1,5 +1,7 @@
 # Design and Color Palette
 
+**Client chat/payment follow-up (2026-11-10):** Client My Transactions Payment Status badges are content-width, centered, nowrap, and consistently padded across desktop and compact rows. Eligible settlement/payment actions use a compact bottom modal footer outside the receipt scroller. Predefined question pills remain until a genuine non-automated support reply; automated answers do not dismiss them.
+
 **Pre-deadline hotfix (2026-11-09):** Admin actions retain the compact 44px grid, with soft orange Modify, soft rose Cancel, soft blue Contract, soft emerald Complete, soft amber Reminder, and solid orange-700 Onsite Payment (AA-safe small white labels). Completion eligibility is disclosed on demand rather than permanently taking footer space. Payment-method tabs use orange selected states, named tab/panel relationships, keyboard navigation, and stacked 44px mobile targets. Client submission history exposes method, status, timestamp, amount, and complete receipt number. Chat empty-history guidance uses a soft orange panel rather than a fabricated message; the widget has safe phone-side gutters. See [HOTFIX_VALIDATION.md](HOTFIX_VALIDATION.md).
 
 Chat page/widget attach, send, close, and attachment-removal controls use named, focus-visible 44px targets; composer textareas use `min-w-0` so controls stay inside the 320px surface rather than being pushed out by intrinsic textarea width.

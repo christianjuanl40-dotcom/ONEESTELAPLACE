@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { doc, onSnapshot, runTransaction, serverTimestamp } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
@@ -26,6 +26,8 @@ interface UseChatSuggestionsOptions {
   visible?: boolean
   /** Prevents a hidden/unloaded chat surface from consuming the display window. */
   chatReady?: boolean
+  /** A persisted, non-automated support reply closes suggestions for this conversation. */
+  hasHumanSupportReply?: boolean
   /** Optional deterministic clock for tests and callers with a controlled clock. */
   nowMs?: number
 }
@@ -150,11 +152,15 @@ export interface ChatSuggestionsResult {
   suggestions: ChatSuggestion[]
   isLoading: boolean
   error: string | null
-  dismiss: () => void
 }
 
 export function useChatSuggestions(options: UseChatSuggestionsOptions = {}): ChatSuggestionsResult {
-  const { visible = false, chatReady = false, nowMs: controlledNowMs } = options
+  const {
+    visible = false,
+    chatReady = false,
+    hasHumanSupportReply = false,
+    nowMs: controlledNowMs,
+  } = options
   const { user } = useAuth()
   const isClient = user?.role === "client"
   const shouldLoadClientData = isClient && visible
@@ -166,7 +172,6 @@ export function useChatSuggestions(options: UseChatSuggestionsOptions = {}): Cha
   const [publishedVersionSnapshot, setPublishedVersionSnapshot] = useState<PublishedVersionSnapshot | null>(null)
   const [filteredSnapshot, setFilteredSnapshot] = useState<FilteredSuggestionSnapshot | null>(null)
   const [localDisplay, setLocalDisplay] = useState<LocalDisplayState | null>(null)
-  const [dismissed, setDismissed] = useState<{ contextKey: string; dismissedAtMs: number } | null>(null)
   const [clockMs, setClockMs] = useState(() => Date.now())
   const presentationAttempt = useRef<string | null>(null)
   const previousContextKey = useRef<string | null>(null)
@@ -313,7 +318,6 @@ export function useChatSuggestions(options: UseChatSuggestionsOptions = {}): Cha
   useEffect(() => {
     if (previousContextKey.current === contextKey) return
     previousContextKey.current = contextKey
-    setDismissed(null)
     setLocalDisplay(null)
     presentationAttempt.current = null
   }, [contextKey])
@@ -338,11 +342,6 @@ export function useChatSuggestions(options: UseChatSuggestionsOptions = {}): Cha
         evaluationNowMs,
       )
     : false
-  const dismissedRecently = Boolean(
-    dismissed
-      && dismissed.contextKey === contextKey
-      && evaluationNowMs - dismissed.dismissedAtMs < CHAT_SUGGESTION_COOLDOWN_MS,
-  )
   const dataLoading = !isClient || bookingData.isLoading || !stateLoaded || !publishedVersionLoaded || !filteredLoaded
   const canDisplay = Boolean(
     isClient
@@ -357,12 +356,12 @@ export function useChatSuggestions(options: UseChatSuggestionsOptions = {}): Cha
       && context.questions.length > 0,
   )
   // Cooldown controls admission of a new presentation, not the lifetime of
-  // the already visible one. Its own profile snapshot must not hide it.
-  const displayedHere = localDisplay?.uid === uid && localDisplay.contextKey === contextKey
-  const shouldDisplay = canDisplay && (due || displayedHere) && !dismissedRecently
+  // the already visible one. Its own profile snapshot must not hide it. A
+  // genuine support reply is the conversation-level end condition.
+  const shouldDisplay = canDisplay && !hasHumanSupportReply
 
   useEffect(() => {
-    if (!canDisplay || !context || !uid || !due || dismissedRecently) return
+    if (!canDisplay || !context || !uid || !due || hasHumanSupportReply) return
     const attemptKey = `${uid}|${context.contextKey}`
     if (presentationAttempt.current === attemptKey) return
     presentationAttempt.current = attemptKey
@@ -383,18 +382,12 @@ export function useChatSuggestions(options: UseChatSuggestionsOptions = {}): Cha
     return () => {
       cancelled = true
     }
-  }, [canDisplay, context, dismissedRecently, due, uid])
-
-  const dismiss = useCallback(() => {
-    if (!contextKey) return
-    setDismissed({ contextKey, dismissedAtMs: Date.now() })
-  }, [contextKey])
+  }, [canDisplay, context, due, hasHumanSupportReply, uid])
 
   return {
     context,
     suggestions: shouldDisplay ? context?.questions.slice(0, 3) || [] : [],
     isLoading: dataLoading,
     error: bookingData.dataError || stateError || publishedVersionError || filteredError,
-    dismiss,
   }
 }

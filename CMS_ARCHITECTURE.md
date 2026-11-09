@@ -1,5 +1,7 @@
 # CMS Architecture
 
+**Client chat follow-up (2026-11-10):** The existing CMS question schema and server-filtered status groups remain unchanged. Customer suggestions stay visible across automated answers, client messages, refresh, and navigation until a persisted non-automated admin/staff reply is present in the conversation; no new CMS or Firestore field is used.
+
 **Customer-chat presentation follow-up (2026-11-09):** The existing published-question/cooldown schema is unchanged. `use-chat-suggestions.ts` now keeps an already visible presentation stable when its own `chatSuggestionState` write arrives; cooldown still governs the next presentation. The empty-conversation welcome is shared UI guidance, not a new CMS document or automatically sent answer. See [HOTFIX_VALIDATION.md](HOTFIX_VALIDATION.md).
 
 Source reviewed: **2026-11-03**; admin-shell scrolling rechecked **2026-11-04**; shared table scroll chaining rechecked **2026-11-05**. The active CMS uses **Cloud Firestore**, with one shared **`cms/data`** document plus a protected predefined-question configuration. See [ARCHITECTURE.md](ARCHITECTURE.md) for the overall system and scheduling invariants. CMS screens remain inside the admin layout's independently scrollable main pane; this presentation behavior does not change CMS persistence or authorization.
@@ -16,7 +18,7 @@ Source reviewed: **2026-11-03**; admin-shell scrolling rechecked **2026-11-04**;
 | `src/modules/shared/lib/resource-identity.ts` | Exact resource IDs/categories, parent-scoped room resolution, and current/legacy aliases for all scheduling records |
 | `src/modules/shared/lib/policies.ts` | Cached published policies and fallback policy text |
 | `src/modules/shared/lib/chat-suggestions.ts` | Supported status groups, managed-question validation, publication projection, and deterministic top-three selector |
-| `src/modules/shared/hooks/use-chat-suggestions.ts` | Customer-only version subscription, server-filtered retrieval, cooldown, and display state |
+| `src/modules/shared/hooks/use-chat-suggestions.ts` | Customer-only version subscription, server-filtered retrieval, presentation metadata, and human-reply visibility state |
 | `app/api/chat-suggestions/config/route.ts` | CMS-authenticated transactional config, projection, and version-marker writes |
 | `app/api/chat-suggestions/published/route.ts` | Client-authenticated current-status/top-three question retrieval without answers |
 | `app/api/chat-suggestions/answer/route.ts` | Client-authenticated selected-question delivery with protected answer lookup and idempotency |

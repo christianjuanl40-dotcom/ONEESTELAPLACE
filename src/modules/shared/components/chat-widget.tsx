@@ -8,7 +8,7 @@ import { Button } from "@/src/modules/shared/components/ui/button"
 import { MessageSquare, X, Send, Paperclip, ShieldCheck } from "lucide-react"
 import { ChatSuggestionPills } from "@/src/modules/shared/components/chat-suggestion-pills"
 import { useChatSuggestions } from "@/src/modules/shared/hooks/use-chat-suggestions"
-import type { ChatSuggestion } from "@/src/modules/shared/lib/chat-suggestions"
+import { isHumanSupportReply, type ChatSuggestion } from "@/src/modules/shared/lib/chat-suggestions"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { useChatScroll } from "@/src/modules/shared/hooks/use-chat-scroll"
 import { ChatWelcome } from "@/src/modules/shared/components/chat-welcome"
@@ -47,6 +47,7 @@ export function ClientChatWidget() {
   const sendInProgress = useRef(false)
 
   const myMessages = sortChatMessages(messages.filter((m: any) => m.clientId === user?.id))
+  const hasHumanSupportReply = myMessages.some(isHumanSupportReply)
   const {
     containerRef,
     endRef,
@@ -57,9 +58,10 @@ export function ClientChatWidget() {
     clearPreservedScrollPosition,
   } = useChatScroll(myMessages.length, isOpen ? user?.id || null : null)
   const unreadCount = unreadMessages
-  const { suggestions, context: suggestionContext, dismiss: dismissSuggestions } = useChatSuggestions({
+  const { suggestions, context: suggestionContext } = useChatSuggestions({
     visible: isOpen && pathname !== "/portal/chat",
     chatReady: isChatLoaded && pathname !== "/portal/chat",
+    hasHumanSupportReply,
   })
 
   const handleLoadOlder = async () => {
@@ -112,7 +114,6 @@ export function ClientChatWidget() {
     setIsSending(true)
     try {
       await sendPredefinedQuestion(suggestion.id)
-      dismissSuggestions()
     } catch (error) {
       console.error("[ClientChatWidget] predefined question send failed", error)
       toast({ title: "Question not sent", description: error instanceof Error ? error.message : "Check your connection and try again." })
@@ -189,7 +190,6 @@ export function ClientChatWidget() {
               suggestions={suggestions}
               bookingLabel={suggestionContext?.bookingId ? suggestionContext.bookingLabel : undefined}
               onSelect={handleSuggestionSelect}
-              onDismiss={dismissSuggestions}
               disabled={isSending}
             />
              <div className="flex items-end gap-2 bg-slate-50 border border-slate-200 rounded-2xl pl-3 pr-1.5 py-1.5 focus-within:ring-2 focus-within:ring-orange-500/20 focus-within:border-orange-500 transition-all">

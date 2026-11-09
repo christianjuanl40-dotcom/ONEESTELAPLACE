@@ -1,5 +1,9 @@
 # Final pre-deadline hotfix — 2026-11-09
 
+## Follow-up — 2026-11-10
+
+Client predefined questions now remain visible after client selections and automated answers, including after refresh/navigation, and hide only when the loaded conversation contains a non-automated admin/staff reply. Client transaction settlement actions are rendered in a compact bottom area outside the receipt scroll region, while Payment Status badges are content-width and centered. This follow-up was not re-run through the browser harness or full regression suite per the release request; source-level scope and `git diff --check` are the applicable checks.
+
 ## 1. Issues investigated
 
 Balance-reminder action → lifecycle transaction → booking marker/email outbox → notification persistence → scoped realtime inbox → client rendering; active support-chat initialization, predefined-question cooldown, page/widget navigation; booking footers/tables; client transaction actions/history; payment-method views and unified financial reporting; deployed email-dispatch provenance/runtime readiness; office Name of Business terminology and compatibility.

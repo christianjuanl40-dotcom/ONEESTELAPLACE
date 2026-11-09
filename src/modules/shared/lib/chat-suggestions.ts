@@ -55,6 +55,21 @@ export interface PersistedChatSuggestionState {
   contextKey?: string
 }
 
+export function isHumanSupportReply(message: {
+  sender?: unknown
+  senderId?: unknown
+  isBot?: unknown
+  automationType?: unknown
+}): boolean {
+  const sender = String(message.sender || "").trim().toLowerCase()
+  const senderId = String(message.senderId || "").trim().toLowerCase()
+  const automationType = String(message.automationType || "").trim().toLowerCase()
+  return (sender === "admin" || sender === "staff")
+    && message.isBot !== true
+    && senderId !== "automated-support"
+    && automationType !== "predefined_question"
+}
+
 export interface ChatSuggestionQuestion {
   questionId: string
   question: string
