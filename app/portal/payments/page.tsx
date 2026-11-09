@@ -73,7 +73,6 @@ import { getPaymentStatusPresentationClass } from "@/src/modules/shared/lib/stat
 import { formatBookingDate, getBookingLifecycleLabel } from "@/src/modules/shared/lib/booking-helpers";
 import { collection, getDocs, orderBy, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import type { PaymentRecord } from "@/src/modules/client/contexts/booking-context";
 import {
   calculatePaymentSummary,
   getReceiptPaymentAmount,
@@ -377,34 +376,17 @@ function getSettlementState(booking: Booking, records?: PaymentRecordLike[] | nu
   };
 }
 
-function getLatestPaymentStatus(
-  records: PaymentRecord[] | undefined,
-  booking: Booking | string,
-): string {
-  const latest = getRecordsForBooking(records, booking)
-    .sort(
-      (a, b) =>
-        new Date(String(b.submittedAt || 0)).getTime() -
-        new Date(String(a.submittedAt || 0)).getTime(),
-    )[0];
-  return String(latest?.status || latest?.verificationStatus || "");
-}
-
 function PaymentActionButtons({
   booking,
   onPay,
   onSettle,
   compact,
-  paymentCount = 0,
-  latestPaymentStatus = "",
   records,
 }: {
   booking: Booking;
   onPay: (b: Booking) => void;
   onSettle: (b: Booking) => void;
   compact?: boolean;
-  paymentCount?: number;
-  latestPaymentStatus?: string;
   records?: PaymentRecordLike[] | null;
 }) {
   const remainingMs = getRemainingMs(booking);
@@ -456,8 +438,8 @@ function PaymentActionButtons({
         onClick={() => onSettle(booking)}
         className={cn(
           compact
-            ? "oe-table-action h-9 px-4"
-            : "oe-table-action h-9 px-4 shadow-sm",
+            ? "oe-table-action h-9 w-fit px-4"
+            : "oe-table-action h-11 w-fit px-4 shadow-sm",
           "bg-emerald-600 text-white hover:bg-emerald-700 whitespace-nowrap"
         )}
       >
@@ -472,8 +454,8 @@ function PaymentActionButtons({
         onClick={() => onPay(booking)}
         className={cn(
           compact
-            ? "oe-table-action h-9 px-4"
-            : "oe-table-action h-9 px-4 shadow-sm",
+            ? "oe-table-action h-9 w-fit px-4"
+            : "oe-table-action h-11 w-fit px-4 shadow-sm",
           "bg-orange-600 text-white hover:bg-orange-700 whitespace-nowrap"
         )}
       >
@@ -489,8 +471,8 @@ function PaymentActionButtons({
         onClick={() => onPay(booking)}
         className={cn(
           compact
-            ? "oe-table-action h-9 px-4"
-            : "oe-table-action h-9 px-4 shadow-sm",
+            ? "oe-table-action h-9 w-fit px-4"
+            : "oe-table-action h-11 w-fit px-4 shadow-sm",
           "bg-orange-600 text-white hover:bg-orange-700 whitespace-nowrap"
         )}
       >
@@ -546,7 +528,6 @@ function getTransactionRowData(booking: Booking, records: PaymentRecordLike[]) {
     pendingReview,
     remaining,
     displayTotal: isCancelled ? 0 : summary.bookingTotal,
-    isUnpaid: bookingRecords.length === 0 && paymentStatus === "unpaid",
     statusLabel: getStatusLabel(paymentStatus, booking),
     statusClass: getStatusBadgeClass(paymentStatus, booking),
   }
@@ -558,8 +539,6 @@ function TransactionTable({
   bookings,
   records,
   mode,
-  onPay,
-  onSettle,
   onView,
   expandedBookingId,
   onToggle,
@@ -568,8 +547,6 @@ function TransactionTable({
   bookings: Booking[]
   records: PaymentRecordLike[]
   mode: TransactionTableMode
-  onPay: (booking: Booking) => void
-  onSettle: (booking: Booking) => void
   onView: (booking: Booking) => void
   expandedBookingId?: string | null
   onToggle?: (booking: Booking) => void
@@ -584,9 +561,9 @@ function TransactionTable({
             <col style={{ width: "15%" }} />
             <col style={{ width: "12%" }} />
             <col style={{ width: "13%" }} />
-            <col style={{ width: "20%" }} />
-            <col style={{ width: "19%" }} />
-            <col style={{ width: "21%" }} />
+            <col style={{ width: "23%" }} />
+            <col style={{ width: "22%" }} />
+            <col style={{ width: "15%" }} />
           </colgroup>
           <TableHeader className="bg-slate-50/80">
             <tr>
@@ -605,8 +582,6 @@ function TransactionTable({
                 booking={booking}
                 records={records}
                 mode={mode}
-                onPay={onPay}
-                onSettle={onSettle}
                 onView={onView}
                 expanded={expandedBookingId === booking.id}
                 onToggle={onToggle}
@@ -623,8 +598,6 @@ function TransactionTable({
             booking={booking}
             records={records}
             mode={mode}
-            onPay={onPay}
-            onSettle={onSettle}
             onView={onView}
             expanded={expandedBookingId === booking.id}
             onToggle={onToggle}
@@ -640,8 +613,6 @@ function TransactionTableRow({
   booking,
   records,
   mode,
-  onPay,
-  onSettle,
   onView,
   expanded,
   onToggle,
@@ -650,8 +621,6 @@ function TransactionTableRow({
   booking: Booking
   records: PaymentRecordLike[]
   mode: TransactionTableMode
-  onPay: (booking: Booking) => void
-  onSettle: (booking: Booking) => void
   onView: (booking: Booking) => void
   expanded: boolean
   onToggle?: (booking: Booking) => void
@@ -675,17 +644,14 @@ function TransactionTableRow({
     return () => clearTimeout(timer)
   }, [isHighlighted])
 
-  const action = mode === "history" ? (
-    data.isUnpaid ? (
-       <Button onClick={() => onPay(booking)} className="oe-table-action h-9 whitespace-nowrap bg-orange-600 text-white hover:bg-orange-700"><CreditCard className="mr-1 h-3.5 w-3.5" />Pay Now</Button>
-    ) : (
-       <Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 whitespace-nowrap border-slate-300 text-slate-800 hover:border-slate-400 hover:bg-slate-50">View Details</Button>
-    )
-  ) : (
-    <div className="oe-transaction-actions">
-       <Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 whitespace-nowrap border-slate-300 text-slate-800 hover:border-slate-400 hover:bg-slate-50">View Details</Button>
-      <PaymentActionButtons booking={booking} onPay={onPay} onSettle={onSettle} compact paymentCount={data.records.length} latestPaymentStatus={getLatestPaymentStatus(records as PaymentRecord[], booking)} records={data.records} />
-    </div>
+  const action = (
+    <Button
+      variant="outline"
+      onClick={() => onView(booking)}
+      className="oe-table-action h-9 w-fit whitespace-nowrap border-slate-300 px-4 text-slate-800 hover:border-slate-400 hover:bg-slate-50"
+    >
+      View Details
+    </Button>
   )
 
   return (
@@ -714,9 +680,6 @@ function TransactionTableRow({
                <TransactionDetailItem label="Pending Review" value={formatMoney(data.pendingReview)} />
                <TransactionDetailItem label="Remaining Balance" value={formatMoney(data.remaining)} />
             </div>
-            <div className="mt-3 flex justify-end">
-               {data.isUnpaid ? <Button onClick={() => onPay(booking)} className="oe-table-action h-9 bg-orange-600 text-white hover:bg-orange-700"><CreditCard className="mr-1.5 h-3.5 w-3.5" />Pay Now</Button> : <Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 border-slate-300 text-slate-800 hover:bg-white"><Receipt className="mr-1.5 h-3.5 w-3.5" />Open Full Details</Button>}
-            </div>
           </TableCell>
         </tr>
       )}
@@ -728,8 +691,6 @@ function TransactionCompactRow({
   booking,
   records,
   mode,
-  onPay,
-  onSettle,
   onView,
   expanded,
   onToggle,
@@ -738,8 +699,6 @@ function TransactionCompactRow({
   booking: Booking
   records: PaymentRecordLike[]
   mode: TransactionTableMode
-  onPay: (booking: Booking) => void
-  onSettle: (booking: Booking) => void
   onView: (booking: Booking) => void
   expanded: boolean
   onToggle?: (booking: Booking) => void
@@ -768,9 +727,15 @@ function TransactionCompactRow({
         <div className="min-w-0"><p className="oe-table-label">Date / period</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{schedule.primary}</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{schedule.secondary}</p></div>
       </div>
        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 sm:grid-cols-4"><div className="min-w-0"><p className="oe-financial-label">Total</p><p className="oe-financial-value mt-0.5">{formatMoney(data.displayTotal)}</p></div><div className="min-w-0"><p className="oe-financial-label">Received</p><p className="oe-financial-value mt-0.5">{formatMoney(data.amountPaid)}</p></div><div className="min-w-0"><p className="oe-financial-label">Balance</p><p className="oe-financial-value mt-0.5">{formatMoney(data.remaining)}</p></div><div className="min-w-0"><p className="oe-financial-label">Pending review</p><p className="oe-financial-value mt-0.5">{formatMoney(data.pendingReview)}</p></div></div>
-      <div className="oe-transaction-actions mt-3 border-t border-slate-100 pt-3">
-         {mode === "history" ? (data.isUnpaid ? <Button onClick={() => onPay(booking)} className="oe-table-action h-9 bg-orange-600 text-white hover:bg-orange-700"><CreditCard className="mr-1 h-3.5 w-3.5" />Pay Now</Button> : <Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 border-slate-300 text-slate-800 hover:bg-slate-50">View Details</Button>) : <><Button variant="outline" onClick={() => onView(booking)} className="oe-table-action h-9 border-slate-300 text-slate-800 hover:bg-slate-50">View Details</Button><PaymentActionButtons booking={booking} onPay={onPay} onSettle={onSettle} compact paymentCount={data.records.length} latestPaymentStatus={getLatestPaymentStatus(records as PaymentRecord[], booking)} records={data.records} /></>}
-      </div>
+       <div className="oe-transaction-actions mt-3 border-t border-slate-100 pt-3">
+          <Button
+            variant="outline"
+            onClick={() => onView(booking)}
+            className="oe-table-action h-9 w-fit border-slate-300 px-4 text-slate-800 hover:bg-slate-50"
+          >
+            View Details
+          </Button>
+       </div>
        {mode === "history" && expanded && <div className="mt-3 grid gap-3 border-t border-slate-100 bg-slate-50/60 pt-3 sm:grid-cols-2"><TransactionDetailItem label="Booking Status" value={getBookingStatusLabel(booking.status)} /><TransactionDetailItem label="Payment Type" value={isOfficeRentalBooking(booking) ? "Slot Reservation" : (booking as any).paymentType === "downpayment" ? "Down Payment" : "Full Payment"} /><TransactionDetailItem label="Received / Credited" value={formatMoney(data.amountPaid)} /><TransactionDetailItem label="Verified Payments" value={formatMoney(data.verifiedAmount)} /><TransactionDetailItem label="Pending Review" value={formatMoney(data.pendingReview)} /><TransactionDetailItem label="Remaining Balance" value={formatMoney(data.remaining)} /></div>}
     </div>
   )
@@ -1035,6 +1000,11 @@ function TransactionsContent() {
     if (!viewingReceipt) return null
     return getReceiptPresentation(viewingReceipt, viewingReceiptRecords, selectedViewingReceipt, viewingStoredReceipts)
   }, [selectedViewingReceipt, viewingReceipt, viewingReceiptRecords, viewingStoredReceipts]);
+
+  const viewingSettlementState = useMemo(
+    () => (viewingReceipt ? getSettlementState(viewingReceipt, viewingReceiptRecords) : null),
+    [viewingReceipt, viewingReceiptRecords],
+  );
 
   const handlePay = (booking: Booking) => {
     setReferenceTouched(false);
@@ -2406,8 +2376,6 @@ function TransactionsContent() {
                   bookings={[currentTransaction]}
                   records={paymentRecords}
                   mode="active"
-                  onPay={handlePay}
-                  onSettle={handleSettle}
                   onView={handleView}
                   highlightedBookingId={highlightedBookingId}
                 />
@@ -2436,8 +2404,6 @@ function TransactionsContent() {
                   bookings={paginatedOtherActive}
                   records={paymentRecords}
                   mode="active"
-                  onPay={handlePay}
-                  onSettle={handleSettle}
                   onView={handleView}
                   highlightedBookingId={highlightedBookingId}
                 />
@@ -2583,19 +2549,38 @@ function TransactionsContent() {
                       }
                     />
                     )}
+                    {viewingReceipt && viewingSettlementState && (
+                      <div className="mt-5 rounded-2xl border border-orange-100 bg-orange-50 p-4">
+                        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-xs font-black uppercase tracking-[0.16em] text-orange-800">
+                              Remaining Balance
+                            </p>
+                            <p className="mt-1 text-xl font-black text-orange-700">
+                              {formatMoney(viewingSettlementState.summary.remainingBalance)}
+                            </p>
+                          </div>
+                          <PaymentActionButtons
+                            booking={viewingReceipt}
+                            onPay={(booking) => {
+                              setViewingReceipt(null);
+                              setIsPaymentHistoryOpen(false);
+                              handlePay(booking);
+                            }}
+                            onSettle={(booking) => {
+                              setViewingReceipt(null);
+                              setIsPaymentHistoryOpen(false);
+                              handleSettle(booking);
+                            }}
+                            records={viewingReceiptRecords}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </Collapsible>
             )}
-            <div className="shrink-0 border-t border-slate-100 px-5 py-4">
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => setViewingReceipt(null)}
-              >
-                Close Window
-              </Button>
-            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -2674,8 +2659,6 @@ function TransactionsContent() {
                   bookings={paginatedHistory}
                   records={paymentRecords}
                   mode="history"
-                  onPay={handlePay}
-                  onSettle={handleSettle}
                   onView={handleView}
                   expandedBookingId={expandedBookingId}
                   onToggle={(booking) => setExpandedBookingId(expandedBookingId === booking.id ? null : booking.id)}
