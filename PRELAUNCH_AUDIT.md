@@ -2,6 +2,8 @@
 
 **Audit date:** 2026-10-21
 
+**Follow-up note (2026-11-09):** [HOTFIX_VALIDATION.md](HOTFIX_VALIDATION.md) records the later bounded reminder, chat-initialization, payment-method view, and responsive-presentation work. This note does not revise the original audit date, findings, scope, or NO-GO verdict, and is not a deployed-production certification.
+
 **Scope:** current working tree, including the existing uncommitted payment-review/UI changes.
 
 **Release verdict: NO-GO.** One critical authorization defect and multiple high-priority security, financial, and workflow defects remain open. A successful build/test run is not a launch-readiness certification.

@@ -53,6 +53,7 @@ export type EmailRuntimeDiagnostics = {
   otpSecretConfigured: boolean
   smtpConfigured: boolean
   appBaseUrlConfigured: boolean
+  transactionalReady: boolean
   otpReady: boolean
   otpGateReason: "ready" | "otp_flag_false" | "staging_approval_false" | "production_approval_false" | "smtp_incomplete" | "otp_secret_missing"
   recipientAllowlistConfigured: boolean
@@ -191,6 +192,7 @@ export function getEmailRuntimeDiagnostics(config = getEmailConfig()): EmailRunt
     otpSecretConfigured,
     smtpConfigured: config.smtpConfigured,
     appBaseUrlConfigured: config.appBaseUrlConfigured,
+    transactionalReady: config.ready,
     otpReady: config.otpReady,
     otpGateReason,
     recipientAllowlistConfigured: config.testRecipientAllowlist.length > 0,

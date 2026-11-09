@@ -6,6 +6,7 @@ import { ApiAuthError, isApiAuthError, requireAuthenticatedUser } from "@/lib/se
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
+export const maxDuration = 60
 
 const MAX_BODY_BYTES = 4 * 1024
 

@@ -14,6 +14,7 @@ import { ApiAuthError, isApiAuthError } from "@/lib/server-auth"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
+export const maxDuration = 60
 
 const MAX_BODY_BYTES = 8 * 1024
 

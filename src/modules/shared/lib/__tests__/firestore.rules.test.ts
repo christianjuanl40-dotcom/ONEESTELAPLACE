@@ -594,6 +594,19 @@ rulesSuite("Firestore security rules", () => {
     await assertFails(paymentStaff.collection("notifications").doc("booking-notification").get())
   })
 
+  it("keeps reminder retry records server-only and prevents browser reminder-marker writes", async () => {
+    await seedProfilesAndRecords()
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().collection("bookingReminderRequests").doc("REQUEST").set({ bookingId: "BK001", notificationId: "REMINDER" })
+    })
+    for (const uid of ["client", "another-client", "booking-staff", "admin"]) {
+      const firestore = testEnv.authenticatedContext(uid).firestore()
+      await assertFails(firestore.collection("bookingReminderRequests").doc("REQUEST").get())
+      await assertFails(firestore.collection("bookingReminderRequests").doc(`NEW-${uid}`).set({ bookingId: "BK001" }))
+      await assertFails(firestore.collection("bookings").doc("BK001").update({ balanceReminderSent: true }))
+    }
+  })
+
   it("scopes refund-request notifications to administrators and bookings staff", async () => {
     await seedProfilesAndRecords()
 

@@ -99,11 +99,13 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/src/modules/shared/c
 import { stableSortBy, type TableSortDirection, type TableSortableValue } from "@/src/modules/shared/lib/report-table-utils"
 import { getBookingCreationTime, sortBookingsByCreationTime } from "@/src/modules/shared/lib/booking-sorting"
 import { BookingScheduleHistory } from "@/src/modules/shared/components/booking-schedule-history"
+import { getBookingScheduleSnapshot } from "@/src/modules/shared/lib/booking-schedule-history"
+import { getBalanceReminderFeedback } from "@/src/modules/shared/lib/balance-reminders"
 
 const adminBookingDetailsActionColors = {
-  reminder: "bg-[#FFF7ED] text-[#C2410C] border border-[#FED7AA] hover:bg-[#FFEDD5] hover:text-[#C2410C]",
-  onsite: "bg-[#EA580C] bg-none text-white border border-transparent hover:bg-[#C2410C] hover:text-white",
-  contract: "bg-[#F1F5F9] text-[#334155] border border-[#CBD5E1] hover:bg-[#E2E8F0] hover:text-[#334155]",
+  reminder: "bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 hover:text-amber-900",
+  onsite: "bg-orange-700 bg-none text-white border border-transparent hover:bg-orange-800 hover:text-white",
+  contract: "bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100 hover:text-blue-900",
 } as const
 
 type BookingSortKey = "createdAt" | "date" | "customer" | "event" | "resource" | "status"
@@ -123,15 +125,17 @@ export function BalanceReminderModal({
   open,
   onCancel,
   onConfirm,
+  isSending = false,
 }: {
   booking: Booking | null
   remainingBalance?: number
   open: boolean
   onCancel: () => void
   onConfirm: () => void
+  isSending?: boolean
 }) {
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
+    <Dialog open={open} onOpenChange={(v) => !v && !isSending && onCancel()}>
       <DialogContent aria-describedby={undefined} className="w-[95vw] sm:max-w-[520px] max-h-[90dvh] rounded-2xl border-0 bg-white p-0 shadow-2xl [&>button]:hidden">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 sm:px-7 sm:py-6">
@@ -142,7 +146,7 @@ export function BalanceReminderModal({
               Send Balance Reminder?
             </DialogTitle>
             <p className="mt-2 text-sm leading-6 text-slate-500">
-              Send balance reminder to this customer?
+              Save a reminder in this customer&apos;s notifications. Repeat reminders are limited to once every 24 hours; retries do not send duplicates.
             </p>
             {booking && (
               <div className="mt-5 space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left">
@@ -167,14 +171,17 @@ export function BalanceReminderModal({
                 variant="outline"
                 onClick={onCancel}
                 className="h-11 w-full sm:w-auto rounded-xl border-slate-200 text-sm font-black text-slate-700"
+                disabled={isSending}
               >
                 Cancel
               </Button>
               <Button
                 onClick={onConfirm}
-                className="h-11 w-full sm:w-auto rounded-xl bg-blue-600 text-sm font-black text-white hover:bg-blue-700"
+                disabled={isSending}
+                aria-busy={isSending}
+                className="h-11 w-full sm:w-auto rounded-xl bg-orange-700 text-sm font-black text-white hover:bg-orange-800"
               >
-                Send Reminder
+                {isSending ? "Saving Reminder…" : "Send Reminder"}
               </Button>
             </div>
           </div>
@@ -189,7 +196,6 @@ function MarkCompletedAction({
   eventFinished,
   onClick,
   className,
-  secondary = false,
   disabled = false,
 }: {
   enabled: boolean
@@ -204,20 +210,16 @@ function MarkCompletedAction({
       <Button
         onClick={onClick}
         disabled={!enabled || disabled}
-        variant={enabled && !secondary ? "default" : "outline"}
+        variant="outline"
         className={cn(
           bookingDetailsStackedActionClassName,
-          secondary ? bookingDetailsActionToneClassNames.slate : bookingDetailsActionToneClassNames.primary,
+          "border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 hover:text-emerald-900",
         )}
       >
         <CheckCircle2 className="size-4" />
         Mark as Completed
       </Button>
-      {!eventFinished && (
-        <p className="mt-1 text-xs leading-5 text-slate-500">
-          Available after the event has ended.
-        </p>
-      )}
+      {!eventFinished && <details className="mt-1 text-xs text-slate-600"><summary className="w-fit cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600">When is completion available?</summary><p className="mt-1">Available after the event has ended.</p></details>}
     </div>
   )
 }
@@ -381,6 +383,8 @@ export default function AdminBookingsPage() {
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
   const [showContractConfirm, setShowContractConfirm] = useState(false)
   const [sendReminderTarget, setSendReminderTarget] = useState<Booking | null>(null)
+  const [isSendingReminder, setIsSendingReminder] = useState(false)
+  const reminderInFlight = useRef(false)
   const [onsitePaymentTarget, setOnsitePaymentTarget] = useState<Booking | null>(null)
   const [currentPageState, setCurrentPageState] = useState({ key: "", page: 1 })
   const ITEMS_PER_PAGE = 10
@@ -1011,16 +1015,18 @@ export default function AdminBookingsPage() {
           booking={sendReminderTarget}
           remainingBalance={sendReminderTarget ? calculatePaymentSummary(sendReminderTarget, getRecordsForBooking(bookingCtx?.paymentRecords || [], sendReminderTarget)).remainingBalance : undefined}
           open={!!sendReminderTarget}
+          isSending={isSendingReminder}
           onCancel={() => setSendReminderTarget(null)}
           onConfirm={() => {
-            if (!sendReminderTarget || !sendBalanceReminder) return
+            if (!sendReminderTarget || !sendBalanceReminder || reminderInFlight.current) return
+            reminderInFlight.current = true
+            setIsSendingReminder(true)
             const id = sendReminderTarget.id
-            void sendBalanceReminder(id).then(() => {
+            void sendBalanceReminder(id).then((result) => {
               setSendReminderTarget(null)
+              setSelectedBooking(result.booking)
               toast({
-                title: "Balance Reminder Sent",
-                description: `Reminder has been recorded for booking ${id}.`,
-                className: "border-none bg-blue-500 text-white",
+                ...getBalanceReminderFeedback(result.reminder),
               })
             }).catch((error: unknown) => {
               toast({
@@ -1028,7 +1034,7 @@ export default function AdminBookingsPage() {
                 description: error instanceof Error ? error.message : "Unable to send the balance reminder.",
                 variant: "destructive",
               })
-            })
+            }).finally(() => { reminderInFlight.current = false; setIsSendingReminder(false) })
           }}
         />
 
@@ -1195,7 +1201,7 @@ function getBookingScheduleParts(booking: Booking) {
     }
   }
 
-  const time = [booking.startTime, booking.endTime].filter(Boolean).join(" – ")
+  const time = getBookingScheduleSnapshot(booking as unknown as Record<string, unknown>)?.time?.replace(" - ", " – ")
   return { primary: startDate, secondary: time || "Time not set" }
 }
 
@@ -1229,7 +1235,7 @@ function AdminBookingTable({
   return (
     <>
       <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm md:block">
-          <Table className="min-w-[1080px] table-fixed xl:min-w-0">
+          <Table className="min-w-[1080px] table-fixed">
           <caption className="sr-only">Admin booking management records</caption>
           <colgroup>
             <col style={{ width: "19%" }} />
@@ -2001,7 +2007,7 @@ export function BookingDetailsModal({
                 <BookingDetail label="Venue / Office" value={booking.venue || "—"} />
                 {isOfficeRental && (
                   <>
-                     <BookingDetail label="Company Name" value={(booking as any).companyName || booking.eventName || "N/A"} />
+                      <BookingDetail label="Business Name" value={(booking as any).companyName || booking.eventName || "N/A"} />
                      <BookingDetail label="Nature of Business" value={(booking as any).natureOfBusiness || booking.eventType || "N/A"} />
                      <BookingDetail label="Rental Term" value={(booking as any).rentalTerm || (booking as any).contractTerm || (booking as any).officeRentalTerm || "—"} />
                      <BookingDetail label="Reserved Room" value={(booking as any).roomName || (booking as any).spaceName || (booking as any).room || booking.spaceId || "—"} />
@@ -2314,7 +2320,7 @@ export function BookingDetailsModal({
             disabled={actionPending}
             onClick={() => onEditBooking(booking.id)}
             variant="outline"
-            className={cn(bookingDetailsStackedActionClassName, bookingDetailsActionToneClassNames.slate)}
+            className={cn(bookingDetailsStackedActionClassName, bookingDetailsActionToneClassNames.orange)}
           >
             <CalendarDays className="size-4" /> Modify Booking
           </Button>

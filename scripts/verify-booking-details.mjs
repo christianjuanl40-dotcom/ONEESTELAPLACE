@@ -149,6 +149,11 @@ try {
   }
   const footerArrangement = async (expected, dialog = modal()) => {
     const footer = dialog.locator("footer"), actions = footer.getByRole("button")
+    // Fixture publications are external-store updates; wait for React's next
+    // committed render before checking its exact (unchanged) action contract.
+    await page.waitForFunction(([element, labels]) => JSON.stringify(
+      [...element.querySelectorAll('footer button')].map(button => button.textContent.trim()),
+    ) === JSON.stringify(labels), [await dialog.elementHandle(), expected])
     if (!expected.length) {
       assert.equal(await footer.count(), 0, "omit the footer when no management actions are available")
       return
@@ -192,7 +197,15 @@ try {
     }
   }
   const geometry = async () => {
-    const dialog = modal(), viewport = page.viewportSize(), box = await dialog.boundingBox()
+    const dialog = modal(), viewport = page.viewportSize()
+    // Measure settled geometry, not successive frames of Radix's entrance
+    // animation. Retain every size, alignment, clipping, and focus assertion.
+    await dialog.evaluate(async el => {
+      await Promise.all(el.getAnimations({ subtree: true })
+        .filter(animation => animation.effect?.getTiming().iterations !== Infinity)
+        .map(animation => animation.finished.catch(() => {})))
+    })
+    const box = await dialog.boundingBox()
     assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= viewport.width + 1 && box.y + box.height <= viewport.height + 1, "dialog must fit viewport at 100% zoom")
     assert.equal(await dialog.evaluate(el => el.scrollWidth > el.clientWidth + 1), false)
     assert.equal(await dialog.getByRole("button", { name: "Close", exact: true }).count(), 1)

@@ -429,8 +429,8 @@
 .oe-payment-status {
   flex-shrink: 0;
   height: 2rem;
-  min-width: 8.5rem;
-  width: 8.5rem;
+  min-width: 11rem;
+  width: 11rem;
   max-width: 100%;
   white-space: nowrap;
   text-align: center;
@@ -455,6 +455,11 @@
 
 .oe-transaction-actions svg {
   flex-shrink: 0;
+}
+
+.oe-transactions-table .oe-transaction-actions button {
+  height: 2.75rem;
+  white-space: nowrap;
 }
 
 /* A fixed five-action footer must not consume the details on short phones.

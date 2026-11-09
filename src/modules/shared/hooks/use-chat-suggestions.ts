@@ -30,6 +30,7 @@ interface UseChatSuggestionsOptions {
 }
 
 interface LocalDisplayState {
+  uid: string
   contextKey: string
   shownAtMs: number
 }
@@ -314,14 +315,17 @@ export function useChatSuggestions(options: UseChatSuggestionsOptions = {}): Cha
   }, [contextKey])
 
   useEffect(() => {
-    if (!visible) presentationAttempt.current = null
+    if (!visible) {
+      presentationAttempt.current = null
+      setLocalDisplay(null)
+    }
   }, [visible])
 
   const evaluationNowMs = controlledNowMs ?? clockMs
   const persistedShownMs = contextKey && persistedState?.contextKey === contextKey
     ? getTimestampMs(persistedState.lastShownAt)
     : 0
-  const localShownMs = localDisplay?.contextKey === contextKey ? localDisplay.shownAtMs : 0
+  const localShownMs = localDisplay?.uid === uid && localDisplay.contextKey === contextKey ? localDisplay.shownAtMs : 0
   const effectiveShownMs = Math.max(persistedShownMs, localShownMs)
   const due = contextKey
     ? isChatSuggestionDisplayDue(
@@ -348,19 +352,23 @@ export function useChatSuggestions(options: UseChatSuggestionsOptions = {}): Cha
       && context
       && context.questions.length > 0,
   )
-  const shouldDisplay = canDisplay && due && !dismissedRecently
+  // Cooldown controls admission of a new presentation, not the lifetime of
+  // the already visible one. Its own profile snapshot must not hide it.
+  const displayedHere = localDisplay?.uid === uid && localDisplay.contextKey === contextKey
+  const shouldDisplay = canDisplay && (due || displayedHere) && !dismissedRecently
 
   useEffect(() => {
     if (!canDisplay || !context || !uid || !due || dismissedRecently) return
     const attemptKey = `${uid}|${context.contextKey}`
     if (presentationAttempt.current === attemptKey) return
     presentationAttempt.current = attemptKey
+    setLocalDisplay({ uid, contextKey: context.contextKey, shownAtMs: Date.now() })
 
     let cancelled = false
     void recordSuggestionDisplay(uid, context.contextKey)
       .then((shownAtMs) => {
         if (cancelled) return
-        setLocalDisplay({ contextKey: context.contextKey, shownAtMs })
+        setLocalDisplay({ uid, contextKey: context.contextKey, shownAtMs })
       })
       .catch((error) => {
         if (cancelled) return

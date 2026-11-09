@@ -10,6 +10,8 @@ import { getAuthHeaders } from "@/src/modules/shared/lib/auth-token"
 import { evaluateCancellationEligibility } from "@/src/modules/shared/lib/cancellation"
 import { validatePaymentReference } from "@/src/modules/shared/lib/payment-reference"
 import { createPaymentReviewClient, type PaymentReviewRequest } from "@/src/modules/shared/lib/payment-review-client"
+import { createBalanceReminderClient } from "@/src/modules/shared/lib/balance-reminder-client"
+import type { BalanceReminderDelivery } from "@/src/modules/shared/lib/balance-reminders"
 import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-identity"
 import { getOfficeRentalEndDate } from "@/src/modules/shared/lib/availability"
 import type { FinalizedPaymentSnapshot } from "@/src/modules/shared/lib/payment-calculations"
@@ -508,7 +510,7 @@ interface BookingContextType {
 
   markContractSigned: (id: string, signedBy?: string) => Promise<Booking>;
   issueReceipt: (id: string) => Promise<Booking>;
-  sendBalanceReminder: (id: string) => Promise<Booking>;
+  sendBalanceReminder: (id: string) => Promise<{ booking: Booking; reminder: BalanceReminderDelivery }>;
 
   manualRecordOnsitePayment: (id: string, paymentData: {
     paymentType: "downpayment" | "remaining_balance" | "full_payment";
@@ -960,6 +962,8 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
   const [dataAttempt, setDataAttempt] = useState(0);
   const retryData = useCallback(() => setDataAttempt(attempt => attempt + 1), []);
   const scopeKey = JSON.stringify([currentUserId, currentUserRole, canViewDashboard, canManageBookings, canViewReports, canManagePayments]);
+  const reminderScope = useRef(scopeKey)
+  useEffect(() => { reminderScope.current = scopeKey }, [scopeKey])
   const [dataScope, setDataScope] = useState("");
   const [subscriptionKey, setSubscriptionKey] = useState("");
   const [dataNeedCounts, setDataNeedCounts] = useState<Record<BookingDataKey, number>>({
@@ -1679,9 +1683,19 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     return callLifecycleApi(id, "issue_receipt")
   }
 
-  const sendBalanceReminder = async (id: string): Promise<Booking> => (
-    callLifecycleApi(id, "balance_reminder")
-  )
+  const reminderClient = useMemo(() => {
+    if (!currentUserId || !(currentUserRole === "admin" || (currentUserRole === "staff" && canManageBookings))) return null
+    return createBalanceReminderClient<Booking>({ headers: () => getAuthHeaders(true) })
+  }, [currentUserId, currentUserRole, canManageBookings])
+  const sendBalanceReminder = async (id: string) => {
+    if (!reminderClient || reminderScope.current !== scopeKey) throw new Error("Reopen the booking from an authorized account before sending a reminder.")
+    const result = await reminderClient(id)
+    if (reminderScope.current !== scopeKey) throw new Error("The active account changed. Reopen the booking to check whether the reminder was saved.")
+    setBookings((current) => current.map((booking) => (
+      booking.id === id ? normalizeBookingForNewFields({ ...booking, ...result.booking, id }) : booking
+    )))
+    return result
+  }
 
   const manualRecordOnsitePayment = async (
     id: string,

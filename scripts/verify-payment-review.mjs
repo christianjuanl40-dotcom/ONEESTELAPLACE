@@ -68,6 +68,7 @@ const stateModule = `
   let methodFilterBackup = null;
   window.paymentFixture = {
     patch(id, patch) {publish({...state,paymentRecords:state.paymentRecords.map(r=>r.id===id?{...r,...patch}:r)})},
+    patchBooking(id, patch) {publish({...state,bookings:state.bookings.map(b=>b.id===id?{...b,...patch}:b)})},
     reorder() {publish({...state,paymentRecords:[...state.paymentRecords].reverse()})},
     add() {publish({...state,paymentRecords:[{...records[2],id:'PAY-4',receiptNumber:'ER-4',paymentNumber:4,status:'For Verification',submittedAt:date(20),adminNote:''},...state.paymentRecords]})},
     remove(id) {publish({...state,paymentRecords:state.paymentRecords.filter(r=>r.id!==id),bookings:state.bookings.map(b=>({...b,paymentReceipts:b.paymentReceipts?.filter(r=>r.paymentId!==id)}))})},
@@ -208,9 +209,9 @@ const server = await createServer({
   oxc: { jsx: { runtime: "automatic" } },
   css: { postcss: { plugins: [tailwindcss({ config: join(root, "tailwind.config.ts") })] } },
   optimizeDeps: { noDiscovery: true, include: [
-    "react", "react-dom/client", "react/jsx-runtime", "react/jsx-dev-runtime", "lucide-react", "clsx", "tailwind-merge", "class-variance-authority",
+    "react", "react-dom", "react-dom/client", "react/jsx-runtime", "react/jsx-dev-runtime", "lucide-react", "clsx", "tailwind-merge", "class-variance-authority",
     "@radix-ui/react-dialog", "@radix-ui/react-visually-hidden", "@radix-ui/react-select", "@radix-ui/react-collapsible", "@radix-ui/react-slot", "@radix-ui/react-label", "@radix-ui/react-checkbox",
-    "@radix-ui/react-progress", "@radix-ui/react-tooltip", "docx-preview",
+    "@radix-ui/react-progress", "@radix-ui/react-tooltip", "@radix-ui/react-tabs", "docx-preview",
   ] },
   plugins: [{
     name: "local-payment-review-fixtures",
@@ -311,6 +312,42 @@ try {
   await page.getByRole('dialog').waitFor({ state: 'detached' })
   console.log('PASS admin payment-method filter/receipt synchronization')
 
+  // Top-level views filter transaction methods, never the booking preference.
+  await page.goto(`${origin}/__payment-review?admin`)
+  const methodTab = name => page.getByRole('tab', { name, exact:true })
+  const reviewRow = () => page.locator('[data-payment-booking="BK-REVIEW"]:visible')
+  await methodTab('All Transactions').waitFor()
+  const savedLedger = await page.evaluate(() => JSON.stringify(window.paymentFixture.snapshot().paymentRecords))
+  assert.match(await reviewRow().innerText(), /Bank Transfer/)
+  assert.match(await reviewRow().innerText(), /Pay at the Office/)
+  await methodTab('Bank Transfer').click()
+  assert.equal(await page.locator('[data-payment-booking="BK-OTHER"]:visible').count(),0)
+  assert.doesNotMatch(await reviewRow().innerText(), /Pay at the Office/)
+  await reviewRow().getByRole('button', { name:'Review', exact:true }).click()
+  await noteIs('No review note for this payment.')
+  assert.match(await page.locator('.receipt-print').innerText(), /₱2,500\.00/)
+  assert.equal(await page.getByRole('button',{name:/^Submission 2\D/}).count(),0)
+  await page.getByRole('button',{name:'Close payment review'}).click()
+  await methodTab('Pay at the Office').click()
+  assert.doesNotMatch(await reviewRow().innerText(), /Bank Transfer/)
+  await reviewRow().getByRole('button',{name:'Review',exact:true}).click()
+  await noteIs('Payment 2 proof was unreadable.')
+  assert.equal(await page.getByRole('button',{name:/^Submission 1\D/}).count(),0)
+  assert.equal(await page.getByRole('button',{name:/^Submission 3\D/}).count(),0)
+  await page.getByRole('button',{name:'Close payment review'}).click()
+  assert.equal(await page.evaluate(()=>JSON.stringify(window.paymentFixture.snapshot().paymentRecords)),savedLedger)
+  await page.evaluate(()=>window.paymentFixture.patchBooking('BK-REVIEW',{paymentMethod:'cash'}))
+  await methodTab('Bank Transfer').click()
+  assert.equal(await reviewRow().count(),1,'changing booking preference must not reclassify bank records')
+  await page.evaluate(()=>window.paymentFixture.patch('PAY-2',{paymentMethod:'',method:'onsite'}))
+  await methodTab('Pay at the Office').click()
+  assert.equal(await reviewRow().count(),1,'historical office aliases remain visible')
+  await methodTab('All Transactions').focus()
+  await page.keyboard.press('ArrowRight')
+  await page.waitForFunction(()=>document.querySelector('[role="tab"][data-state="active"]')?.textContent==='Bank Transfer')
+  checks += 12
+  console.log('PASS transaction-level method tabs, mixed-ledger receipts, historical aliases, preference changes, and keyboard navigation')
+
   for (const surface of ['admin','client']) {
     await page.goto(`${origin}/__payment-review?${surface}`)
     const pageHeading = page.getByRole('heading', {name:surface==='admin'?'Payment Verification':'My Transactions',exact:true})
@@ -331,7 +368,7 @@ try {
       const boxes=await badges.evaluateAll(nodes=>nodes.map(el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,overflow:el.scrollWidth>el.clientWidth+1,whiteSpace:getComputedStyle(el).whiteSpace}}))
       for(const box of boxes){
         assert.equal(box.height,32)
-         assert.equal(box.width,136)
+          assert.equal(box.width,176)
         assert.equal(box.overflow,false)
         assert.equal(box.whiteSpace,'nowrap')
         assert.ok(Math.abs(box.x-boxes[0].x)<1,'badges share a consistent horizontal position')
@@ -728,7 +765,7 @@ try {
   })
   await page.waitForFunction(()=>Array.from(document.querySelectorAll('button')).some(el=>el.textContent.includes('Proceed to Details')&&!el.disabled))
   await proceed.click()
-  await page.getByPlaceholder('e.g. Acme Corp / Juan Dela Cruz').fill('Second company')
+   await page.getByPlaceholder('Enter registered business name',{exact:true}).fill('Second business')
   await page.locator('select').selectOption('others')
   await page.getByPlaceholder('Please specify business nature...').fill('Creative services')
   await page.getByRole('checkbox').check()
@@ -806,7 +843,7 @@ try {
       assert.equal(await modification().evaluate(el=>el.scrollWidth>el.clientWidth+1),false)
       await page.screenshot({path:join(output,'booking-modify-custom-business-mobile.png')})
     }
-    await modification().getByPlaceholder('e.g. Acme Corp',{exact:true}).fill('Corrected company title')
+     await modification().getByPlaceholder('Enter registered business name',{exact:true}).fill('Corrected business name')
     const changes=await submitModification()
     assert.equal(changes.companyName,'Corrected company title')
     assert.equal(Object.hasOwn(changes,'natureOfBusiness'),false,'stored business labels and codes must not be normalized on an unrelated edit')

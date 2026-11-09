@@ -36,6 +36,7 @@ import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-ident
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { perfMark } from "@/src/modules/shared/lib/perf-trace"
 import { Button } from "@/src/modules/shared/components/ui/button"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/src/modules/shared/components/ui/tabs"
 import { Input } from "@/src/modules/shared/components/ui/input"
 import { Textarea } from "@/src/modules/shared/components/ui/textarea"
 import {
@@ -77,6 +78,10 @@ import {
   getReceiptPresentation,
   findPaymentReceipt,
   calculatePaymentSummary,
+  filterPaymentRecordsByMethod,
+  getReceiptPaymentMethodKey,
+  getReceiptPaymentMethodLabel,
+  type PaymentMethodFilter,
   getRecordsForBooking,
   getPendingPaymentTotal,
   type PaymentRecordLike,
@@ -192,7 +197,8 @@ export default function AdminPaymentsPage() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
   const [venueFilter, setVenueFilter] = useState("all")
-  const paymentPageKey = `${paymentSortKey}|${paymentSortDirection}|${statusFilter}|${venueFilter}|${searchQuery}`
+  const [methodFilter, setMethodFilter] = useState<PaymentMethodFilter>("all")
+  const paymentPageKey = `${methodFilter}|${paymentSortKey}|${paymentSortDirection}|${statusFilter}|${venueFilter}|${searchQuery}`
   const paymentPage = paymentPageState.key === paymentPageKey ? paymentPageState.page : 1
   const setPaymentPage = (next: number | ((page: number) => number)) => {
     setPaymentPageState((current) => {
@@ -299,12 +305,32 @@ export default function AdminPaymentsPage() {
     }
   }, [paymentBookings, selectedPayment?.id])
 
+  const methodPayments = useMemo(() => paymentBookings.flatMap((booking) => {
+    const records: PaymentRecord[] = booking.incomingPayments || []
+    // Only the visible submission context is filtered. The complete canonical
+    // ledger remains attached to this same booking for balances and receipts.
+    const methodRecords = filterPaymentRecordsByMethod(records, methodFilter)
+    const visible = statusFilter === "for_review" ? methodRecords.filter(isPendingPaymentRecord)
+      : statusFilter === "rejected" ? methodRecords.filter(isRejectedPaymentRecord)
+      : statusFilter === "incomplete" ? methodRecords.filter(isIncompletePaymentRecord) : methodRecords
+    if (records.length && !visible.length) return []
+    if (!records.length && methodFilter !== "all") {
+      // A historical receipt is evidence; a current booking preference is not.
+      const historicalMethod = booking.receipt?.paymentMethod || booking.actualPaymentMethod
+      if (getReceiptPaymentMethodKey({ paymentMethod: historicalMethod }) !== methodFilter) return []
+    }
+    return [{ ...booking, viewPayments: visible, latestPayment: visible[0] || null,
+      paymentRecordId: visible[0]?.id || null }]
+  }), [methodFilter, paymentBookings, statusFilter])
+
   const filteredPayments = useMemo(() => {
-    return paymentBookings.filter((booking) => {
-      const submissionSearch = (booking?.incomingPayments || [])
+    return methodPayments.filter((booking) => {
+      const submissionSearch = (booking?.viewPayments || [])
         .map((pr: PaymentRecord) =>
           [
-            pr.id,
+             pr.id,
+             pr.paymentMethod,
+             pr.method,
             pr.referenceNo,
             pr.bookingId,
             String(pr.amount || pr.amountPaid || ""),
@@ -337,15 +363,15 @@ export default function AdminPaymentsPage() {
 
       let matchesStatus = true
 
-      if (statusFilter === "for_review") matchesStatus = String(booking?.paymentStatus || "").toLowerCase() === "for_review"
-      if (statusFilter === "rejected") matchesStatus = String(booking?.paymentStatus || "").toLowerCase() === "rejected"
-      if (statusFilter === "incomplete") matchesStatus = String(booking?.paymentStatus || "").toLowerCase() === "incomplete"
+       if (statusFilter === "for_review") matchesStatus = booking.viewPayments.length ? booking.viewPayments.some(isPendingPaymentRecord) : booking.paymentStatus === "for_review"
+       if (statusFilter === "rejected") matchesStatus = booking.viewPayments.length ? booking.viewPayments.some(isRejectedPaymentRecord) : booking.paymentStatus === "rejected"
+       if (statusFilter === "incomplete") matchesStatus = booking.viewPayments.length ? booking.viewPayments.some(isIncompletePaymentRecord) : booking.paymentStatus === "incomplete"
       if (statusFilter === "partial") matchesStatus = String(booking?.paymentStatus || "").toLowerCase() === "partial"
       if (statusFilter === "completed") matchesStatus = String(booking?.paymentStatus || "").toLowerCase() === "completed"
 
       return matchesSearch && matchesVenue && matchesStatus
     })
-  }, [paymentBookings, searchQuery, venueFilter, statusFilter])
+  }, [methodPayments, searchQuery, venueFilter, statusFilter])
 
   const sortedPayments = useMemo(
     () => stableSortBy(
@@ -380,6 +406,7 @@ export default function AdminPaymentsPage() {
     const h = sessionStorage.getItem("admin_payment_highlight")
     if (h) {
       setHighlightedPaymentId(h)
+      setMethodFilter("all")
       setSearchQuery("")
       setStatusFilter("all")
       setVenueFilter("all")
@@ -405,6 +432,7 @@ export default function AdminPaymentsPage() {
       } else {
         setHighlightedPaymentId(paymentId)
       }
+      setMethodFilter("all")
       setSearchQuery("")
       setStatusFilter("all")
       setVenueFilter("all")
@@ -453,8 +481,7 @@ export default function AdminPaymentsPage() {
     setOnsiteVerifyTarget(null)
     const recordId = submission?.id
     const amount = getPaymentRecordAmount(submission)
-    const isCashSubmission =
-      submission?.paymentMethod === "cash" || String(submission?.method || "").toLowerCase().includes("office")
+    const isCashSubmission = getReceiptPaymentMethodKey(submission) === "office"
     const actionPayment = submission
       ? {
           ...payment,
@@ -794,7 +821,13 @@ export default function AdminPaymentsPage() {
           </div>
         </header>
 
-        <section className="mt-2 space-y-2">
+        <Tabs value={methodFilter} onValueChange={(value) => setMethodFilter(value as PaymentMethodFilter)} className="mb-4 min-w-0">
+          <TabsList aria-label="Transaction payment method" className="grid h-auto w-full grid-cols-1 gap-1 bg-slate-100 p-1 sm:w-fit sm:grid-cols-3">
+            <TabsTrigger className="min-h-11 whitespace-normal px-3 data-[state=active]:bg-orange-50 data-[state=active]:text-orange-800" value="all">All Transactions</TabsTrigger>
+            <TabsTrigger className="min-h-11 whitespace-normal px-3 data-[state=active]:bg-orange-50 data-[state=active]:text-orange-800" value="bank">Bank Transfer</TabsTrigger>
+            <TabsTrigger className="min-h-11 whitespace-normal px-3 data-[state=active]:bg-orange-50 data-[state=active]:text-orange-800" value="office">Pay at the Office</TabsTrigger>
+          </TabsList>
+        <TabsContent value={methodFilter} aria-label="Filtered payment transactions" className="mt-2 space-y-2">
           {filteredPayments.length === 0 ? (
             <EmptyState />
           ) : (
@@ -807,7 +840,8 @@ export default function AdminPaymentsPage() {
               onSort={handlePaymentSort}
             />
           )}
-        </section>
+        </TabsContent>
+        </Tabs>
 
         {paymentTotalPages > 1 && (
           <div className="flex items-center justify-center gap-4 pt-4 pb-2">
@@ -846,6 +880,8 @@ export default function AdminPaymentsPage() {
                 onAction={(type, submission) => openActionModal(selectedPayment, type, submission)}
                 childModalOpen={!!pendingAction || !!incompletePaymentTarget || !!onsiteVerifyTarget}
                 liveSubmissions={submissionListFor(selectedPayment)}
+                initialPaymentRecordId={selectedPayment.paymentRecordId}
+                initialMethodFilter={methodFilter}
               />
             )}
           </DialogContent>
@@ -1034,14 +1070,14 @@ function PaymentVerificationTable({
   return (
     <>
       <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:block">
-        <Table className="w-full table-fixed">
+        <Table className="min-w-[1040px] w-full table-fixed">
           <caption className="sr-only">Admin payment verification records grouped by booking</caption>
           <colgroup>
             <col style={{ width: "24%" }} />
-            <col style={{ width: "16%" }} />
-            <col style={{ width: "28%" }} />
-            <col style={{ width: "17%" }} />
             <col style={{ width: "15%" }} />
+            <col style={{ width: "26%" }} />
+            <col style={{ width: "19%" }} />
+            <col style={{ width: "16%" }} />
           </colgroup>
           <TableHeader className="bg-slate-50/80">
             <tr>
@@ -1103,7 +1139,7 @@ function PaymentVerificationTableRow({
   }, [isHighlighted])
 
   return (
-    <tr ref={rowRef} className={cn("border-b border-slate-100 transition-colors hover:bg-slate-50/70", isHighlighted && "notification-target-highlight")}>
+    <tr ref={rowRef} data-payment-booking={payment.id} className={cn("border-b border-slate-100 transition-colors hover:bg-slate-50/70", isHighlighted && "notification-target-highlight")}>
       <TableCell className="min-w-0 px-2.5 align-top whitespace-normal">
         <p className="oe-table-label break-words" title={payment.id || undefined}>{payment.id || "—"}</p>
         <p className="oe-table-primary mt-0.5 line-clamp-2">{payment.eventName || "Untitled booking"}</p>
@@ -1123,6 +1159,7 @@ function PaymentVerificationTableRow({
           Submitted {formatSubmittedAt(submission?.submittedAt || payment.paymentSubmittedAt)}
           <span> · {submission?.referenceNo || submission?.id || "Record"}</span>
         </p>
+        {submission && <p className="oe-table-secondary mt-1">Submission: {getPaymentRecordStatusLabel(submission)}</p>}
       </TableCell>
       <TableCell data-payment-review-status className="min-w-0 px-2.5 whitespace-nowrap text-center align-middle"><PaymentBadge payment={payment} className="oe-payment-status" /></TableCell>
       <TableCell className="min-w-0 px-2.5 whitespace-nowrap text-right align-middle">
@@ -1164,7 +1201,7 @@ function PaymentVerificationCompactRow({
   }, [isHighlighted])
 
   return (
-    <div ref={rowRef} className={cn("rounded-xl border border-slate-200 bg-white p-3 shadow-sm", isHighlighted && "notification-target-highlight")}>
+    <div ref={rowRef} data-payment-booking={payment.id} className={cn("rounded-xl border border-slate-200 bg-white p-3 shadow-sm", isHighlighted && "notification-target-highlight")}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
            <p className="oe-table-label truncate">{payment.id || "—"}</p>
@@ -1177,7 +1214,7 @@ function PaymentVerificationCompactRow({
          <div className="min-w-0"><p className="oe-table-label">Reserved space</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>
          <div className="min-w-0"><p className="oe-table-label">Method</p><PaymentMethodLabel payment={payment} className="oe-table-secondary mt-0.5" /></div>
          <div className="min-w-0"><p className="oe-table-label">Submitted</p><p className="oe-table-primary mt-0.5 tabular-nums">{formatCurrency(submittedAmount)}</p><p className="oe-table-secondary mt-0.5 line-clamp-1">{formatSubmittedAt(submission?.submittedAt || payment.paymentSubmittedAt)}</p></div>
-         <div className="min-w-0"><p className="oe-table-label">Submission</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{submission?.referenceNo || submission?.id || "Record available in review"}</p><p className="oe-table-secondary mt-0.5">{payment.paymentCount ?? 1} total</p></div>
+         <div className="min-w-0"><p className="oe-table-label">Submission</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{submission?.referenceNo || submission?.id || "Record available in review"}</p>{submission && <p className="oe-table-secondary mt-0.5">{getPaymentRecordStatusLabel(submission)}</p>}<p className="oe-table-secondary mt-0.5">{payment.paymentCount ?? 1} total</p></div>
       </div>
       <div className="mt-3 flex justify-end border-t border-slate-100 pt-3">
         <Button
@@ -1640,7 +1677,10 @@ function PaymentReviewModal({
 }
 
 function PaymentMethodLabel({ payment, className }: { payment: BookingRecord; className?: string }) {
-  const isBank = payment.paymentMethod === "bank"
+  const records: PaymentRecord[] = payment.viewPayments || payment.incomingPayments || []
+  const labels = records.length ? [...new Set(records.map((record) => getReceiptPaymentMethodLabel(record.paymentMethod || record.method)))]
+    : [getReceiptPaymentMethodLabel(payment.receipt?.paymentMethod || payment.actualPaymentMethod || "")]
+  const isBank = labels.includes("Bank Transfer")
 
   return (
     <span className={cn("inline-flex max-w-full items-center gap-1.5 text-sm font-normal text-black", className)}>
@@ -1649,7 +1689,7 @@ function PaymentMethodLabel({ payment, className }: { payment: BookingRecord; cl
       ) : (
         <Banknote className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
       )}
-      <span className="truncate">{getPaymentMethodLabel(payment.paymentMethod)}</span>
+      <span className="break-words">{labels.join(" · ")}</span>
     </span>
   )
 }
@@ -1937,9 +1977,9 @@ function buildPaymentBookingEntry(
   latest: PaymentRecord,
   bookingId: string,
 ): BookingRecord {
-  const bank = latest.paymentMethod === "bank" || String(latest.method || "").toLowerCase().includes("bank")
-  const cash = latest.paymentMethod === "cash" || String(latest.method || "").toLowerCase().includes("office")
-  const method = bank ? "bank" : cash ? "cash" : latest.paymentMethod === "cash" ? "cash" : latest.paymentMethod === "bank" ? "bank" : base.paymentMethod
+  const methodKey = getReceiptPaymentMethodKey(latest)
+  const cash = methodKey === "office"
+  const method = methodKey === "bank" ? "bank" : cash ? "cash" : latest.paymentMethod || latest.method || ""
   const amount = getPaymentRecordAmount(latest)
   const proof = latest.proofUrl || (submissions.length === 1 ? base.proofUrl || base.paymentProof : "")
   const receipts = Array.isArray(base.paymentReceipts)

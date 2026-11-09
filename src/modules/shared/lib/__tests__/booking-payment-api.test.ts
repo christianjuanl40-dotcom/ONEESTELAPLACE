@@ -550,6 +550,76 @@ describe("finalized payment snapshot persistence", () => {
     expect([...store.data.keys()].filter((path) => path.startsWith("notifications/")).length).toBe(1)
   })
 
+  it("atomically saves reminders, suppresses concurrent clicks, and permits a new event after 24 hours", async () => {
+    vi.stubEnv("EMAIL_SENDING_ENABLED", "true")
+    store.seed("bookings/REMINDER", existing({ amountPaid: 5000 }))
+    const send = (key: string) => lifecycle(post({ action: "balance_reminder", bookingId: "REMINDER", idempotencyKey: key }, "admin"))
+    const results = await Promise.all([send("first"), send("second"), send("first")])
+    const payloads = await Promise.all(results.map((result) => result.json()))
+    expect(payloads.filter((payload) => payload.changed)).toHaveLength(1)
+    const created = payloads.find((payload) => payload.changed)!
+    expect(created.reminder).toMatchObject({ status: "created", notificationPersisted: true })
+    expect(store.data.get(`notifications/${created.reminder.notificationId}`)).toMatchObject({ userId: "CLIENT", bookingId: "REMINDER", type: "balance_reminder", isRead: false })
+    expect(store.data.has(`emailOutbox/${created.reminder.notificationId}`)).toBe(true)
+    expect([...store.data.keys()].filter((path) => path.startsWith("notifications/"))).toHaveLength(1)
+    expect((await (await send("fresh-click")).json()).reminder.status).toBe("cooldown")
+    const booking = store.data.get("bookings/REMINDER")!
+    store.seed("bookings/REMINDER", { ...booking, balanceReminderSentAt: "2000-01-01T00:00:00.000Z" })
+    const originalKey = created === payloads[1] ? "second" : "first"
+    expect((await (await send(originalKey)).json()).reminder.status).toBe("already_sent")
+    const later = await (await send("intentional-new-reminder")).json()
+    expect(later.reminder.status).toBe("created")
+    expect(later.reminder.notificationId).not.toBe(created.reminder.notificationId)
+    expect([...store.data.keys()].filter((path) => path.startsWith("notifications/"))).toHaveLength(2)
+    expect([...store.data.keys()].filter((path) => path.startsWith("emailOutbox/"))).toHaveLength(2)
+    expect((store.data.get("bookings/REMINDER")!.adminLogs as unknown[])).toHaveLength(2)
+  })
+
+  it("does not strand a sent marker when notification persistence fails", async () => {
+    store.seed("bookings/REMINDER", existing({ amountPaid: 5000 }))
+    const original = store.runTransaction.bind(store)
+    vi.spyOn(store, "runTransaction").mockImplementationOnce((callback) => original((transaction) => callback({
+      ...transaction,
+      create: (ref: { path: string }, data: Record<string, unknown>) => {
+        if (ref.path.startsWith("notifications/")) throw new Error("Fixture notification write failure")
+        transaction.create(ref, data)
+      },
+    })))
+    const body = { action: "balance_reminder", bookingId: "REMINDER", idempotencyKey: "retry-after-failure" }
+    expect((await lifecycle(post(body, "admin"))).status).toBe(500)
+    expect(store.data.get("bookings/REMINDER")?.balanceReminderSent).toBeUndefined()
+    expect([...store.data.keys()].filter((path) => path.startsWith("notifications/") || path.startsWith("bookingReminderRequests/"))).toHaveLength(0)
+    expect((await (await lifecycle(post(body, "admin"))).json()).reminder.status).toBe("created")
+  })
+
+  it("keeps legacy suppression honest and does not use a stale permanent marker forever", async () => {
+    store.seed("bookings/REMINDER", existing({ amountPaid: 5000, balanceReminderSent: true, balanceReminderSentAt: new Date().toISOString() }))
+    const send = () => lifecycle(post({ action: "balance_reminder", bookingId: "REMINDER" }, "admin"))
+    expect((await (await send()).json()).reminder).toMatchObject({ status: "cooldown", notificationPersisted: false })
+    store.seed("bookings/REMINDER", existing({ amountPaid: 5000, balanceReminderSent: true, balanceReminderSentAt: "2000-01-01T00:00:00.000Z" }))
+    expect((await (await send()).json()).reminder.status).toBe("created")
+  })
+
+  it("does not turn an uncertain suppressed request into a new reminder after the cooldown", async () => {
+    store.seed("bookings/REMINDER", existing({ amountPaid: 5000, balanceReminderSent: true, balanceReminderSentAt: new Date().toISOString() }))
+    const body = { action: "balance_reminder", bookingId: "REMINDER", idempotencyKey: "suppressed-request" }
+    expect((await (await lifecycle(post(body, "admin"))).json()).reminder.status).toBe("cooldown")
+    store.seed("bookings/REMINDER", { ...store.data.get("bookings/REMINDER"), balanceReminderSentAt: "2000-01-01T00:00:00Z" })
+    expect((await (await lifecycle(post(body, "admin"))).json()).reminder).toMatchObject({ status: "cooldown", notificationPersisted: false })
+    expect([...store.data.keys()].filter((path) => path.startsWith("notifications/"))).toHaveLength(0)
+  })
+
+  it("rejects unauthorized, paid, released, and ownerless reminders without writes", async () => {
+    const body = { action: "balance_reminder", bookingId: "REMINDER" }
+    store.seed("bookings/REMINDER", existing({ amountPaid: 5000 }))
+    expect((await lifecycle(post(body))).status).toBe(403)
+    for (const extra of [{ amountPaid: 10000 }, { status: "cancelled" }, { userId: "", uid: "" }]) {
+      store.seed("bookings/REMINDER", existing(extra))
+      expect((await lifecycle(post(body, "admin"))).status).toBe(409)
+    }
+    expect([...store.data.keys()].filter((path) => path.startsWith("notifications/"))).toHaveLength(0)
+  })
+
   it("rejects only an unsecured unpaid pending booking and notifies the client", async () => {
     vi.stubEnv("EMAIL_SENDING_ENABLED", "true")
     store.seed("bookings/REJECT", existing({

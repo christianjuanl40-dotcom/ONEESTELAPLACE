@@ -7,6 +7,23 @@ import { getFirebaseAdminProjectId } from "@/lib/firebase-admin"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
+// The diagnostic route is read-only, but keep its platform budget aligned with
+// the transactional routes so a cold server configuration read is not
+// mistaken for a dispatch failure.
+export const maxDuration = 60
+
+const EMAIL_DISPATCH_IMPLEMENTATION = "after-scoped-outbox-v1"
+
+function getDispatchDiagnostics() {
+  const commit = String(process.env.VERCEL_GIT_COMMIT_SHA || "").trim()
+  return {
+    implementation: EMAIL_DISPATCH_IMPLEMENTATION,
+    immediateAfter: true,
+    scopedJobIds: true,
+    scheduledFallback: true,
+    deploymentCommitSha: /^[a-f0-9]{7,64}$/i.test(commit) ? commit : null,
+  }
+}
 
 function matchesSecret(request: NextRequest): boolean {
   const expected = String(process.env.CRON_SECRET || "")
@@ -47,6 +64,7 @@ export async function GET(request: NextRequest) {
     status: diagnostics.otpReady ? "ready" : "not_ready",
     email: diagnostics,
     firebase,
+    dispatch: getDispatchDiagnostics(),
   }, { status: diagnostics.otpReady && firebase.projectMatchesProduction ? 200 : 503, headers: { "Cache-Control": "no-store" } })
 }
 

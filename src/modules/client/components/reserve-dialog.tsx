@@ -1573,7 +1573,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
           
           <div className="shrink-0 mb-5 text-center">
             <h2 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">Final Details</h2>
-            <p className="text-slate-500 mt-1 text-xs">Complete your {isOffice ? 'tenant' : 'event'} information to finalize your request.</p>
+            <p className="text-slate-500 mt-1 text-xs">Complete your {isOffice ? 'business' : 'event'} information to finalize your request.</p>
           </div>
 
           <form onSubmit={executeSubmit} className="flex flex-col gap-4">
@@ -1582,22 +1582,23 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
             </p>}
             <h3 className="shrink-0 text-xs font-black text-slate-900 flex items-center gap-2 mb-1">
               {isOffice ? <Briefcase className="w-4 h-4 text-[#ea580c]" /> : <PartyPopper className="w-4 h-4 text-[#ea580c]" />} 
-              {isOffice ? 'Company / Tenant Information' : 'Event Information'}
+              {isOffice ? 'Business Information' : 'Event Information'}
             </h3>
             
             <div className="space-y-1">
-                <label className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
-                    {isOffice ? 'Company / Tenant Name *' : 'Event Name *'}
+                <label htmlFor={isOffice ? "office-business-name" : "event-name"} className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
+                    {isOffice ? 'Business Name *' : 'Event Name *'}
                 </label>
-                <Input required value={eventName} onChange={e => setEventName(e.target.value)} placeholder={isOffice ? "e.g. Acme Corp / Juan Dela Cruz" : "e.g. 18th Birthday Party"} className="h-10 w-full rounded-xl bg-slate-50 border border-slate-200 px-3 text-xs focus-visible:ring-2 focus-visible:ring-[#ea580c]" />
+                <Input id={isOffice ? "office-business-name" : "event-name"} required value={eventName} onChange={e => setEventName(e.target.value)} placeholder={isOffice ? "Enter registered business name" : "e.g. 18th Birthday Party"} className="h-10 w-full rounded-xl bg-slate-50 border border-slate-200 px-3 text-xs focus-visible:ring-2 focus-visible:ring-[#ea580c]" />
             </div>
 
             {isOffice ? (
                 <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
+                    <label htmlFor="office-nature-of-business" className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
                         Nature of Business *
                     </label>
                     <select
+                      id="office-nature-of-business"
                       value={eventType}
                       onChange={(e) => setEventType(e.target.value)}
                       required

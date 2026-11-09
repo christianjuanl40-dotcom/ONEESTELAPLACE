@@ -192,6 +192,7 @@ describe("OTP delivery configuration", () => {
     expect(diagnostics).toMatchObject({
       otpSendingEnabled: true,
       otpSecretConfigured: false,
+      transactionalReady: false,
       otpReady: false,
       otpGateReason: "smtp_incomplete",
     })

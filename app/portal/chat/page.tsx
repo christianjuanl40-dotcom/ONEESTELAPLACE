@@ -11,6 +11,7 @@ import { useChatSuggestions } from "@/src/modules/shared/hooks/use-chat-suggesti
 import type { ChatSuggestion } from "@/src/modules/shared/lib/chat-suggestions"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { useChatScroll } from "@/src/modules/shared/hooks/use-chat-scroll"
+import { ChatWelcome } from "@/src/modules/shared/components/chat-welcome"
 import { sortChatMessages, shouldGroupChatMessage } from "@/src/modules/shared/lib/chat-presentation"
 import { formatManilaDateTime, formatManilaDayLabel, formatManilaTime, isSameManilaDay, toValidDate } from "@/src/modules/shared/lib/time-format"
 
@@ -161,6 +162,7 @@ export default function ClientSupportChatPage() {
           )}
           {isChatLoading && isChatLoaded && <p className="p-3 text-center text-[11px] font-semibold text-slate-500" role="status">Refreshing messages…</p>}
           {!isChatLoaded && !chatError && <p className="p-8 text-center text-sm font-medium text-slate-500" role="status">Loading messages…</p>}
+          <ChatWelcome ready={isChatLoaded} empty={myMessages.length === 0} error={chatError} />
           {myMessages.map((msg: any, idx: number) => {
             const previousMessage = myMessages[idx - 1]
             const isGrouped = shouldGroupChatMessage(previousMessage, msg)
@@ -219,7 +221,7 @@ export default function ClientSupportChatPage() {
             <div className="px-6 pt-4 pb-0 relative flex justify-end animate-in zoom-in-75">
               <div className="relative border-4 border-slate-100 rounded-xl shadow-inner bg-slate-50 p-1">
                 <img src={imagePreview} alt="preview" className="h-24 w-auto rounded-lg object-cover" />
-                 <button type="button" aria-label="Remove image attachment" onClick={() => { setImagePreview(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} className="absolute -top-3 -right-3 bg-slate-800 text-white rounded-full p-1 hover:bg-slate-900 shadow-lg hover:scale-110 transition-transform"><X className="w-4 h-4" /></button>
+                 <button type="button" aria-label="Remove image attachment" onClick={() => { setImagePreview(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} className="absolute -top-3 -right-3 flex h-11 w-11 items-center justify-center bg-slate-800 text-white rounded-full hover:bg-slate-900 shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600"><X className="w-4 h-4" /></button>
               </div>
             </div>
           )}
@@ -235,9 +237,9 @@ export default function ClientSupportChatPage() {
           <div className="p-4 md:p-6">
              <div className="flex items-end gap-3 w-full bg-slate-50 border border-slate-200 rounded-2xl pl-4 pr-1.5 py-1.5 focus-within:ring-2 focus-within:ring-orange-500/20 focus-within:border-orange-500 transition-all">
                <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
-               <button type="button" aria-label="Attach an image" onClick={() => fileInputRef.current?.click()} className="mb-2 text-slate-400 hover:text-orange-600 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"><Paperclip className="w-5 h-5" /></button>
-               <textarea aria-label="Message support" rows={1} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSend() } }} placeholder="Type a message..." disabled={isSending} className="flex-1 max-h-32 min-h-10 resize-y bg-transparent border-none focus:outline-none focus:ring-0 text-[15px] px-2 py-2 placeholder:text-slate-400 w-full" />
-               <Button type="button" onClick={() => void handleSend()} disabled={isSending || (!inputValue.trim() && !imagePreview)} aria-label="Send message" className="w-10 h-10 rounded-full bg-[#ea580c] hover:bg-[#c2410c] text-white p-0 shrink-0 shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"><Send className="w-4 h-4 ml-0.5" /></Button>
+               <button type="button" aria-label="Attach an image" onClick={() => fileInputRef.current?.click()} className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-600 hover:text-orange-700 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600"><Paperclip className="w-5 h-5" /></button>
+               <textarea aria-label="Message support" rows={1} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSend() } }} placeholder="Type a message..." disabled={isSending} className="w-0 min-w-0 flex-1 max-h-32 min-h-11 resize-y bg-transparent border-none focus:outline-none focus:ring-0 text-[15px] px-2 py-2 placeholder:text-slate-400" />
+               <Button type="button" onClick={() => void handleSend()} disabled={isSending || (!inputValue.trim() && !imagePreview)} aria-label="Send message" className="w-11 h-11 rounded-full bg-[#ea580c] hover:bg-[#c2410c] text-white p-0 shrink-0 shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"><Send className="w-4 h-4 ml-0.5" /></Button>
             </div>
           </div>
         </div>

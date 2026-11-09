@@ -6,7 +6,7 @@ import {
   type ReportBookingLike,
   type ReportSummaryEntry,
 } from "../report-calculations"
-import type { PaymentRecordLike } from "../payment-calculations"
+import { filterPaymentRecordsByMethod, type PaymentRecordLike } from "../payment-calculations"
 
 function makeBooking(overrides: Record<string, unknown> = {}): ReportBookingLike {
   return {
@@ -44,6 +44,24 @@ function makeSummaryEntry(
 }
 
 describe("report financial calculations", () => {
+  it("reconciles mixed bank/office money and processed refunds without method-specific balances", () => {
+    const booking = makeBooking({ paymentMethod: "cash", refundStatus: "refunded", refundedAmount: 1000 })
+    const records = [
+      makePayment({ id: "BANK", paymentMethod: "bank", status: "verified", amount: 5000 }),
+      makePayment({ id: "OFFICE", paymentMethod: "cash", status: "incomplete", amount: 2500, amountReceived: 2000 }),
+      makePayment({ id: "PENDING", paymentMethod: "bank", status: "for_review", amount: 1000 }),
+      makePayment({ id: "REJECTED", paymentMethod: "cash", status: "rejected", amount: 1000 }),
+      makePayment({ id: "UNKNOWN", paymentMethod: "", status: "rejected", amount: 1000 }),
+    ]
+    expect(filterPaymentRecordsByMethod(records, "bank").map((record) => record.id)).toEqual(["BANK", "PENDING"])
+    expect(filterPaymentRecordsByMethod(records, "office").map((record) => record.id)).toEqual(["OFFICE", "REJECTED"])
+    expect(filterPaymentRecordsByMethod(records, "all")).toHaveLength(5)
+    const financials = calculateReportBookingFinancials(booking, records)
+    expect(financials).toMatchObject({ totalBookingValue: 15000, receivedPayments: 7000, verifiedPayments: 5000,
+      processedRefundAmount: 1000, netReceivedAmount: 6000, outstandingBalance: 8000 })
+    expect(buildReportSummary([{ booking, financials }])).toMatchObject({ totalBookingValue: 15000,
+      receivedPayments: 7000, verifiedPayments: 5000, processedRefunds: 1000, netReceivedAmount: 6000, outstandingBalance: 8000 })
+  })
   it("uses the authoritative booking total and aggregates accepted history only", () => {
     const booking = makeBooking({ totalAmount: "₱15,000", totalPrice: 999 })
     const financials = calculateReportBookingFinancials(booking, [

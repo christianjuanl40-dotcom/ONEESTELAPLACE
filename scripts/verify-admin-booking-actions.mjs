@@ -58,17 +58,22 @@ const modules = {
       approveModification:async()=>state.bookings[0],
       declineModification:async()=>state.bookings[0],
       markAsRefunded:async()=>state.bookings[0],
-      sendBalanceReminder:async()=>state.bookings[0],
+      sendBalanceReminder:async()=>{
+        window.fixture.reminderCalls++;
+        await new Promise(resolve=>{window.fixture.resolveReminder=resolve});
+        if(window.fixture.reminderOutcome==='error')throw new Error('Fixture notification persistence failed');
+        return {booking:state.bookings[0],reminder:{status:window.fixture.reminderOutcome||'created',notificationId:'LOCAL-REMINDER',notificationPersisted:true,nextAllowedAt:'2099-01-02T00:00:00Z'}};
+      },
       manualRecordOnsitePayment:async()=>state.bookings[0],
       retryData:()=>{},
     };
     const user={id:role==='admin'?'ADMIN-1':role==='staff'?'STAFF-1':'CLIENT-1',role,permissions:role==='staff'?{bookings:true}: {},fullName:'Fixture Admin'};
-    window.fixture={snapshot:()=>state.bookings[0],patchBooking,modifications:[],adminCancellations:[],navigation:[]};
+    window.fixture={snapshot:()=>state.bookings[0],patchBooking,modifications:[],adminCancellations:[],navigation:[],reminderCalls:0,reminderOutcome:'created',toasts:[]};
     export function useBookingData(){const snapshot=useSyncExternalStore(fn=>{listeners.add(fn);return()=>listeners.delete(fn)},()=>state);return {...snapshot,...actions};}
     export const useBookings=useBookingData;
     export const fixtureUser=user;
     export const notifications={markByBookingId:async()=>{}};
-    export const toast=()=>{};
+    export const toast=value=>window.fixture.toasts.push(value);
     const nativeFetch=window.fetch.bind(window);const availabilitySlots=[{startMinutes:480,endMinutes:840,startTimeLabel:'8:00 AM',endTimeLabel:'2:00 PM',label:'8:00 AM - 2:00 PM'},{startMinutes:540,endMinutes:900,startTimeLabel:'9:00 AM',endTimeLabel:'3:00 PM',label:'9:00 AM - 3:00 PM'},{startMinutes:600,endMinutes:960,startTimeLabel:'10:00 AM',endTimeLabel:'4:00 PM',label:'10:00 AM - 4:00 PM'}];
     const availabilityResponse=(url)=>{const from=url.searchParams.get('from')||'2099-03-01',to=url.searchParams.get('to')||from,category=url.searchParams.get('category')==='office'?'office':'venue',dates={};for(let day=new Date(from+'T00:00:00Z');day<=new Date(to+'T00:00:00Z');day.setUTCDate(day.getUTCDate()+1)){const key=day.toISOString().slice(0,10);const dayState={status:'available',availableSlots:availabilitySlots,occupiedIntervals:[]};if(category==='venue'&&key==='2099-03-03')Object.assign(dayState,{status:'few',availableSlots:[availabilitySlots[2]],occupiedIntervals:[{startMinutes:480,endMinutes:840,startTimeLabel:'8:00 AM',endTimeLabel:'2:00 PM'}]});if(category==='venue'&&key==='2099-03-04')Object.assign(dayState,{status:'maintenance',availableSlots:[],occupiedIntervals:[]});if(category==='venue'&&key==='2099-03-05')Object.assign(dayState,{status:'full',availableSlots:[],occupiedIntervals:[{startMinutes:480,endMinutes:840,startTimeLabel:'8:00 AM',endTimeLabel:'2:00 PM'},{startMinutes:900,endMinutes:1260,startTimeLabel:'3:00 PM',endTimeLabel:'9:00 PM'}]});dates[key]=dayState;}const searchFrom=url.searchParams.get('searchFrom'),searchTo=url.searchParams.get('searchTo');const officeSearch=category==='office'&&searchFrom&&searchTo?{from:searchFrom,to:searchTo,earliestAvailableStartDate:searchFrom}:undefined;return new Response(JSON.stringify({space:{category,venueId:url.searchParams.get('venueId'),officeId:url.searchParams.get('officeId')||undefined,spaceId:url.searchParams.get('spaceId')||url.searchParams.get('venueId')},dates,...(officeSearch?{officeSearch}: {})}),{status:200,headers:{'content-type':'application/json'}})};
     window.fetch=(input,options)=>{const url=new URL(typeof input==='string'?input:input.url,location.href);if(url.pathname==='/api/availability')return Promise.resolve(availabilityResponse(url));if(url.pathname.startsWith('/api/')||url.origin!==location.origin)throw Error('Unexpected live request');return nativeFetch(input,options)};
@@ -340,12 +345,41 @@ try {
   passed.push(current)
   console.log(`PASS ${current}`)
 
+  for (const outcome of ['created','cooldown','error']) {
+    current=`balance reminder ${outcome} feedback and repeated-click protection`
+    await openDetails()
+    await page.evaluate(outcome=>{window.fixture.patchBooking({amountPaid:5000,paymentStatus:'partial'});window.fixture.reminderOutcome=outcome},outcome)
+    await adminModal().getByRole('button',{name:'Send Balance Reminder',exact:true}).click()
+    const reminder=page.getByRole('dialog',{name:'Send Balance Reminder?',exact:true})
+    await reminder.getByRole('button',{name:'Send Reminder',exact:true}).evaluate(button=>{button.click();button.click()})
+    await page.waitForFunction(()=>window.fixture.reminderCalls===1)
+    assert.equal(await reminder.getByRole('button',{name:'Saving Reminder…',exact:true}).isDisabled(),true)
+    assert.equal(await reminder.getByRole('button',{name:'Cancel',exact:true}).isDisabled(),true)
+    await page.evaluate(()=>window.fixture.resolveReminder())
+    await page.waitForFunction(()=>window.fixture.toasts.length>0)
+    const toast=await page.evaluate(()=>window.fixture.toasts.at(-1))
+    if(outcome==='created'){
+      assert.equal(toast.title,'Balance Reminder Saved')
+      assert.match(toast.description,/display and email delivery are not confirmed/)
+    }else if(outcome==='cooldown'){
+      assert.equal(toast.title,'Reminder Not Repeated')
+      assert.match(toast.description,/No duplicate was sent/)
+    }else{
+      assert.equal(toast.title,'Balance Reminder Failed')
+      assert.match(toast.description,/notification persistence failed/)
+      assert.equal(await reminder.getByRole('button',{name:'Send Reminder',exact:true}).isEnabled(),true)
+      await reminder.getByRole('button',{name:'Cancel',exact:true}).click()
+    }
+    passed.push(current)
+    console.log(`PASS ${current}`)
+  }
+
   for (const width of [320,375,768,1024,1280,1366,1440]) {
     current=`responsive office modification at ${width}px`
     await page.setViewportSize({width,height:width===320?568:844})
     await openDetails()
     await page.evaluate(()=>window.fixture.patchBooking({bookingCategory:'office',bookingType:'office',isOfficeRental:true,officeId:'OFFICE',spaceId:'ROOM',guestCount:1,companyName:'Fixture Company',natureOfBusiness:'Services',officeRentalTerm:'6_months',endDate:'2099-08-31'}))
-    await adminModal().getByText('Company Name',{exact:true}).waitFor()
+    await adminModal().getByText('Business Name',{exact:true}).waitFor()
     await adminModal().getByRole('button',{name:'Modify Booking',exact:true}).click()
     const modify=modifyModal()
     await modify.getByText('Editable event details',{exact:true}).waitFor()

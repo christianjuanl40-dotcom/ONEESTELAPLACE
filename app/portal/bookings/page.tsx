@@ -101,6 +101,7 @@ import { isOfficeResourceBooking, resolveResourceSpace } from "@/src/modules/sha
 import type { AvailabilityRequest } from "@/src/modules/shared/lib/availability-client"
 import { Progress } from "@/src/modules/shared/components/ui/progress"
 import { BookingScheduleHistory } from "@/src/modules/shared/components/booking-schedule-history"
+import { getBookingScheduleSnapshot } from "@/src/modules/shared/lib/booking-schedule-history"
 import {
   Tooltip,
   TooltipContent,
@@ -397,7 +398,7 @@ function getClientBookingScheduleParts(booking: Booking) {
   }
   return {
     primary: startDate,
-    secondary: [booking.startTime, booking.endTime].filter(Boolean).join(" – ") || "Time not set",
+    secondary: getBookingScheduleSnapshot(booking as unknown as Record<string, unknown>)?.time?.replace(" - ", " – ") || "Time not set",
   }
 }
 
@@ -424,7 +425,7 @@ function ClientBookingsTable({
   return (
     <>
       <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm md:block">
-        <Table className="min-w-[1040px] table-fixed xl:min-w-0">
+        <Table className="min-w-[1040px] table-fixed">
           <caption className="sr-only">{caption}</caption>
           <colgroup>
             <col style={{ width: "16%" }} />
@@ -810,7 +811,7 @@ function BookingDetailsModal({
                   <BookingDetailField label={isOfficeRental ? "Rental Type" : "Event Type"}>{typeLabel}</BookingDetailField>
                   {isOfficeRental ? <>
                     <BookingDetailField label="Rental Term">{formatTextLabel(booking.officeRentalTerm || booking.rentalTerm || booking.contractTerm) || "—"}</BookingDetailField>
-                    <BookingDetailField label="Company Name" wide>{booking.companyName || booking.eventName || "N/A"}</BookingDetailField>
+                    <BookingDetailField label="Business Name" wide>{booking.companyName || booking.eventName || "N/A"}</BookingDetailField>
                     <BookingDetailField label="Nature of Business" wide>{booking.natureOfBusiness || booking.eventType || "N/A"}</BookingDetailField>
                     {!isCancelled && <BookingDetailField label="Remaining Duration">{getRemainingDuration(booking.endDate || booking.date, booking.date) || "—"}</BookingDetailField>}
                   </> : <>
@@ -2009,22 +2010,24 @@ function ModifyBookingFlowModal({
                       </h3>
 
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
-                          Company Name <span className="text-rose-500">*</span>
+                        <label htmlFor="modify-business-name" className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
+                          Business Name <span className="text-rose-500">*</span>
                         </label>
                         <Input
+                          id="modify-business-name"
                           value={companyName}
                           onChange={(e) => setCompanyName(e.target.value)}
-                          placeholder="e.g. Acme Corp"
+                          placeholder="Enter registered business name"
                           className="h-10 w-full rounded-xl bg-slate-50 border border-slate-200 px-3 text-xs focus-visible:ring-2 focus-visible:ring-[#ea580c]"
                         />
                       </div>
 
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
+                        <label htmlFor="modify-nature-of-business" className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
                           Nature of Business <span className="text-rose-500">*</span>
                         </label>
                         <select
+                          id="modify-nature-of-business"
                           aria-label="Nature of Business"
                           value={natureOfBusiness}
                           onChange={(e) => setNatureOfBusiness(e.target.value)}

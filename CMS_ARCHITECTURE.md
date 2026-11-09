@@ -1,5 +1,7 @@
 # CMS Architecture
 
+**Customer-chat presentation follow-up (2026-11-09):** The existing published-question/cooldown schema is unchanged. `use-chat-suggestions.ts` now keeps an already visible presentation stable when its own `chatSuggestionState` write arrives; cooldown still governs the next presentation. The empty-conversation welcome is shared UI guidance, not a new CMS document or automatically sent answer. See [HOTFIX_VALIDATION.md](HOTFIX_VALIDATION.md).
+
 Source reviewed: **2026-11-03**; admin-shell scrolling rechecked **2026-11-04**; shared table scroll chaining rechecked **2026-11-05**. The active CMS uses **Cloud Firestore**, with one shared **`cms/data`** document plus a protected predefined-question configuration. See [ARCHITECTURE.md](ARCHITECTURE.md) for the overall system and scheduling invariants. CMS screens remain inside the admin layout's independently scrollable main pane; this presentation behavior does not change CMS persistence or authorization.
 
 ## Implementation map

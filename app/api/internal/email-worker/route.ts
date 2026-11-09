@@ -7,6 +7,9 @@ import { processEmailOutbox } from "@/lib/email-worker"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
+// SMTP verification/send timeouts are intentionally bounded in the worker;
+// give the fallback route enough platform budget to finish a bounded batch.
+export const maxDuration = 60
 
 function matchesSecret(request: NextRequest): boolean {
   const expected = String(process.env.CRON_SECRET || "")

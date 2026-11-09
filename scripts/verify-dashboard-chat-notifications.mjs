@@ -198,6 +198,8 @@ try {
   })
   const page = await context.newPage()
   page.setDefaultTimeout(10000)
+  // Keep action/assertion deadlines intact while allowing cold fixture builds.
+  page.setDefaultNavigationTimeout(60000)
   page.on("pageerror", (error) => errors.push(error.message))
    page.on("console", (message) => {
      if (message.type() !== "error") return
@@ -505,7 +507,50 @@ try {
     }
   })
 
-  if (blocked.length > 0) throw new Error(`Fixture attempted external requests: ${blocked.join(", ")}`)
+  await check("separate reminders for the same booking remain visible after one is read", async () => {
+    await goto("notifications")
+    await page.evaluate(() => window.fixture.update({ notifications: [
+      { id: "REMINDER-FIRST", type: "balance_reminder", title: "Remaining Balance Reminder", message: "First saved reminder.", bookingId: "BOOK-1", userId: "CLIENT-1", isRead: false, moduleRead: false, createdAt: "2026-11-08T00:00:00Z", link: "/portal/payments?highlight=BOOK-1" },
+      { id: "REMINDER-LATER", type: "balance_reminder", title: "Remaining Balance Reminder", message: "Later saved reminder.", bookingId: "BOOK-1", userId: "CLIENT-1", isRead: false, moduleRead: false, createdAt: "2026-11-09T00:00:00Z", link: "/portal/payments?highlight=BOOK-1" },
+    ] }))
+    await page.getByRole("button", { name: "Notifications", exact: true }).click()
+    const reminders = () => page.getByRole("button", { name: /^Open notification: Remaining Balance Reminder/ })
+    assert.equal(await reminders().count(), 2, "the real dropdown does not deduplicate different events by booking or title")
+    await reminders().first().click()
+    await page.getByRole("button", { name: "Notifications", exact: true }).click()
+    assert.equal(await reminders().count(), 2, "read reminders remain in the inbox")
+    assert.equal(await page.evaluate(() => window.fixture.snapshot().notifications.filter(item => !item.isRead).length), 1)
+  })
+
+  await check("empty chat welcomes and 44px composer controls stay visible at every required width", async () => {
+    for (const view of ["client-chat", "client-widget"]) {
+      await goto(view)
+      if (view === "client-widget") await page.getByRole("button", { name: /^Open chat support/ }).click()
+      await page.evaluate(() => window.fixture.update({ messages: [], chatLoaded: true }))
+      for (const width of [320, 375, 768, 1024, 1440]) {
+        await page.setViewportSize({ width, height: 720 })
+        await waitForPaint()
+        await page.getByRole("heading", { name: "Welcome to One Estela Place!", exact: true }).waitFor()
+        for (const name of ["Attach an image", "Send message", ...(view === "client-widget" ? ["Close chat support"] : [])]) {
+          const button = page.getByRole("button", { name, exact: true })
+          const box = await button.boundingBox()
+          const layout = await button.evaluate(element => {
+            const panel = element.closest('div.fixed')
+            const style = panel && getComputedStyle(panel)
+            return { viewport: innerWidth, panel: panel?.getBoundingClientRect().toJSON(), width: style?.width, left: style?.left, right: style?.right, transform: style?.transform }
+          })
+          assert.ok(box.width >= 44 && box.height >= 44, `${view} ${name} has a 44px target`)
+          if (box.x < 0 || box.x + box.width > width + 1) await page.screenshot({ path: join(output, `chat-controls-${view}-${width}-failure.png`) })
+          assert.ok(box.x >= 0 && box.x + box.width <= width + 1, `${view} ${name} is not clipped: ${JSON.stringify({ width, box, layout })}`)
+        }
+        const composer = page.getByRole("textbox")
+        assert.ok((await composer.boundingBox()).width > 40, "composer shrinks without displacing its controls")
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true)
+      }
+    }
+  })
+
+   if (blocked.length > 0) throw new Error(`Fixture attempted external requests: ${blocked.join(", ")}`)
   if (errors.length > 0) throw new Error(`Browser runtime errors: ${errors.join(" | ")}`)
   console.log(`Dashboard/chat/notification browser checks passed (${passed.length} scenarios). Local fixtures only. Artifacts: ${output}`)
 } finally {

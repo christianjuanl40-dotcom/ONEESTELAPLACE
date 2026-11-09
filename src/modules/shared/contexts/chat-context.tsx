@@ -208,6 +208,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const hasMoreTimestampMessagesRef = useRef(false)
   const hasMoreLegacyMessagesRef = useRef(false)
   const historyGenerationRef = useRef(0)
+  const [historyRevision, setHistoryRevision] = useState(0)
 
   const publishActiveMessages = useCallback(() => {
     const mergedById = new Map<string, ChatMessageItem>()
@@ -226,6 +227,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const clearActiveHistory = useCallback(() => {
     historyGenerationRef.current += 1
+    setHistoryRevision((revision) => revision + 1)
     liveMessagesRef.current.clear()
     historicalMessagesRef.current.clear()
     legacyMessagesRef.current.clear()
@@ -243,7 +245,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     // conversation before the new listener can publish data for this scope.
     setLoadedScope(nextScope)
     setConversationIndex([])
-    setActiveConversationId(null)
+    setActiveConversationId(canAccessChat ? null : currentUserId || null)
     clearActiveHistory()
     setMessages([])
     setIsChatLoaded(false)
@@ -255,17 +257,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setChatError(null)
     setUnreadError(null)
     initialLoadDone.current = false
-  }, [clearActiveHistory])
+  }, [canAccessChat, clearActiveHistory, currentUserId])
 
   useEffect(() => {
-    let active = true
-    // Defer the lifecycle reset until the effect batch has finished. The
-    // scope guard already hides the previous account synchronously, while
-    // the queued transition avoids a cascading render during effect setup.
-    queueMicrotask(() => {
-      if (active) resetChatScope(scope)
-    })
-    return () => { active = false }
+    // Reset before installing this scope's listeners, not in a microtask that
+    // can invalidate an already-installed listener's generation.
+    resetChatScope(scope)
   }, [resetChatScope, scope])
 
   // Lightweight scoped unread listener (always on while signed in).
@@ -433,8 +430,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       orderBy("timestamp", "asc"),
       limitToLast(CHAT_HISTORY_PAGE_SIZE),
     )
-    const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
+    const unsubscribe = onSnapshot(messagesQuery, { includeMetadataChanges: true }, (snapshot) => {
       if (disposed || generation !== historyGenerationRef.current) return
+      // A cached empty result is not proof of an empty conversation.
+      if (snapshot.metadata?.fromCache && snapshot.empty) return
       const nextLive = new Map<string, ChatMessageItem>()
       snapshot.forEach((docSnap) => nextLive.set(docSnap.id, mapChatDocument(docSnap)))
       liveMessagesRef.current = nextLive
@@ -471,7 +470,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       perfListener("Chat", "STOP")
       unsubscribe()
     }
-  }, [activeConversationId, canAccessChat, currentUserId, currentUserRole, fetchLegacyPage, isMessagesActive, chatRetryAttempt, publishActiveMessages])
+  }, [activeConversationId, canAccessChat, currentUserId, currentUserRole, fetchLegacyPage, isMessagesActive, chatRetryAttempt, publishActiveMessages, historyRevision])
 
   const loadChat = useCallback((requestedClientId?: string) => {
     const nextConversationId = canAccessChat
@@ -480,6 +479,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     if (!nextConversationId && !canAccessChat) return
     clearActiveHistory()
     setActiveConversationId(nextConversationId)
+    setIsChatLoaded(false)
     setIsChatLoading(true)
     setChatError(null)
     setIsMessagesActive(true)

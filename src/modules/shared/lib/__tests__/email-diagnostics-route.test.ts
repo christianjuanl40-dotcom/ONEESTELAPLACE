@@ -30,9 +30,10 @@ beforeEach(() => {
     otpStagingApproved: false,
     otpProductionApproved: false,
     otpSecretConfigured: false,
-    smtpConfigured: false,
-    appBaseUrlConfigured: false,
-    otpReady: false,
+     smtpConfigured: false,
+     appBaseUrlConfigured: false,
+     transactionalReady: false,
+     otpReady: false,
     otpGateReason: "otp_flag_false",
     recipientAllowlistConfigured: false,
     recipientAllowlistCount: 0,
@@ -60,8 +61,15 @@ describe("email diagnostics route", () => {
     expect(response.status).toBe(503)
     expect(await response.json()).toMatchObject({
       status: "not_ready",
-      email: { otpGateReason: "otp_flag_false", otpSecretConfigured: false },
-      firebase: { adminConfigured: true, projectMatchesProduction: true, errorCode: null },
-    })
+     email: { otpGateReason: "otp_flag_false", otpSecretConfigured: false },
+     firebase: { adminConfigured: true, projectMatchesProduction: true, errorCode: null },
+     dispatch: {
+       implementation: "after-scoped-outbox-v1",
+       immediateAfter: true,
+       scopedJobIds: true,
+       scheduledFallback: true,
+       deploymentCommitSha: null,
+     },
+   })
   })
 })

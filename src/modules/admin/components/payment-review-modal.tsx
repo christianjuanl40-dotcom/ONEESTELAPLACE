@@ -85,6 +85,7 @@ export function PaymentReviewModal({
   childModalOpen,
   liveSubmissions,
   initialPaymentRecordId,
+  initialMethodFilter = "all",
   onBackToQueue,
 }: {
   payment: BookingRecord
@@ -93,6 +94,7 @@ export function PaymentReviewModal({
   childModalOpen?: boolean
   liveSubmissions?: PaymentRecord[]
   initialPaymentRecordId?: string | null
+  initialMethodFilter?: PaymentMethodFilter
   onBackToQueue?: () => void
 }) {
   const submissions: PaymentRecord[] =
@@ -101,7 +103,7 @@ export function PaymentReviewModal({
       : Array.isArray(payment.incomingPayments)
         ? payment.incomingPayments
         : []
-  const [paymentMethodFilter, setPaymentMethodFilter] = useState<PaymentMethodFilter>("all")
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<PaymentMethodFilter>(initialMethodFilter)
   const visibleSubmissions = useMemo(
     () => filterPaymentRecordsByMethod(submissions, paymentMethodFilter),
     [paymentMethodFilter, submissions],

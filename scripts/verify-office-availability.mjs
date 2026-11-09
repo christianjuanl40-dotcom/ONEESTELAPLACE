@@ -167,7 +167,9 @@ try {
   for (const [width, height] of [[1366, 768], [1280, 720], [390, 844], [320, 568]]) {
     current = { width, height, name: "open occupied office" }
     await page.setViewportSize({ width, height })
-    await page.goto(`${origin}/__office`)
+     // The first Vite transform can exceed the interaction timeout on a cold
+     // workspace. Keep navigation generous while preserving 10s action checks.
+     await page.goto(`${origin}/__office`, { timeout: 60000 })
     await page.getByRole("button", { name: "Book Now", exact: true }).click()
     await page.getByRole("button", { name: "Book Office Space", exact: true }).click()
     await page.getByRole("button", { name: "Select Ground Floor Office", exact: true }).click()
@@ -279,16 +281,20 @@ try {
     })
     await check("final details and nested Terms stay usable with the parent background locked", async () => {
       await page.evaluate(() => window.fixture.set({ bookings: [], officeRentals: [], maintenanceRecords: [] }))
-      await room("Room 2"); await earliest("November 26, 2026"); await ready("2026-11-26")
-      await day("2026-11-26").click(); await proceed().click()
-      await page.getByPlaceholder("e.g. Acme Corp / Juan Dela Cruz").fill("Local Tenant")
-      await page.locator("select").selectOption("tech")
-      await page.getByText("Terms & Conditions", { exact: true }).click()
+       await room("Room 2"); await earliest("November 26, 2026"); await ready("2026-11-26")
+       await day("2026-11-26").click(); await proceed().click()
+       await page.getByText("Business Information", { exact: true }).waitFor()
+      const businessName = page.getByLabel("Business Name *", { exact: true })
+      const submit = page.getByRole("button", { name: "Submit Reservation Request", exact: true })
+      assert.equal(await submit.isDisabled(), true, "Business Name, Nature of Business, and Terms are required")
+      await businessName.fill("Local Business")
+      assert.equal(await submit.isDisabled(), true, "Nature of Business and Terms remain required")
+       await page.locator("select").selectOption("tech")
+       await page.getByText("Terms & Conditions", { exact: true }).click()
       const terms = page.getByRole("dialog", { name: "Terms & Conditions", exact: true })
       await terms.getByRole("button", { name: "I Understand", exact: true }).click()
       assert.equal(await page.locator("body").evaluate(el => el.hasAttribute("data-scroll-locked")), true)
-      const submit = page.getByRole("button", { name: "Submit Reservation Request", exact: true })
-      await submit.scrollIntoViewIfNeeded()
+       await submit.scrollIntoViewIfNeeded()
       assert.equal(await submit.isEnabled(), true)
       const dialog = page.getByRole("dialog", { name: "Reservation Modal", exact: true }), box = await dialog.boundingBox()
       assert.ok(box.y >= 0 && box.y + box.height <= height)

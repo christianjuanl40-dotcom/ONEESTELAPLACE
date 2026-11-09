@@ -28,6 +28,7 @@ import { scheduleImmediateEmailDispatch } from "@/lib/email-dispatch"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
+export const maxDuration = 60
 
 type DataRecord = Record<string, unknown>
 type OnsitePaymentType = "downpayment" | "remaining_balance" | "full_payment"

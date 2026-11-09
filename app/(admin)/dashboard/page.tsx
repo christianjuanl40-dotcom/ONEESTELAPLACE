@@ -1,7 +1,9 @@
 "use client"
 
+import { getBalanceReminderFeedback } from "@/src/modules/shared/lib/balance-reminders"
+
 import type React from "react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import {
   Activity,
@@ -124,6 +126,7 @@ export default function AdminDashboardPage() {
   const [onsitePaymentTarget, setOnsitePaymentTarget] = useState<Booking | null>(null)
   const [reminderTarget, setReminderTarget] = useState<Booking | null>(null)
   const [actionPending, setActionPending] = useState<string | null>(null)
+  const reminderInFlight = useRef(false)
   const [showContractConfirm, setShowContractConfirm] = useState(false)
   const [showApproveCancellationConfirm, setShowApproveCancellationConfirm] = useState(false)
   const [approveCancellationTarget, setApproveCancellationTarget] = useState<string | null>(null)
@@ -320,15 +323,18 @@ export default function AdminDashboardPage() {
 
   const confirmBalanceReminder = async () => {
     const target = reminderTarget
-    if (!target || !canManageBookings || actionPending) return
+    if (!target || !canManageBookings || actionPending || reminderInFlight.current) return
+    reminderInFlight.current = true
     setActionPending("balance-reminder")
     try {
-      await bookingCtx.sendBalanceReminder(target.id)
+      const result = await bookingCtx.sendBalanceReminder(target.id)
       setReminderTarget(null)
-      toastSuccess("Balance Reminder Sent", `Reminder recorded for booking ${target.id}.`)
+      setSelectedBooking(result.booking)
+      toast(getBalanceReminderFeedback(result.reminder))
     } catch (error) {
       toastError("Balance Reminder Failed", error)
     } finally {
+      reminderInFlight.current = false
       setActionPending(null)
     }
   }
@@ -446,6 +452,7 @@ export default function AdminDashboardPage() {
         booking={reminderTarget}
         remainingBalance={reminderTarget ? calculatePaymentSummary(reminderTarget, getRecordsForBooking(bookingCtx.paymentRecords, reminderTarget)).remainingBalance : undefined}
         open={!!reminderTarget}
+        isSending={actionPending === "balance-reminder"}
         onCancel={() => setReminderTarget(null)}
         onConfirm={() => { void confirmBalanceReminder() }}
       />

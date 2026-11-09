@@ -1,5 +1,7 @@
 "use client";
 
+import { formatManilaDateTime } from "@/src/modules/shared/lib/time-format";
+
 import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -576,15 +578,15 @@ function TransactionTable({
   return (
     <>
       <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:block">
-        <Table className="w-full table-fixed">
+        <Table className="oe-transactions-table min-w-[1180px] w-full table-fixed">
           <caption className="sr-only">{mode === "history" ? "Transaction history" : "Active transaction overview"}</caption>
           <colgroup>
-            <col style={{ width: "18%" }} />
-            <col style={{ width: "13%" }} />
-            <col style={{ width: "17%" }} />
-            <col style={{ width: "22%" }} />
-            <col style={{ width: "14%" }} />
-            <col style={{ width: "16%" }} />
+            <col style={{ width: "150px" }} />
+            <col style={{ width: "145px" }} />
+            <col style={{ width: "185px" }} />
+            <col style={{ width: "240px" }} />
+            <col style={{ width: "196px" }} />
+            <col style={{ width: "264px" }} />
           </colgroup>
           <TableHeader className="bg-slate-50/80">
             <tr>
@@ -2527,7 +2529,7 @@ function TransactionsContent() {
                               onClick={() => selectReceipt(receipt)}
                               aria-pressed={isSelected}
                               className={cn(
-                                "flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition",
+                                "flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600 focus-visible:ring-offset-2",
                                 isSelected
                                   ? "border-orange-200 bg-orange-50 shadow-sm ring-1 ring-orange-200"
                                   : "border-slate-200 bg-white hover:bg-slate-50",
@@ -2540,10 +2542,12 @@ function TransactionsContent() {
                                     getReceiptPaymentAmount(receipt),
                                   )}
                                 </span>
-                                <span className="mt-0.5 block text-[10px] font-semibold text-slate-500">
-                                  {getReceiptPaymentStatusLabel(receipt)}
-                                </span>
-                                <span className="mt-1 block truncate text-[10px] font-black uppercase tracking-[0.12em] text-orange-600">
+                                 <span className="mt-0.5 block text-xs font-semibold text-slate-600">
+                                   {getReceiptPaymentStatusLabel(receipt)}
+                                 </span>
+                                 <span className="mt-1 block text-xs text-slate-700">{getReceiptPaymentMethodLabel(receipt.paymentMethod || receipt.method || receipt.receipt?.paymentMethod)}</span>
+                                 <span className="mt-1 block text-xs text-slate-600">{formatManilaDateTime(getReceiptPaymentTime(receipt) || null) || "Date not recorded"}</span>
+                                <span className="mt-1 block text-xs font-semibold text-orange-700 [overflow-wrap:anywhere]">
                                   {receipt.receiptNumber || "No receipt record"}
                                 </span>
                               </span>

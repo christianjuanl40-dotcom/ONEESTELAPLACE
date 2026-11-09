@@ -122,6 +122,8 @@ Current event mappings:
 | Payment incomplete | Payment Requires Attention | payment review commit |
 | Balance reminder | Remaining Balance Reminder | existing lifecycle reminder commit |
 
+**Reminder reliability follow-up (2026-11-09):** A balance reminder now atomically creates its in-app notification, booking audit marker, request-key acknowledgment, and enabled outbox job. Its email event ID is the saved notification's per-event ID, not the old permanent `balance_reminder_<bookingId>` identity. A new intentional reminder is allowed after a 24-hour booking cooldown; replaying a saved request does not enqueue another job. Inspect the saved notification/event ID when reconciling jobs. This changes no SMTP controls, worker leases, or delivery guarantees: saved in-app notification, SMTP acceptance, and client/inbox display remain distinct. No historical replay or production migration is automatic.
+
 Booking rejection is deliberately narrower than payment rejection or modification decline. The lifecycle API and Admin Booking Details action accept `status=declined` only for an unsecured `pending`/`verifying` booking with no received or pending payment activity. The transaction records the reason/actor, releases the booking, writes the client notification, and creates the deterministic `booking_rejected` outbox job. Paid, secured, cancellation-review, modification-review, and released bookings are rejected by the server.
 
 The worker uses a five-minute claim lease, bounded exponential retry, terminal failure after the configured attempt limit, and deterministic event IDs. A timeout after Gmail may have accepted a message is treated as an uncertain transient result; SMTP cannot provide universal exactly-once inbox delivery, so a later retry may duplicate a message. The system does not claim inbox delivery—only Gmail submission acceptance.
@@ -144,9 +146,9 @@ GET or POST /api/internal/email-diagnostics
 Authorization: Bearer <CRON_SECRET>
 ```
 
-`GET` is preferred because the request has no body and does not process email. The route accepts either `Authorization: Bearer <CRON_SECRET>` or `x-cron-secret: <CRON_SECRET>`. Missing or incorrect authentication deliberately returns HTTP `404` with `{ "error": "Not found." }`; this does not disclose whether the route exists. A valid request returns HTTP `200` when OTP readiness and the production Firebase project check pass, otherwise HTTP `503`.
+`GET` is preferred because the request has no body and does not process email. The route accepts either `Authorization: Bearer <CRON_SECRET>` or `x-cron-secret: <CRON_SECRET>`. Missing or incorrect authentication deliberately returns HTTP `404` with `{ "error": "Not found." }`; this does not disclose whether the route exists. A valid request returns HTTP `200` when OTP readiness and the production Firebase project check pass, otherwise HTTP `503`. Transactional outbox readiness is reported separately, because OTP delivery and booking/payment notifications use independent gates.
 
-It returns only safe booleans, counts, an OTP gate reason, and a Firebase project-match result. It never returns SMTP credentials, the OTP secret, recipient addresses, or the project credential. Use it to diagnose a deployed `503` without pulling encrypted Vercel values:
+It returns only safe booleans, counts, an OTP gate reason, a dispatch implementation marker, an optional sanitized deployment commit SHA, and a Firebase project-match result. It never returns SMTP credentials, the OTP secret, recipient addresses, or the project credential. Use it to diagnose a deployed `503` without pulling encrypted Vercel values:
 
 ```powershell
 Invoke-WebRequest `
@@ -168,8 +170,9 @@ This prints the sanitized response only; never replace `$env:CRON_SECRET` with a
 The authenticated response contains only these fields:
 
 - `status`: `ready` or `not_ready`.
-- `email`: `environment`, `isProduction`, `isStaging`, `emailSendingEnabled`, `otpSendingEnabled`, `otpStagingApproved`, `otpProductionApproved`, `otpSecretConfigured`, `smtpConfigured`, `appBaseUrlConfigured`, `otpReady`, `otpGateReason`, `recipientAllowlistConfigured`, `recipientAllowlistCount`, and `recipientAllowlistOnly`.
+- `email`: `environment`, `isProduction`, `isStaging`, `emailSendingEnabled`, `otpSendingEnabled`, `otpStagingApproved`, `otpProductionApproved`, `otpSecretConfigured`, `smtpConfigured`, `appBaseUrlConfigured`, `transactionalReady`, `otpReady`, `otpGateReason`, `recipientAllowlistConfigured`, `recipientAllowlistCount`, and `recipientAllowlistOnly`.
 - `firebase`: `adminConfigured`, `projectMatchesProduction`, and `errorCode` (`null` or `firebase_admin_unavailable`).
+- `dispatch`: `implementation` (`after-scoped-outbox-v1`), `immediateAfter`, `scopedJobIds`, `scheduledFallback`, and `deploymentCommitSha` (a commit hash or `null`).
 
 It never returns `CRON_SECRET`, SMTP credentials, `EMAIL_OTP_SECRET`, an OTP, recipient addresses, or Firebase service-account values.
 
@@ -186,7 +189,7 @@ Interpret `email.otpGateReason` as follows:
 
 Allowlist policy is reported separately. `recipientAllowlistOnly=true` means an OTP recipient and worker recipient must be in the configured allowlist; `recipientAllowlistConfigured` and `recipientAllowlistCount` do not reveal the address or prove that a particular address matches. A disallowed OTP request is rejected separately as `otp_recipient_not_allowed`; it is not an `otpGateReason`. A live SMTP authentication or delivery failure also cannot be proven by this read-only route; it requires the owner-approved controlled OTP test.
 
-The OTP gate is independent of transactional outbox sending: `otpReady=true` can coexist with `emailSendingEnabled=false`. Keep `EMAIL_SENDING_ENABLED=false` until the historical outbox disposition is approved and completed.
+The OTP gate is independent of transactional outbox sending: `otpReady=true` can coexist with `transactionalReady=false` or `emailSendingEnabled=false`. Keep `EMAIL_SENDING_ENABLED=false` until the historical outbox disposition is approved and completed. A `transactionalReady=true` result only confirms configuration shape and route readiness; it does not prove SMTP acceptance or inbox delivery.
 
 It can also be invoked manually for an owner-authorized smoke test:
 

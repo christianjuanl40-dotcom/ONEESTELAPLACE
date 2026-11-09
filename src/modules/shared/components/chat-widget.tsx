@@ -11,6 +11,7 @@ import { useChatSuggestions } from "@/src/modules/shared/hooks/use-chat-suggesti
 import type { ChatSuggestion } from "@/src/modules/shared/lib/chat-suggestions"
 import { useToast } from "@/src/modules/shared/hooks/use-toast"
 import { useChatScroll } from "@/src/modules/shared/hooks/use-chat-scroll"
+import { ChatWelcome } from "@/src/modules/shared/components/chat-welcome"
 import { sortChatMessages, shouldGroupChatMessage } from "../lib/chat-presentation"
 import { formatManilaDateTime, formatManilaDayLabel, formatManilaTime, isSameManilaDay, toValidDate } from "../lib/time-format"
 
@@ -72,11 +73,9 @@ export function ClientChatWidget() {
   }
 
   useEffect(() => {
-    if (isOpen && pathname !== "/portal/chat") {
-      loadChat()
-    } else if (pathname !== "/portal/chat") {
-      unloadChat()
-    }
+    if (!isOpen || pathname === "/portal/chat") return
+    loadChat()
+    return unloadChat
   }, [isOpen, pathname, loadChat, unloadChat])
 
   useEffect(() => {
@@ -126,7 +125,7 @@ export function ClientChatWidget() {
   return (
     <>
       {isOpen && (
-        <div className="fixed bottom-5 right-5 sm:bottom-6 sm:right-6 w-full sm:w-[380px] h-[calc(100dvh-80px)] sm:h-[calc(100vh-100px)] sm:max-h-[650px] bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-slate-200 flex flex-col z-50 overflow-hidden animate-in slide-in-from-bottom-5 duration-300">
+        <div className="fixed bottom-5 right-3 sm:bottom-6 sm:right-6 w-[calc(100%-1.5rem)] sm:w-[380px] h-[calc(100dvh-80px)] sm:h-[calc(100vh-100px)] sm:max-h-[650px] bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-slate-200 flex flex-col z-50 overflow-hidden transition-none animate-in slide-in-from-bottom-5 duration-300">
           <div className="bg-[#ea580c] px-4 py-3 flex items-center justify-between text-white shrink-0 z-10 shadow-md">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 bg-white/20 rounded-full flex items-center justify-center border border-white/10"><ShieldCheck className="w-5 h-5 text-white" /></div>
@@ -135,7 +134,7 @@ export function ClientChatWidget() {
                 <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div><p className="text-[10px] text-orange-100 font-semibold uppercase tracking-wider">Online</p></div>
               </div>
             </div>
-           <button type="button" aria-label="Close chat support" onClick={() => setIsOpen(false)} className="hover:bg-white/20 p-1.5 rounded-full transition-colors active:scale-95"><X className="w-5 h-5" /></button>
+           <button type="button" aria-label="Close chat support" onClick={() => setIsOpen(false)} className="flex h-11 w-11 shrink-0 items-center justify-center hover:bg-white/20 rounded-full transition-colors active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"><X className="w-5 h-5" /></button>
           </div>
 
             <div ref={containerRef} onScroll={handleScroll} className="relative flex-1 overflow-y-auto bg-slate-50 flex flex-col p-4 space-y-2">
@@ -153,7 +152,8 @@ export function ClientChatWidget() {
                </div>
              )}
              {isChatLoading && isChatLoaded && <p className="p-3 text-center text-[11px] font-semibold text-slate-500" role="status">Refreshing messages…</p>}
-             {!isChatLoaded && !chatError && <p className="p-6 text-center text-xs font-medium text-slate-500" role="status">Loading messages…</p>}
+              {!isChatLoaded && !chatError && <p className="p-6 text-center text-xs font-medium text-slate-500" role="status">Loading messages…</p>}
+              <ChatWelcome ready={isChatLoaded} empty={myMessages.length === 0} error={chatError} />
              {myMessages.map((msg: any, index: number) => {
                const previousMessage = myMessages[index - 1]
                const isGrouped = shouldGroupChatMessage(previousMessage, msg)
@@ -182,7 +182,7 @@ export function ClientChatWidget() {
             {imagePreview && (
               <div className="relative mb-3 w-fit animate-in zoom-in-75">
                 <img src={imagePreview} alt="preview" className="h-20 w-auto rounded-xl border-2 border-slate-100 shadow-md" />
-                 <button type="button" aria-label="Remove image attachment" onClick={() => { setImagePreview(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} className="absolute -top-2 -right-2 bg-slate-800 text-white rounded-full p-1 shadow-lg hover:scale-110 transition-transform"><X className="w-3 h-3" /></button>
+                  <button type="button" aria-label="Remove image attachment" onClick={() => { setImagePreview(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} className="absolute -top-2 -right-2 flex h-11 w-11 items-center justify-center bg-slate-800 text-white rounded-full shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600"><X className="w-4 h-4" /></button>
               </div>
             )}
             <ChatSuggestionPills
@@ -194,9 +194,9 @@ export function ClientChatWidget() {
             />
              <div className="flex items-end gap-2 bg-slate-50 border border-slate-200 rounded-2xl pl-3 pr-1.5 py-1.5 focus-within:ring-2 focus-within:ring-orange-500/20 focus-within:border-orange-500 transition-all">
                <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={(e) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = (ev) => setImagePreview(ev.target?.result as string); reader.readAsDataURL(file); } }} />
-               <button type="button" aria-label="Attach an image" onClick={() => fileInputRef.current?.click()} className="mb-2 text-slate-400 hover:text-orange-600 p-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"><Paperclip className="w-4 h-4 sm:w-5 sm:h-5" /></button>
-               <textarea aria-label="Message admin" rows={1} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSend() } }} placeholder="Message admin..." disabled={isSending} className="flex-1 max-h-28 min-h-11 resize-y bg-transparent border-none focus:outline-none text-[13px] sm:text-[14px] py-2 placeholder:text-slate-400" />
-               <Button type="button" onClick={() => void handleSend()} disabled={isSending || (!inputValue.trim() && !imagePreview)} aria-label="Send message" className="mb-0 w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-[#ea580c] hover:bg-[#c2410c] text-white p-0 shrink-0 shadow-sm active:scale-90 transition-transform disabled:cursor-not-allowed disabled:opacity-60"><Send className="w-4 h-4 sm:w-4 sm:h-4 ml-0.5" /></Button>
+               <button type="button" aria-label="Attach an image" onClick={() => fileInputRef.current?.click()} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-600 hover:text-orange-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600"><Paperclip className="w-5 h-5" /></button>
+               <textarea aria-label="Message admin" rows={1} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSend() } }} placeholder="Message admin..." disabled={isSending} className="w-0 min-w-0 flex-1 max-h-28 min-h-11 resize-y bg-transparent border-none focus:outline-none text-[13px] sm:text-[14px] py-2 placeholder:text-slate-400" />
+               <Button type="button" onClick={() => void handleSend()} disabled={isSending || (!inputValue.trim() && !imagePreview)} aria-label="Send message" className="mb-0 w-11 h-11 rounded-full bg-[#ea580c] hover:bg-[#c2410c] text-white p-0 shrink-0 shadow-sm active:scale-90 transition-transform disabled:cursor-not-allowed disabled:opacity-60"><Send className="w-4 h-4 ml-0.5" /></Button>
             </div>
           </div>
         </div>

@@ -5,6 +5,8 @@ import { getFirestore, type Firestore } from "firebase-admin/firestore"
 import { NextRequest } from "next/server"
 
 vi.mock("server-only", () => ({}))
+// Validate committed outbox records, never schedule SMTP from disposable tests.
+vi.mock("@/lib/email-dispatch", () => ({ scheduleImmediateEmailDispatch: () => {} }))
 vi.mock("@/lib/server-auth", () => {
   class ApiAuthError extends Error {
     constructor(readonly status: number, message: string) { super(message) }
@@ -31,6 +33,7 @@ import { POST as createBooking } from "@/app/api/bookings/route"
 import { POST as modifyBooking } from "@/app/api/bookings/modification/route"
 import { POST as createMaintenance } from "@/app/api/maintenance/route"
 import { POST as submitPayment } from "@/app/api/payments/submit/route"
+import { POST as lifecycle } from "@/app/api/bookings/lifecycle/route"
 import { bookingCoversAvailabilityDate } from "@/src/modules/shared/lib/availability"
 import { isAvailabilityBlockingBooking } from "@/src/modules/shared/lib/booking-helpers"
 
@@ -109,6 +112,7 @@ emulatorSuite("real Firestore availability transactions (fixture authentication 
   }, 20000)
 
   afterEach(clearDemoDatabase, 20000)
+  afterEach(() => vi.unstubAllEnvs())
 
   afterAll(async () => {
     try {
@@ -117,6 +121,38 @@ emulatorSuite("real Firestore availability transactions (fixture authentication 
       if (app) await deleteApp(app)
     }
   }, 20000)
+
+  it("atomically persists one reminder for concurrent requests and a separate later event without changing the payment ledger", async () => {
+    vi.stubEnv("EMAIL_SENDING_ENABLED", "true")
+    const bookingRef = firestore!.collection("bookings").doc("REMINDER-REAL")
+    await bookingRef.set({ userId: "EMULATOR-CLIENT", bookingCode: "REF-REAL", venueId: "EVENT", spaceId: "EVENT",
+      bookingCategory: "venue", status: "confirmed", bookingStatus: "Confirmed", date, totalPrice: 10000,
+      paymentType: "downpayment", selectedDownpaymentAmount: 5000, createdAt: new Date().toISOString() })
+    const payment = { bookingId: "REMINDER-REAL", customerId: "EMULATOR-CLIENT", paymentMethod: "bank", status: "Verified", amount: 5000 }
+    await firestore!.collection("payments").doc("REMINDER-PAYMENT").set(payment)
+    const send = (idempotencyKey: string) => lifecycle(post({ action: "balance_reminder", bookingId: bookingRef.id, idempotencyKey }, "admin"))
+    const responses = await Promise.all([send("first"), send("first"), send("second")])
+    expect(responses.map((response) => response.status)).toEqual([200, 200, 200])
+    const payloads = await Promise.all(responses.map((response) => response.json()))
+    expect(payloads.filter((payload) => payload.changed)).toHaveLength(1)
+    const created = payloads.find((payload) => payload.changed)!
+    const winningKey = payloads[2].changed ? "second" : "first"
+    const notificationRef = firestore!.collection("notifications").doc(created.reminder.notificationId)
+    expect((await notificationRef.get()).data()).toMatchObject({ userId: "EMULATOR-CLIENT", bookingId: bookingRef.id, type: "balance_reminder", isRead: false })
+    expect((await bookingRef.get()).data()).toMatchObject({ balanceReminderSent: true, balanceReminderNotificationId: notificationRef.id })
+    expect((await firestore!.collection("notifications").get()).size).toBe(1)
+    expect((await firestore!.collection("emailOutbox").get()).size).toBe(1)
+    await notificationRef.update({ isRead: true, moduleRead: true })
+    await bookingRef.update({ balanceReminderSentAt: "2000-01-01T00:00:00Z" })
+    expect((await (await send(winningKey)).json()).reminder.status).toBe("already_sent")
+    expect((await notificationRef.get()).data()?.isRead).toBe(true)
+    const later = await (await send("intentional-later-event")).json()
+    expect(later.reminder.status).toBe("created")
+    expect(later.reminder.notificationId).not.toBe(notificationRef.id)
+    expect((await firestore!.collection("notifications").get()).size).toBe(2)
+    expect((await firestore!.collection("emailOutbox").get()).size).toBe(2)
+    expect((await firestore!.collection("payments").doc("REMINDER-PAYMENT").get()).data()).toEqual(payment)
+  }, 60000)
 
   it("permits only one of two office creations even with nonoverlapping start dates", async () => {
     const responses = await Promise.all([

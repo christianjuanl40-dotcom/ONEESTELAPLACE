@@ -1,5 +1,7 @@
 # Production Improvements
 
+**Follow-up note (2026-11-09):** This remains a historical hardening report; the counts and Java limitation below describe its original pass. The coordinated reminder/chat/payment presentation follow-up and its current checks are documented separately in [HOTFIX_VALIDATION.md](HOTFIX_VALIDATION.md). It does not redefine the financial reporting contract or authorize production writes/deployment.
+
 ## CURRENT STATUS
 
 - Local hardening pass completed without an architecture rewrite, business-policy changes, deployment, or Git mutation.

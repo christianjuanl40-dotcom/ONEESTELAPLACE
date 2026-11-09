@@ -61,6 +61,7 @@ const modules = {
   navigation: `const router={replace:()=>{},push:()=>{}};export const useRouter=()=>router;export const useSearchParams=()=>new URLSearchParams()`,
   token: `export const getAuthScope=async()=> 'LOCAL-ADMIN';export const getAuthHeaders=async()=>({'Content-Type':'application/json','X-Local-Fixture':'booking-table'})`,
   firebase: `export const auth={currentUser:null};export const db={}`,
+  firestore: `export const collection=()=>({}),query=ref=>ref,where=()=>({}),orderBy=()=>({}),limit=()=>({}),doc=()=>({}),getDoc=async()=>({exists:()=>false}),getDocs=async()=>({docs:[],forEach(){}}),addDoc=async()=>{throw Error('Unexpected Firestore mutation in the local booking-table fixture')};`,
   entry: `
     import React from 'react';import {createRoot} from 'react-dom/client';
     import AdminBookings from '@/app/(admin)/dashboard/bookings/page';
@@ -70,6 +71,7 @@ const modules = {
 }
 
 const mocks = [
+  [/^firebase\/firestore$/, "firestore"],
   [/^virtual:booking-table-state$/, "state"],
   [/\/client\/contexts\/booking-context(?:\.tsx?)?$/, "booking"],
   [/\/auth\/auth-context(?:\.tsx?)?$/, "auth"],
@@ -96,7 +98,7 @@ const server = await createServer({
   optimizeDeps: {
     noDiscovery: true,
     include: [
-      "react", "react-dom/client", "react/jsx-runtime", "react/jsx-dev-runtime", "lucide-react",
+      "react", "react-dom", "react-dom/client", "react/jsx-runtime", "react/jsx-dev-runtime", "lucide-react",
       "clsx", "tailwind-merge", "class-variance-authority", "@radix-ui/react-dialog",
       "@radix-ui/react-visually-hidden", "@radix-ui/react-select", "@radix-ui/react-slot",
       "@radix-ui/react-label", "@radix-ui/react-tooltip", "@radix-ui/react-tabs",
@@ -141,6 +143,8 @@ try {
   })
   const page = await context.newPage()
   page.setDefaultTimeout(10000)
+  // Cold Vite compilation is fixture startup, not the 10s UI-action contract.
+  page.setDefaultNavigationTimeout(60000)
   page.on("pageerror", (error) => errors.push(error.message))
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()) })
 

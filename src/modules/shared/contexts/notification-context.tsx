@@ -139,7 +139,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         orderBy("createdAt", "desc"),
         limit(100),
       )
-      return onSnapshot(q,
+      return onSnapshot(q, { includeMetadataChanges: true },
         (snapshot) => {
           if (destroyed) return
           const items = sortDesc(mapSnapshot(snapshot))
@@ -150,7 +150,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             perfListener("Notifications", "SNAPSHOT", items.length)
            }
            setError(null)
-           setIsLoading(false)
+           setIsLoading(Boolean(snapshot.metadata?.fromCache))
            setNotifications(items)
         },
         (error) => {
@@ -159,8 +159,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             if (error.code === "failed-precondition") {
             if (destroyed) return
             activeUnsub?.()
-            startFallback()
-            scheduleRetry()
+             // An unordered first-100 query can silently exclude the newest
+             // reminders. Keep the last known data and surface index failure;
+             // never present that partial fallback as a complete inbox.
+             setError("Notifications need a database index. An administrator must deploy the declared notification index, then retry.")
+             setIsLoading(false)
+             scheduleRetry()
             } else {
               console.error("[Notifications snapshot error]", { code: error.code, message: error.message })
               setError(error.code === "permission-denied"
@@ -168,38 +172,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
                 : "Notifications could not be loaded. Check your connection and retry.")
               setIsLoading(false)
             }
-        },
-      )
-    }
-
-    function startFallback(): void {
-      const q = query(
-        collection(db, "notifications"),
-        ...getBaseConstraints(),
-        limit(100),
-      )
-      activeUnsub = onSnapshot(q,
-        (snapshot) => {
-          if (destroyed) return
-          const items = sortDesc(mapSnapshot(snapshot))
-           if (firstSnapshot) {
-            firstSnapshot = false
-            perfListener("Notifications", "FIRST_SNAPSHOT", items.length)
-          } else {
-            perfListener("Notifications", "SNAPSHOT", items.length)
-           }
-           setError(null)
-           setIsLoading(false)
-           setNotifications(items)
-        },
-        (error) => {
-          if (destroyed) return
-         perfListener("Notifications", "ERROR")
-         console.error("[Notifications fallback snapshot error]", { code: error.code, message: error.message })
-          setError(error.code === "permission-denied"
-            ? "Notifications are not authorized for this account."
-            : "Notifications could not be loaded. Check your connection and retry.")
-          setIsLoading(false)
         },
       )
     }

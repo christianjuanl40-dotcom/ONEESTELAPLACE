@@ -1,7 +1,7 @@
 import "server-only"
 import { isAvailabilityBlockingBooking, isTerminalAvailabilityBooking } from "@/src/modules/shared/lib/booking-helpers"
 
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { getAdminFirestore } from "@/lib/firebase-admin"
 import {
@@ -29,9 +29,11 @@ import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-ident
 import { enqueueEmailEvents, getCreatedEmailJobIds } from "@/lib/email-outbox"
 import { buildBookingEmailPayload } from "@/lib/email-templates"
 import { scheduleImmediateEmailDispatch } from "@/lib/email-dispatch"
+import { BALANCE_REMINDER_COOLDOWN_MS, getNextBalanceReminderAt, type BalanceReminderDelivery } from "@/src/modules/shared/lib/balance-reminders"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
+export const maxDuration = 60
 
 type DataRecord = Record<string, unknown>
 type LifecycleAction = "complete" | "status" | "contract_signed" | "balance_reminder" | "issue_receipt" | "expire"
@@ -230,6 +232,8 @@ export async function POST(request: NextRequest) {
     }
     const bookingId = readString(body, "bookingId", 128, true)
     if (!BOOKING_ID_PATTERN.test(bookingId)) throw new ApiAuthError(400, "Invalid booking ID.")
+    const reminderKey = action === "balance_reminder" ? readString(body, "idempotencyKey", 128) : ""
+    if (reminderKey && !/^[A-Za-z0-9_-]+$/.test(reminderKey)) throw new ApiAuthError(400, "Invalid reminder retry key.")
 
     const user = action === "issue_receipt" || action === "expire"
       ? await requireAuthenticatedUser(request, { requireVerifiedClient: true })
@@ -496,8 +500,24 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      if (booking.balanceReminderSent === true) {
-        return { changed: false, booking, userId: String(booking.userId || ""), emailJobIds: [] }
+      // A retry key acknowledges its original event even after the cooldown.
+      // The booking document serializes simultaneous requests with different keys.
+      const reminderRequestRef = reminderKey ? firestore.collection("bookingReminderRequests").doc(
+        createHash("sha256").update(`${bookingId}:${reminderKey}`).digest("hex"),
+      ) : null
+      const savedRequest = reminderRequestRef ? await transaction.get(reminderRequestRef) : null
+      if (savedRequest?.exists) {
+        const saved = savedRequest.data()!
+        const notificationId = String(saved.notificationId || "")
+        const notification = notificationId ? await transaction.get(firestore.collection("notifications").doc(notificationId)) : null
+        return {
+          changed: false, booking, userId: String(booking.userId || ""), emailJobIds: [],
+          reminder: { status: saved.status === "cooldown" ? "cooldown" : "already_sent", notificationId: notificationId || null,
+            notificationPersisted: Boolean(notification?.exists), nextAllowedAt: String(saved.nextAllowedAt) } satisfies BalanceReminderDelivery,
+        }
+      }
+      if (isTerminalAvailabilityBooking(booking) || !isAvailabilityBlockingBooking(booking)) {
+        throw new ApiAuthError(409, "A released reservation cannot receive balance reminders.")
       }
       const bookingCode = String(booking.bookingCode || "").trim()
       const records = await readPaymentRecords(transaction, firestore, bookingId, bookingCode)
@@ -509,10 +529,29 @@ export async function POST(request: NextRequest) {
       if (summary.remainingBalance <= 0) {
         throw new ApiAuthError(409, "This booking has no remaining balance to remind the client about.")
       }
+      const nextAllowedMs = getNextBalanceReminderAt(booking.balanceReminderSentAt)
+      if (nextAllowedMs !== null && nextAllowedMs > Date.parse(now)) {
+        const notificationId = String(booking.balanceReminderNotificationId || "")
+        const notification = notificationId ? await transaction.get(firestore.collection("notifications").doc(notificationId)) : null
+        if (reminderRequestRef) transaction.create(reminderRequestRef, {
+          bookingId, status: "cooldown", notificationId, createdAt: now,
+          nextAllowedAt: new Date(nextAllowedMs).toISOString(), actorId: user.uid,
+        })
+        return {
+          changed: false, booking, userId: String(booking.userId || ""), emailJobIds: [],
+          reminder: { status: "cooldown", notificationId: notificationId || null,
+            notificationPersisted: Boolean(notification?.exists), nextAllowedAt: new Date(nextAllowedMs).toISOString() } satisfies BalanceReminderDelivery,
+        }
+      }
+      const recipientUid = String(booking.userId || booking.uid || "").trim()
+      if (!recipientUid) throw new ApiAuthError(409, "This booking has no client notification recipient. Review its ownership first.")
+      const notificationId = `balance_reminder_${bookingId}_${randomUUID()}`
+      const nextAllowedAt = new Date(Date.parse(now) + BALANCE_REMINDER_COOLDOWN_MS).toISOString()
       const fields = {
         balanceReminderSent: true,
         balanceReminderSentAt: now,
         balanceReminderSentBy: signedBy,
+        balanceReminderNotificationId: notificationId,
         lastActivityAt: now,
         updatedAt: now,
         adminLogs: appendLog(booking, "BALANCE_REMINDER_SENT", "Admin sent a remaining balance reminder.", now),
@@ -520,34 +559,41 @@ export async function POST(request: NextRequest) {
       const updatedBooking = { ...booking, ...fields, id: bookingId }
       const emailEvent = {
         eventType: "balance_reminder",
-        eventId: `balance_reminder_${bookingId}`,
+        eventId: notificationId,
         bookingId,
         recipientUid: String(booking.userId || booking.uid || ""),
         payload: buildBookingEmailPayload(updatedBooking, { remainingBalance: summary.remainingBalance }),
       } as const
       const emailCreated = await enqueueEmailEvents(transaction, firestore, [emailEvent])
+      // Delivery to the in-app notification system and the audit marker must
+      // commit together. A failed notification write cannot strand a sent flag.
+      transaction.create(firestore.collection("notifications").doc(notificationId), {
+        type: "balance_reminder", title: "Remaining Balance Reminder",
+        message: `Please settle the remaining balance of ₱${summary.remainingBalance.toLocaleString("en-PH")} for Booking ${bookingCode || bookingId}.`,
+        bookingId, userId: recipientUid, isRead: false, moduleRead: false,
+        createdAt: new Date(now), link: `/portal/payments?highlight=${bookingId}`,
+      })
+      if (reminderRequestRef) transaction.create(reminderRequestRef, { bookingId, notificationId, createdAt: now, nextAllowedAt, actorId: user.uid })
       transaction.update(bookingRef, fields)
       return {
         changed: true,
         booking: updatedBooking,
         userId: String(booking.userId || ""),
         emailJobIds: getCreatedEmailJobIds([emailEvent], emailCreated),
+        reminder: { status: "created", notificationId, notificationPersisted: true, nextAllowedAt } satisfies BalanceReminderDelivery,
       }
     })
 
     const { emailJobIds, ...responseResult } = result
     scheduleImmediateEmailDispatch(emailJobIds)
     const rejectionNotification = action === "status" && requestedStatus === "declined"
-    if (responseResult.changed && responseResult.userId && (action === "balance_reminder" || action === "contract_signed" || rejectionNotification)) {
+    if (responseResult.changed && responseResult.userId && (action === "contract_signed" || rejectionNotification)) {
       try {
-        const isReminder = action === "balance_reminder"
         const isRejection = rejectionNotification
         await firestore.collection("notifications").add({
-          type: isReminder ? "balance_reminder" : isRejection ? "booking_rejected" : "booking_approved",
-          title: isReminder ? "Remaining Balance Reminder" : isRejection ? "Booking Rejected" : "Contract Signed",
-          message: isReminder
-            ? `Please settle the remaining balance for Booking ${bookingId}.`
-            : isRejection
+          type: isRejection ? "booking_rejected" : "booking_approved",
+          title: isRejection ? "Booking Rejected" : "Contract Signed",
+          message: isRejection
               ? `Your booking request ${bookingId} was not accepted. Review the saved details in your Client Portal.`
               : `Your contract for Booking ${bookingId} has been signed.`,
           bookingId,
@@ -555,16 +601,16 @@ export async function POST(request: NextRequest) {
           isRead: false,
           moduleRead: false,
           createdAt: new Date(),
-          link: isReminder
-            ? `/portal/payments?highlight=${bookingId}`
-            : `/portal/bookings?highlight=${bookingId}`,
+          link: `/portal/bookings?highlight=${bookingId}`,
         })
       } catch (error) {
         console.error("[POST /api/bookings/lifecycle] Notification write failed:", error)
       }
     }
 
-    return NextResponse.json({ booking: responseResult.booking, receipt: responseResult.receipt, changed: responseResult.changed })
+    return NextResponse.json({ booking: responseResult.booking, receipt: responseResult.receipt, changed: responseResult.changed,
+      ...("reminder" in responseResult ? { reminder: responseResult.reminder } : {}),
+    })
   } catch (error: unknown) {
     return errorResponse(error)
   }
