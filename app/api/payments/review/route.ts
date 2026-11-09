@@ -13,6 +13,7 @@ import {
 import {
   buildPaymentDecisionTransition,
   buildVerifiedPaymentTransition,
+  didBookingBecomeSecured,
 } from "@/src/modules/shared/lib/payment-verification"
 import {
   getPaymentRecordAmount,
@@ -30,7 +31,7 @@ import {
   type PaymentRecordLike,
 } from "@/src/modules/shared/lib/payment-calculations"
 import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-identity"
-import { enqueueEmailEvent } from "@/lib/email-outbox"
+import { enqueueEmailEvents } from "@/lib/email-outbox"
 import { buildBookingEmailPayload } from "@/lib/email-templates"
 
 export const dynamic = "force-dynamic"
@@ -405,29 +406,42 @@ export async function POST(request: NextRequest) {
         ...transition.payment,
         receiptNumber: receiptResult.receipt.receiptNumber,
       }
+      const emailBooking = { ...bookingWithReceipt, id: bookingId }
+      const recipientUid = String(bookingData.userId || bookingData.uid || "")
 
       const emailEventType = action === "verify"
         ? "payment_verified" as const
         : action === "reject"
           ? "payment_rejected" as const
           : "payment_incomplete" as const
-      await enqueueEmailEvent(transaction, firestore, {
-        eventType: emailEventType,
-        eventId: `${emailEventType}_${String(target.id)}`,
-        bookingId,
-        recipientUid: String(bookingData.userId || bookingData.uid || ""),
-        payload: buildBookingEmailPayload({ ...bookingWithReceipt, id: bookingId }, {
-          remainingBalance: transition.summary.remainingBalance,
-          payment: {
-            method: getReceiptPaymentMethodLabel(paymentWithReceipt.paymentMethod || paymentWithReceipt.method || "Payment"),
-            amount: getPaymentRecordAmount(paymentWithReceipt),
-            status: String(paymentWithReceipt.status || paymentWithReceipt.verificationStatus || ""),
-            ...(paymentWithReceipt.referenceNo ? { reference: String(paymentWithReceipt.referenceNo) } : {}),
-            ...(paymentWithReceipt.paymentNumber !== undefined ? { paymentNumber: String(paymentWithReceipt.paymentNumber) } : {}),
-            ...(noteValue ? { note: noteValue } : {}),
-          },
-        }),
-      })
+      await enqueueEmailEvents(transaction, firestore, [
+        {
+          eventType: emailEventType,
+          eventId: `${emailEventType}_${String(target.id)}`,
+          bookingId,
+          recipientUid,
+          payload: buildBookingEmailPayload(emailBooking, {
+            remainingBalance: transition.summary.remainingBalance,
+            payment: {
+              method: getReceiptPaymentMethodLabel(paymentWithReceipt.paymentMethod || paymentWithReceipt.method || "Payment"),
+              amount: getPaymentRecordAmount(paymentWithReceipt),
+              status: String(paymentWithReceipt.status || paymentWithReceipt.verificationStatus || ""),
+              ...(paymentWithReceipt.referenceNo ? { reference: String(paymentWithReceipt.referenceNo) } : {}),
+              ...(paymentWithReceipt.paymentNumber !== undefined ? { paymentNumber: String(paymentWithReceipt.paymentNumber) } : {}),
+              ...(noteValue ? { note: noteValue } : {}),
+            },
+          }),
+        },
+        ...(didBookingBecomeSecured(bookingData, transition.booking) ? [{
+          eventType: "booking_confirmed" as const,
+          eventId: `booking_confirmed_${bookingId}`,
+          bookingId,
+          recipientUid,
+          payload: buildBookingEmailPayload(emailBooking, {
+            remainingBalance: transition.summary.remainingBalance,
+          }),
+        }] : []),
+      ])
 
       // Replace changed top-level maps rather than recursively merging a previous
       // payment's latest-receipt snapshot into this selected payment's receipt.

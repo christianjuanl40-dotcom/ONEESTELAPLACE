@@ -86,6 +86,7 @@ function eventCopy(eventType: EmailEventType): { subject: string; heading: strin
     case "booking_submitted":
       return { subject: "Booking Request Received", heading: "Booking request received", intro: "We received your booking request and it is ready for One Estela Place review.", actionPath: "/portal/bookings" }
     case "booking_approved":
+    case "booking_confirmed":
       return { subject: "Booking Confirmed", heading: "Your booking is confirmed", intro: "Your booking has been confirmed. Please review the saved details in your Client Portal.", actionPath: "/portal/bookings" }
     case "booking_rejected":
       return { subject: "Booking Rejected", heading: "Booking decision update", intro: "Your booking was not accepted. Please open the Client Portal for the latest saved information.", actionPath: "/portal/bookings" }
@@ -144,9 +145,10 @@ function paymentRows(payment: EmailPaymentSnapshot | undefined): { text: string[
 }
 
 function includesRemainingBalance(eventType: EmailEventType, payload: BookingEmailPayload): boolean {
-  return payload.remainingBalance !== undefined
+    return payload.remainingBalance !== undefined
     && (eventType === "balance_reminder"
       || eventType === "booking_approved"
+      || eventType === "booking_confirmed"
       || eventType === "payment_submitted"
       || eventType === "payment_verified"
       || eventType === "payment_rejected"

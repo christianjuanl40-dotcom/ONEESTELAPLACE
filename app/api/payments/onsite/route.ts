@@ -20,9 +20,9 @@ import {
   getRecordsForBooking,
   type PaymentRecordLike,
 } from "@/src/modules/shared/lib/payment-calculations"
-import { buildVerifiedPaymentTransition } from "@/src/modules/shared/lib/payment-verification"
+import { buildVerifiedPaymentTransition, didBookingBecomeSecured } from "@/src/modules/shared/lib/payment-verification"
 import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-identity"
-import { enqueueEmailEvent } from "@/lib/email-outbox"
+import { enqueueEmailEvents } from "@/lib/email-outbox"
 import { buildBookingEmailPayload } from "@/lib/email-templates"
 
 export const dynamic = "force-dynamic"
@@ -290,6 +290,7 @@ export async function POST(request: NextRequest) {
           now,
         },
       )
+      const bookingConfirmationTransitioned = didBookingBecomeSecured(booking, transition.booking)
       const receiptNumber = createReceiptNumber()
       const receipt = {
         receiptNumber,
@@ -334,22 +335,34 @@ export async function POST(request: NextRequest) {
       }
       const { id: _bookingId, ...bookingToPersist } = bookingWithReceipt
       const { id: _paymentId, ...paymentToPersist } = transition.payment
-      await enqueueEmailEvent(transaction, firestore, {
-        eventType: "payment_verified",
-        eventId: `payment_verified_${paymentId}`,
-        bookingId,
-        recipientUid: String(booking.userId || booking.uid || ""),
-        payload: buildBookingEmailPayload(bookingWithReceipt, {
-          remainingBalance: transition.summary.remainingBalance,
-          payment: {
-            method: "Pay at the Office",
-            amount: amountReceived,
-            status: "Verified",
-            ...(adminNote ? { note: adminNote } : {}),
-            ...(transition.payment.paymentNumber !== undefined ? { paymentNumber: String(transition.payment.paymentNumber) } : {}),
-          },
-        }),
-      })
+      const recipientUid = String(booking.userId || booking.uid || "")
+      await enqueueEmailEvents(transaction, firestore, [
+        {
+          eventType: "payment_verified",
+          eventId: `payment_verified_${paymentId}`,
+          bookingId,
+          recipientUid,
+          payload: buildBookingEmailPayload(bookingWithReceipt, {
+            remainingBalance: transition.summary.remainingBalance,
+            payment: {
+              method: "Pay at the Office",
+              amount: amountReceived,
+              status: "Verified",
+              ...(adminNote ? { note: adminNote } : {}),
+              ...(transition.payment.paymentNumber !== undefined ? { paymentNumber: String(transition.payment.paymentNumber) } : {}),
+            },
+          }),
+        },
+        ...(bookingConfirmationTransitioned ? [{
+          eventType: "booking_confirmed" as const,
+          eventId: `booking_confirmed_${bookingId}`,
+          bookingId,
+          recipientUid,
+          payload: buildBookingEmailPayload(bookingWithReceipt, {
+            remainingBalance: transition.summary.remainingBalance,
+          }),
+        }] : []),
+      ])
       transaction.set(bookingRef, {
         ...stripUndefinedDeep(bookingToPersist) as DataRecord,
         updatedAt: now,

@@ -61,6 +61,11 @@ describe("branded transactional email templates", () => {
     const approved = renderEmailTemplate("booking_approved", payload)
     expect(approved.text).toContain("Remaining Balance: ₱87,500.00")
 
+    const confirmed = renderEmailTemplate("booking_confirmed", payload)
+    expect(confirmed.subject).toBe("Booking Confirmed")
+    expect(confirmed.text).toContain("Your booking has been confirmed.")
+    expect(confirmed.text).not.toMatch(/admin approved/i)
+
     const reminder = renderEmailTemplate("balance_reminder", payload)
     expect(reminder.text).toContain("Remaining Balance: ₱87,500.00")
     expect(reminder.html).not.toContain("data:image/png")

@@ -110,6 +110,7 @@ Current event mappings:
 | --- | --- | --- |
 | Booking submitted | Booking Request Received | `/api/bookings` commit |
 | Booking approved | Booking Confirmed | lifecycle approval/contract commit |
+| Booking confirmed | Booking Confirmed | first payment-driven secured transition in payment review or onsite commit |
 | Booking rejected | Booking Rejected | guarded lifecycle `status=declined` commit |
 | Booking schedule updated | Booking Schedule Updated | Admin update or approved Client modification |
 | Booking cancelled | Booking Cancellation Notice | Admin/direct or approved cancellation commit |

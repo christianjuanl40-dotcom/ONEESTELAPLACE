@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { TransactionStore } from "./helpers/transaction-store"
 import { buildFinalizedPaymentSnapshot, getPaymentRecordCreditedAmount } from "../payment-calculations"
@@ -59,7 +59,50 @@ beforeEach(() => {
   store.seed(`bookings/${bookingId}`, { ...savedBooking(), paymentReceipts: history, receipt: history[2] })
 })
 
+afterEach(() => vi.unstubAllEnvs())
+
 describe("selected payment review (real permission checks; transaction fixture)", () => {
+  it("queues one neutral booking confirmation with the separate payment notification", async () => {
+    vi.stubEnv("EMAIL_SENDING_ENABLED", "true")
+
+    const response = await review(request())
+    expect(response.status).toBe(200)
+    expect(store.data.get(`emailOutbox/booking_confirmed_${bookingId}`)).toMatchObject({
+      eventType: "booking_confirmed",
+      eventId: `booking_confirmed_${bookingId}`,
+      bookingId,
+      recipientUid: "client",
+      status: "pending",
+    })
+    expect(store.data.get("emailOutbox/payment_verified_payment-document-3")).toMatchObject({
+      eventType: "payment_verified",
+      status: "pending",
+    })
+
+    const retry = await review(request())
+    expect(retry.status).toBe(200)
+    expect((await retry.json()).alreadyVerified).toBe(true)
+    expect([...store.data.keys()].filter((path) => path === `emailOutbox/booking_confirmed_${bookingId}`)).toHaveLength(1)
+  })
+
+  it("does not enqueue automatic confirmation when the booking was already secured", async () => {
+    vi.stubEnv("EMAIL_SENDING_ENABLED", "true")
+    store.seed(`bookings/${bookingId}`, {
+      ...savedBooking(),
+      status: "confirmed",
+      bookingStatus: "Confirmed",
+      isSlotSecured: true,
+    })
+
+    const response = await review(request())
+    expect(response.status).toBe(200)
+    expect(store.data.has(`emailOutbox/booking_confirmed_${bookingId}`)).toBe(false)
+    expect(store.data.get("emailOutbox/payment_verified_payment-document-3")).toMatchObject({
+      eventType: "payment_verified",
+      status: "pending",
+    })
+  })
+
   it("verifies submission 3 after rejection, using document IDs and preserving finalized history", async () => {
     const earlierPayments = [structuredClone(savedPayment(1)), structuredClone(savedPayment(2))]
     const earlierReceipts = receipts().slice(0, 2)

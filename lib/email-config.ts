@@ -3,6 +3,7 @@ import "server-only"
 export const EMAIL_EVENT_TYPES = [
   "booking_submitted",
   "booking_approved",
+  "booking_confirmed",
   "booking_rejected",
   "booking_schedule_updated",
   "booking_cancelled",

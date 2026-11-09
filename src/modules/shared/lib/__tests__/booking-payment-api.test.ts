@@ -434,6 +434,46 @@ describe("finalized payment snapshot persistence", () => {
     })
   })
 
+  it("queues one neutral booking confirmation with an onsite verification", async () => {
+    vi.stubEnv("EMAIL_SENDING_ENABLED", "true")
+    store.seed("bookings/ONSITE-CONFIRM", existing({
+      status: "pending",
+      bookingStatus: "Pending",
+      isSlotSecured: false,
+    }))
+    const body = {
+      bookingId: "ONSITE-CONFIRM",
+      paymentType: "downpayment",
+      amountReceived: 5000,
+      idempotencyKey: "onsite-confirm-email-1",
+    }
+
+    const first = await onsite(post(body, "admin"))
+    expect(first.status).toBe(201)
+    const result = await first.json()
+    expect(store.data.get("emailOutbox/booking_confirmed_ONSITE-CONFIRM")).toMatchObject({
+      eventType: "booking_confirmed",
+      eventId: "booking_confirmed_ONSITE-CONFIRM",
+      bookingId: "ONSITE-CONFIRM",
+      recipientUid: "CLIENT",
+      status: "pending",
+    })
+    expect(store.data.get(`emailOutbox/payment_verified_${result.payment.id}`)).toMatchObject({
+      eventType: "payment_verified",
+      status: "pending",
+    })
+    expect(store.data.get("bookings/ONSITE-CONFIRM")).toMatchObject({
+      status: "confirmed",
+      bookingStatus: "Confirmed",
+      isSlotSecured: true,
+    })
+
+    const retry = await onsite(post(body, "admin"))
+    expect(retry.status).toBe(200)
+    expect((await retry.json()).alreadyProcessed).toBe(true)
+    expect([...store.data.keys()].filter((path) => path === "emailOutbox/booking_confirmed_ONSITE-CONFIRM")).toHaveLength(1)
+  })
+
   it("makes a keyed onsite retry return the original payment instead of charging twice", async () => {
     store.seed("bookings/BOOKING", existing())
     const body = { bookingId: "BOOKING", paymentType: "downpayment", amountReceived: 2500,

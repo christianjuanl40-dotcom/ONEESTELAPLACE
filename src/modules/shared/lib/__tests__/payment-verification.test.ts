@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   buildPaymentDecisionTransition,
   buildVerifiedPaymentTransition,
+  didBookingBecomeSecured,
 } from "../payment-verification"
 import type { PaymentRecordLike } from "../payment-calculations"
 
@@ -32,6 +33,17 @@ function makeRecord(overrides: Partial<PaymentRecordLike> = {}): PaymentRecordLi
 }
 
 describe("authoritative payment verification transition", () => {
+  it("detects only the first transition into a secured booking state", () => {
+    const before = makeBooking()
+    const transition = buildVerifiedPaymentTransition(before, [makeRecord()], makeRecord(), {
+      verifiedAmount: 7500,
+      adminName: "Administrator",
+    })
+
+    expect(didBookingBecomeSecured(before, transition.booking)).toBe(true)
+    expect(didBookingBecomeSecured(transition.booking, transition.booking)).toBe(false)
+  })
+
   it("moves an unverified downpayment to the existing partial stage", () => {
     const record = makeRecord()
     const result = buildVerifiedPaymentTransition(makeBooking(), [record], record, {

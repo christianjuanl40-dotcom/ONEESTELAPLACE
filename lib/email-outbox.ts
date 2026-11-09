@@ -1,6 +1,6 @@
 import "server-only"
 
-import type { Firestore, Transaction } from "firebase-admin/firestore"
+import type { DocumentReference, Firestore, Transaction } from "firebase-admin/firestore"
 import { createHash } from "node:crypto"
 import { getEmailConfig, isEmailSendingEnabled, type EmailEventType } from "@/lib/email-config"
 import type { BookingEmailPayload, EmailPaymentSnapshot } from "@/lib/email-templates"
@@ -34,6 +34,13 @@ export type EmailOutboxEvent = {
   bookingId: string
   recipientUid: string
   payload: BookingEmailPayload
+}
+
+type PreparedEmailJob = {
+  ref: DocumentReference
+  data: Record<string, unknown>
+  indexes: number[]
+  shouldCreate: boolean
 }
 
 function stripUndefined(value: unknown): unknown {
@@ -108,42 +115,74 @@ function sanitizePayload(payload: BookingEmailPayload): BookingEmailPayload {
 }
 
 /**
- * Queues a deterministic job in the same Firestore transaction as the
- * business transition. The read-before-create makes retries idempotent; a
- * concurrent transaction will retry and observe the existing job.
+ * Queues deterministic jobs in the same Firestore transaction as the business
+ * transition. All outbox reads happen before any outbox write so a payment
+ * transition can queue its payment and booking-confirmation jobs atomically.
  */
+export async function enqueueEmailEvents(
+  transaction: Transaction,
+  firestore: Firestore,
+  events: EmailOutboxEvent[],
+): Promise<boolean[]> {
+  const created = events.map(() => false)
+  if (!isEmailSendingEnabled()) return created
+
+  const jobs = new Map<string, PreparedEmailJob>()
+  const now = new Date()
+  events.forEach((event, index) => {
+    if (!event.eventId.trim() || !event.recipientUid.trim() || !event.bookingId.trim()) return
+
+    const eventId = event.eventId.trim()
+    const ref = firestore.collection(EMAIL_OUTBOX_COLLECTION).doc(safeDocumentId(eventId))
+    const existing = jobs.get(ref.path)
+    if (existing) {
+      existing.indexes.push(index)
+      return
+    }
+
+    jobs.set(ref.path, {
+      ref,
+      indexes: [index],
+      shouldCreate: false,
+      data: {
+        eventType: event.eventType,
+        eventId,
+        bookingId: event.bookingId,
+        recipientUid: event.recipientUid.trim(),
+        templateVersion: EMAIL_TEMPLATE_VERSION,
+        status: "pending",
+        attempts: 0,
+        createdAt: now,
+        nextAttemptAt: now,
+        claimedAt: null,
+        claimExpiresAt: null,
+        sentAt: null,
+        lastErrorCode: null,
+        payload: sanitizePayload(stripUndefined(event.payload) as BookingEmailPayload),
+      },
+    })
+  })
+
+  // Firestore transactions require all reads to happen before any write.
+  for (const job of jobs.values()) {
+    const existing = await transaction.get(job.ref)
+    job.shouldCreate = !existing.exists
+  }
+  for (const job of jobs.values()) {
+    if (!job.shouldCreate) continue
+    transaction.create(job.ref, job.data)
+    created[job.indexes[0]] = true
+  }
+  return created
+}
+
 export async function enqueueEmailEvent(
   transaction: Transaction,
   firestore: Firestore,
   event: EmailOutboxEvent,
 ): Promise<boolean> {
-  if (!isEmailSendingEnabled()) return false
-  if (!event.eventId.trim() || !event.recipientUid.trim() || !event.bookingId.trim()) return false
-
-  const eventId = event.eventId.trim()
-  const jobRef = firestore.collection(EMAIL_OUTBOX_COLLECTION).doc(safeDocumentId(eventId))
-  const existing = await transaction.get(jobRef)
-  if (existing.exists) return false
-
-  const now = new Date()
-  const payload = sanitizePayload(stripUndefined(event.payload) as BookingEmailPayload)
-  transaction.create(jobRef, {
-    eventType: event.eventType,
-    eventId,
-    bookingId: event.bookingId,
-    recipientUid: event.recipientUid.trim(),
-    templateVersion: EMAIL_TEMPLATE_VERSION,
-    status: "pending",
-    attempts: 0,
-    createdAt: now,
-    nextAttemptAt: now,
-    claimedAt: null,
-    claimExpiresAt: null,
-    sentAt: null,
-    lastErrorCode: null,
-    payload,
-  })
-  return true
+  const [created] = await enqueueEmailEvents(transaction, firestore, [event])
+  return created
 }
 
 export function getEmailRetryDelayMs(attempt: number): number {

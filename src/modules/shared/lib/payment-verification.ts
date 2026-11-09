@@ -68,7 +68,7 @@ function isRequestUnderReview(booking: Record<string, unknown>): boolean {
   })
 }
 
-function isPreviouslySecured(booking: Record<string, unknown>): boolean {
+export function isBookingSecured(booking: Record<string, unknown>): boolean {
   return booking.isSlotSecured === true || [
     booking.status,
     booking.bookingStatus,
@@ -79,6 +79,13 @@ function isPreviouslySecured(booking: Record<string, unknown>): boolean {
     "contract_signing_required",
     "active_rental",
   ].includes(normalizeStatus(value).replace(/[\s-]+/g, "_")))
+}
+
+export function didBookingBecomeSecured(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+): boolean {
+  return !isBookingSecured(before) && isBookingSecured(after)
 }
 
 function buildDecisionBookingFields(
@@ -92,7 +99,7 @@ function buildDecisionBookingFields(
   const officeBooking = isOfficeBooking(booking)
   const paymentStatus = getPaymentStatus(summary)
   const paymentSecured = officeBooking ? summary.fullyPaid : summary.downpaymentComplete
-  const previouslySecured = isPreviouslySecured(booking)
+  const previouslySecured = isBookingSecured(booking)
   const requestUnderReview = isRequestUnderReview(booking)
   const slotSecured = paymentSecured || previouslySecured
   const selectedDownpaymentAmount = toPaymentAmount(booking.selectedDownpaymentAmount) || summary.requiredDownpayment
