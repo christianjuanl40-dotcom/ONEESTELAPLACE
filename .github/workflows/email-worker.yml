@@ -9,7 +9,9 @@ on:
         default: false
         type: boolean
   schedule:
-    - cron: "*/5 * * * *"
+    # Offset from the top of the hour to reduce GitHub Actions peak-minute
+    # scheduling delays while retaining an approximately five-minute cadence.
+    - cron: "2-59/5 * * * *"
 
 permissions:
   contents: read
