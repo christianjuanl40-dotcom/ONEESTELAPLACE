@@ -459,7 +459,18 @@
 
 .oe-transactions-table .oe-transaction-actions button {
   height: 2.75rem;
+  padding-inline: 0.5rem;
   white-space: nowrap;
+}
+
+/* The client portal's desktop content area is narrower than the viewport
+   because the navigation rail remains in flow. Let the transaction table use
+   its percentage columns instead of forcing the historical 1180px canvas. */
+.oe-transactions-table .oe-payment-status {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  padding-inline: 0.5rem;
 }
 
 /* A fixed five-action footer must not consume the details on short phones.

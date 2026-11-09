@@ -178,3 +178,11 @@ The acceptance follow-up keeps the pre-existing local edits and adds the admin b
 | `node scripts/verify-safe-build.mjs --webpack` | **Passed** compilation, TypeScript, and **23/23** static pages with disposable identity, disabled email, and loopback emulators. |
 
 The full suite remains **53 files passed, 1 skipped; 862 tests passed, 130 skipped, 0 failed**, TypeScript passed, and lint reported **0 errors / 160 existing warnings**. All changes remain uncommitted and local; no production data, Firebase deployment, email dispatch, or live CMS publication was used.
+
+## 11. Final client transaction overflow follow-up — 2026-11-10
+
+The remaining Client My Transactions overflow was caused by the desktop renderer's fixed `1180px` table minimum and fixed pixel column widths. The portal navigation remains in the flex row at `lg` and the main pane has constrained horizontal space; at `1280px` the table was therefore wider than its available content pane. The historical `11rem` status badge and `264px` action column amplified the forced table width. The parent shell already had the required `min-w-0` constraints; the unnecessary width was inside the table renderer.
+
+The desktop transaction table now uses percentage-sized Booking, Reserved Space, Schedule, Financial Summary, Payment Status, and Actions columns, releases the historical minimum at `xl`, and constrains cell content with `min-w-0`/`max-w-0`. Client status badges fill their assigned cell with reduced internal padding, while action buttons retain full-width 44px targets. Current, other-current, and history sections all use the same corrected `TransactionTable`; compact rows remain the renderer below `xl`.
+
+The payment browser harness now renders the client page inside a portal navigation/main-pane fixture and asserts the actual table/action/status bounding boxes at **320, 375, 768, 1024, 1280, 1366, 1440, and 1920px**. It covers incomplete, partially paid, pending-review, and fully paid fixtures, verifies no desktop table/page overflow, and captures screenshots. The focused payments-only run passed **110 assertions/scenarios** after the fix. No payment calculations, statuses, schemas, indexes, rules, or financial writes were changed. The fix remains uncommitted pending final release approval.

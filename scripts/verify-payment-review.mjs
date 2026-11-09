@@ -180,7 +180,21 @@ const modules = {
     import {ReserveDialog} from '@/src/modules/client/components/reserve-dialog';
     import '@/app/globals.css';
     import 'virtual:payment-state';
-    createRoot(document.getElementById('root')).render(React.createElement(location.search.includes('reserve')?ReserveDialog:location.search.includes('bookings')?Bookings:location.search.includes('admin')?Admin:Client));
+    function ClientPortalFixture({children}){
+      return React.createElement('div',{className:'flex min-h-screen w-full'},
+        React.createElement('div',{className:'relative flex min-h-0 min-w-0 flex-1 overflow-hidden'},
+          React.createElement('aside',{className:'absolute inset-y-0 left-0 z-50 flex h-full w-64 -translate-x-full flex-col border-r border-slate-200 bg-white lg:relative lg:translate-x-0'},
+            React.createElement('div',{className:'sr-only'},'Client navigation fixture')),
+          React.createElement('main',{className:'min-h-0 min-w-0 flex-1 overflow-y-auto p-3 pb-28 sm:p-4 sm:pb-8 md:p-6 md:pb-10 lg:p-8'},children)));
+    }
+    const page = location.search.includes('reserve')
+      ? React.createElement(ReserveDialog)
+      : location.search.includes('bookings')
+        ? React.createElement(Bookings)
+        : location.search.includes('admin')
+          ? React.createElement(Admin)
+          : React.createElement(ClientPortalFixture,null,React.createElement(Client));
+    createRoot(document.getElementById('root')).render(page);
   `,
 }
 
@@ -363,7 +377,7 @@ try {
       : 'header[aria-label="My transactions toolbar"]').count(), 1)
     await page.evaluate(() => window.paymentFixture.setupAlignment())
     const before=await page.evaluate(() => JSON.stringify(window.paymentFixture.snapshot()))
-    for (const width of [320,375,768,1024,1280,1366,1440]) {
+    for (const width of [320,375,768,1024,1280,1366,1440,1920]) {
       await page.setViewportSize({width,height:844})
       await page.evaluate(() => new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))
       assert.equal(await page.locator('.oe-page-kicker, .oe-page-description').count(),0)
@@ -371,13 +385,13 @@ try {
       const badges=page.locator('.oe-payment-status:visible')
       assert.equal(await badges.count(),4)
       const boxes=await badges.evaluateAll(nodes=>nodes.map(el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,overflow:el.scrollWidth>el.clientWidth+1,whiteSpace:getComputedStyle(el).whiteSpace}}))
-      for(const box of boxes){
-        assert.equal(box.height,32)
-          assert.equal(box.width,176)
-        assert.equal(box.overflow,false)
-        assert.equal(box.whiteSpace,'nowrap')
-        assert.ok(Math.abs(box.x-boxes[0].x)<1,'badges share a consistent horizontal position')
-      }
+        for(const box of boxes){
+          assert.equal(box.height,32)
+          if(surface==='admin') assert.equal(box.width,176)
+          assert.equal(box.overflow,false)
+          assert.equal(box.whiteSpace,'nowrap')
+          if(surface==='admin') assert.ok(Math.abs(box.x-boxes[0].x)<1,'badges share a consistent horizontal position')
+        }
        if(width>=1280){
          const cells=page.locator(surface==='admin'?'[data-payment-review-status]':'[data-transaction-status]')
         for(const cell of await cells.all()){
@@ -388,9 +402,22 @@ try {
          const dimensions=await container.evaluate(el=>({clientWidth:el.clientWidth,scrollWidth:el.scrollWidth}))
          assert.ok(dimensions.scrollWidth<=dimensions.clientWidth+1,`${surface} ${width}px table fits without desktop clipping`)
          const tableBox=await container.boundingBox()
-         const firstRow=container.locator('tbody tr').first()
-         const action=await firstRow.getByRole('button').last().boundingBox()
-         assert.ok(tableBox&&action&&action.x>=tableBox.x&&action.x+action.width<=tableBox.x+tableBox.width+1,`${surface} ${width}px action remains fully visible`)
+          const headerActions=await container.locator('thead th').last().boundingBox()
+          assert.ok(tableBox&&headerActions&&headerActions.x>=tableBox.x&&headerActions.x+headerActions.width<=tableBox.x+tableBox.width+1,`${surface} ${width}px Actions header remains fully visible`)
+          const rows=container.locator('tbody tr[data-transaction-target], tbody tr[data-payment-booking]')
+          for(const row of await rows.all()){
+            const actionCell=await row.locator('[data-slot="table-cell"]').last().boundingBox()
+            const statusCell=await row.locator('[data-transaction-status], [data-payment-review-status]').boundingBox()
+            const status=await row.locator('.oe-payment-status').boundingBox()
+            assert.ok(actionCell&&statusCell&&status)
+            assert.ok(status.x>=statusCell.x&&status.x+status.width<=statusCell.x+statusCell.width+1,`${surface} ${width}px payment status remains inside its cell`)
+            assert.ok(Math.abs(statusCell.x+statusCell.width/2-status.x-status.width/2)<1,`${surface} ${width}px payment status remains centered`)
+            for(const button of await row.getByRole('button').all()){
+              const buttonBox=await button.boundingBox()
+              assert.ok(buttonBox&&buttonBox.x>=actionCell.x&&buttonBox.x+buttonBox.width<=actionCell.x+actionCell.width+1,`${surface} ${width}px action remains fully visible`)
+              assert.equal(await button.evaluate(el=>el.scrollWidth>el.clientWidth+1),false)
+            }
+          }
          await container.evaluate(el=>{el.scrollLeft=el.scrollWidth})
         assert.equal(await container.evaluate(el=>el.scrollWidth<=el.clientWidth+1||el.scrollLeft>0),true)
       }
