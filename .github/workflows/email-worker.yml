@@ -1,0 +1,53 @@
+name: Production email worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      activate:
+        description: "Confirm this manual run is owner-approved"
+        required: true
+        default: false
+        type: boolean
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-email-worker
+  cancel-in-progress: false
+
+jobs:
+  process-outbox:
+    # The repository variable is intentionally absent/false by default. A
+    # manual run also requires its explicit confirmation input; scheduled runs
+    # do not. Neither gate contains or transports a secret.
+    if: ${{ vars.EMAIL_WORKER_ENABLED == 'true' && (github.event_name == 'schedule' || inputs.activate == true) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Call authenticated worker
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${CRON_SECRET:-}" ]]; then
+            echo "::error::The CRON_SECRET Actions secret is not configured."
+            exit 1
+          fi
+
+          # Do not enable curl tracing or put the secret in the URL. The API
+          # accepts POST and returns only worker counts/safe error codes.
+          curl \
+            --fail-with-body \
+            --silent \
+            --show-error \
+            --max-time 240 \
+            --request POST \
+            --header "Accept: application/json" \
+            --header "Authorization: Bearer ${CRON_SECRET}" \
+            "https://oneestelaplace.vercel.app/api/internal/email-worker?limit=10"
+          printf '\n'

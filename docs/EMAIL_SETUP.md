@@ -132,7 +132,7 @@ GET or POST /api/internal/email-worker?limit=10
 Authorization: Bearer <CRON_SECRET>
 ```
 
-It returns 404 for missing/incorrect secrets, does not run when sending is disabled, and returns a safe configuration error if SMTP or `APP_BASE_URL` is incomplete. This repository does not declare a deployment scheduler; use an owner-controlled scheduler or invoke the endpoint manually. Vercel plan support, project configuration, `CRON_SECRET`, and explicit owner approval must still be confirmed before any live scheduler can run.
+The deployed route accepts both methods; the prepared GitHub Actions workflow uses `POST`. It returns 404 for missing/incorrect secrets, returns `status=disabled` without processing when `EMAIL_SENDING_ENABLED=false`, and returns a safe configuration error if SMTP or `APP_BASE_URL` is incomplete. The worker resolves only server-side Auth recipient addresses and never accepts a recipient from the scheduler request.
 
 The protected readiness endpoint is:
 
@@ -141,23 +141,89 @@ GET or POST /api/internal/email-diagnostics
 Authorization: Bearer <CRON_SECRET>
 ```
 
+`GET` is preferred because the request has no body and does not process email. The route accepts either `Authorization: Bearer <CRON_SECRET>` or `x-cron-secret: <CRON_SECRET>`. Missing or incorrect authentication deliberately returns HTTP `404` with `{ "error": "Not found." }`; this does not disclose whether the route exists. A valid request returns HTTP `200` when OTP readiness and the production Firebase project check pass, otherwise HTTP `503`.
+
 It returns only safe booleans, counts, an OTP gate reason, and a Firebase project-match result. It never returns SMTP credentials, the OTP secret, recipient addresses, or the project credential. Use it to diagnose a deployed `503` without pulling encrypted Vercel values:
 
 ```powershell
 Invoke-WebRequest `
-  -Uri "$env:APP_BASE_URL/api/internal/email-diagnostics" `
+  -Uri "https://oneestelaplace.vercel.app/api/internal/email-diagnostics" `
   -Headers @{ Authorization = "Bearer $env:CRON_SECRET" }
 ```
+
+For the shortest owner check, inject `CRON_SECRET` into the current process from a password manager or other secret store without putting the value in shell history, then run:
+
+```powershell
+curl.exe --silent --show-error --fail-with-body --request GET `
+  --header "Authorization: Bearer $env:CRON_SECRET" `
+  "https://oneestelaplace.vercel.app/api/internal/email-diagnostics"
+Remove-Item Env:CRON_SECRET -ErrorAction SilentlyContinue
+```
+
+This prints the sanitized response only; never replace `$env:CRON_SECRET` with a literal value, use `curl -v`, or capture the command in a screenshot. If the secret is not already injected, use hidden input rather than a command-line argument.
+
+The authenticated response contains only these fields:
+
+- `status`: `ready` or `not_ready`.
+- `email`: `environment`, `isProduction`, `isStaging`, `emailSendingEnabled`, `otpSendingEnabled`, `otpStagingApproved`, `otpProductionApproved`, `otpSecretConfigured`, `smtpConfigured`, `appBaseUrlConfigured`, `otpReady`, `otpGateReason`, `recipientAllowlistConfigured`, `recipientAllowlistCount`, and `recipientAllowlistOnly`.
+- `firebase`: `adminConfigured`, `projectMatchesProduction`, and `errorCode` (`null` or `firebase_admin_unavailable`).
+
+It never returns `CRON_SECRET`, SMTP credentials, `EMAIL_OTP_SECRET`, an OTP, recipient addresses, or Firebase service-account values.
+
+Interpret `email.otpGateReason` as follows:
+
+| Code | Meaning | Owner action |
+| --- | --- | --- |
+| `ready` | OTP flags, production approval, SMTP shape, and OTP secret length pass the configuration gate. | If HTTP is still `503`, inspect `firebase.adminConfigured` and `firebase.projectMatchesProduction`; SMTP authentication/delivery still needs one controlled test. |
+| `otp_flag_false` | `EMAIL_OTP_SENDING_ENABLED` is not exactly `true`. | Set it only for the approved OTP test/activation. |
+| `production_approval_false` | Production is detected but `EMAIL_OTP_PRODUCTION_APPROVED` is not exactly `true`. | Obtain owner approval before changing it. |
+| `staging_approval_false` | Staging is detected without staging approval. | Use the isolated staging configuration; never weaken production checks. |
+| `smtp_incomplete` | Required Gmail host/user/App Password/from configuration is incomplete or invalid. | Correct Vercel Production variables without printing their values. |
+| `otp_secret_missing` | `EMAIL_OTP_SECRET` is missing or shorter than 32 characters. | Generate/store a separate server-only secret. |
+
+Allowlist policy is reported separately. `recipientAllowlistOnly=true` means an OTP recipient and worker recipient must be in the configured allowlist; `recipientAllowlistConfigured` and `recipientAllowlistCount` do not reveal the address or prove that a particular address matches. A disallowed OTP request is rejected separately as `otp_recipient_not_allowed`; it is not an `otpGateReason`. A live SMTP authentication or delivery failure also cannot be proven by this read-only route; it requires the owner-approved controlled OTP test.
+
+The OTP gate is independent of transactional outbox sending: `otpReady=true` can coexist with `emailSendingEnabled=false`. Keep `EMAIL_SENDING_ENABLED=false` until the historical outbox disposition is approved and completed.
 
 It can also be invoked manually for an owner-authorized smoke test:
 
 ```powershell
 Invoke-WebRequest `
-  -Uri "$env:APP_BASE_URL/api/internal/email-worker?limit=10" `
+  -Uri "https://oneestelaplace.vercel.app/api/internal/email-worker?limit=10" `
   -Headers @{ Authorization = "Bearer $env:CRON_SECRET" }
 ```
 
 Do not expose the endpoint without `CRON_SECRET`. The worker processes transactional jobs only; it does not send OTP messages.
+
+### 6.1 Prepared GitHub Actions worker (not activated)
+
+`.github/workflows/email-worker.yml` is checked in with a five-minute schedule and manual dispatch, but it is disabled by default. Every worker job requires both:
+
+1. The repository Actions variable `EMAIL_WORKER_ENABLED` to equal the exact lowercase string `true`.
+2. For manual dispatch, the `activate` confirmation input to be set to `true`. Scheduled runs do not have that manual input.
+
+When the job runs, it sends one `POST` request with `Authorization: Bearer $CRON_SECRET`; the secret is never placed in the URL. Workflow concurrency allows only one active production worker run, and the endpoint's five-minute job leases provide a second duplicate-claim guard. The workflow does not use Vercel Cron.
+
+The workflow is intentionally not enabled by committing it. Do not set `EMAIL_WORKER_ENABLED=true` until the backlog steps below are complete.
+
+### 6.2 Pre-release backlog disposition
+
+The last authorized read-only inspection found exactly three `pending` jobs created before this release: one `booking_submitted`, one `payment_submitted`, and one `payment_verified`, spanning `2026-11-09T02:26:24.683Z` through `2026-11-09T02:27:12.437Z`. No worker invocation, send, or outbox mutation was performed.
+
+Before activation, the owner must inspect those exact documents in the production Firebase Console or with an approved Admin SDK read. For each job that the owner approves as historical and not to be sent, update only that exact `emailOutbox/{jobId}` document to:
+
+```text
+status = "blocked"
+lastErrorCode = "historical_job_excluded"
+claimedAt = null
+claimExpiresAt = null
+blockedAt = <owner-approved timestamp>
+blockedReason = "pre-release backlog excluded after owner review"
+```
+
+Record the document IDs privately in the owner change record. Do not delete the documents, alter booking/payment fields or payloads, mark them `sent`, or reset them to `pending`. `blocked` is already a terminal worker-excluded state and is not selected by the worker. Re-read `emailOutbox` after the update and confirm the three reviewed jobs are `blocked` before enabling transactional sending. If the owner instead approves sending one or more jobs, keep them pending and handle them as a separate, explicit controlled send decision; never enable a broad scheduler first.
+
+This state change requires owner approval and is not performed by this repository or workflow.
 
 ## 7. Safe smoke tests
 
@@ -207,9 +273,9 @@ The email tests inject a fake SMTP transport. They do not connect to Gmail and d
 ### Owner-authorized booking/payment test
 
 1. Use only a synthetic test account whose Auth email is in `EMAIL_TEST_RECIPIENT_ALLOWLIST`.
-2. Create a future test booking, approve it, modify its schedule, reject an unsecured unpaid pending booking, cancel a test booking, and use a test payment submission/review.
+2. After the historical backlog is dispositioned and `EMAIL_SENDING_ENABLED=true` is explicitly approved, create one future synthetic booking and one controlled payment event.
 3. Invoke the worker with the protected secret and inspect the controlled inbox and `emailOutbox` status in the authorized Firebase Console.
-4. Confirm pending payment submission does **not** produce a verified-payment email, rejected paid/secured booking attempts are blocked, and a failed business transaction creates no success job.
+4. Confirm the payment event's status/method/amount is correct and that a failed business transaction creates no success job.
 
 Do not replay historical bookings or run a mass send.
 
@@ -223,7 +289,25 @@ firebase deploy --only firestore:rules
 
 The implementation does not deploy automatically.
 
-## 9. Troubleshooting and emergency disablement
+## 9. Owner dashboard activation order
+
+### Vercel
+
+1. Open the Vercel project **oneestelaplace** → **Settings** → **Environment Variables** → **Production**.
+2. Confirm `CRON_SECRET` exists, without revealing or copying it into chat/logs. The same value must be stored in GitHub Actions as a secret, not a repository variable.
+3. Keep `EMAIL_SENDING_ENABLED=false` while the three historical jobs are reviewed and dispositioned. OTP controls are separate: inspect them through the protected diagnostics response before changing any value.
+4. After owner approval, change only the intended production flag(s), redeploy, and run diagnostics again. Do not use Vercel Cron; this workflow is external GitHub Actions.
+
+### GitHub
+
+1. Open the repository → **Settings** → **Secrets and variables** → **Actions**.
+2. Under **Secrets**, create `CRON_SECRET` with the exact production value. Do not create it as a variable and do not put it in the workflow file.
+3. Under **Variables**, create `EMAIL_WORKER_ENABLED` with `false` (or leave it absent) during backlog review.
+4. After the owner approves the backlog and transactional email configuration, change the variable to the exact lowercase value `true`.
+5. For the first run, open **Actions** → **Production email worker** → **Run workflow**, select the default branch, set `activate` to `true`, and review the safe response. Later scheduled runs use the same repository-variable gate.
+6. Disable immediately by changing `EMAIL_WORKER_ENABLED` to anything other than exact lowercase `true`; no code change is required.
+
+## 10. Troubleshooting and emergency disablement
 
 - **No jobs are created:** confirm `EMAIL_SENDING_ENABLED=true` for the server environment; ordinary local/test runs intentionally skip enqueueing.
 - **Worker returns `email_configuration_incomplete`:** check SMTP host/port/security, Gmail user/App Password, `EMAIL_FROM`, and HTTPS `APP_BASE_URL`.
@@ -234,4 +318,4 @@ The implementation does not deploy automatically.
 - **Verification link fails:** enable the explicit compatibility fallback only for an owner-authorized test; Firebase handles expired, invalid, and already-used action codes.
 - **A booking succeeds while email fails:** this is expected. Business success and email delivery status are separate; inspect the outbox and worker safe error code.
 
-To disable immediately, set `EMAIL_SENDING_ENABLED=false` and `EMAIL_OTP_SENDING_ENABLED=false` in every active deployment environment and redeploy/restart the server. To stop new verification gates, set `EMAIL_VERIFICATION_ENFORCEMENT_ENABLED=false`. Existing committed bookings/payments are not rolled back, and no automatic historical replay occurs when email is re-enabled.
+To disable immediately, set `EMAIL_WORKER_ENABLED` to anything other than exact lowercase `true`, set `EMAIL_SENDING_ENABLED=false` and `EMAIL_OTP_SENDING_ENABLED=false` in every active deployment environment, and redeploy/restart the server. To stop new verification gates, set `EMAIL_VERIFICATION_ENFORCEMENT_ENABLED=false`. Existing committed bookings/payments are not rolled back, and no automatic historical replay occurs when email is re-enabled.
