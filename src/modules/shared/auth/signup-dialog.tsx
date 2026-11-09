@@ -115,9 +115,10 @@ export function SignupDialog({ className, children }: SignupDialogProps) {
         setOpen(false)
         toast({
           title: "Verify your email",
-          description: result.message || "We've sent a 6-digit verification code to your registered email address.",
+          description: result.message || "We've sent a 6-digit verification code. Verify it before creating your account.",
         })
-        window.location.replace("/verify-email")
+        const registrationQuery = result.registrationId ? `?registration=${encodeURIComponent(result.registrationId)}` : ""
+        window.location.replace(`/verify-email${registrationQuery}`)
       } else {
         setErrorMsg(result.message || "Email is already taken. Please use a different one.")
       }
@@ -209,6 +210,10 @@ export function SignupDialog({ className, children }: SignupDialogProps) {
               </div>
             </div>
 
+            <p className="rounded-lg border border-orange-100 bg-orange-50 px-3 py-2 text-xs leading-5 text-orange-800">
+              You will re-enter your password after the email code is verified. Passwords are never stored in the verification record.
+            </p>
+
             <Button
               type="submit"
               className="w-full bg-slate-900 hover:bg-slate-800 text-white h-11 rounded-md font-bold mt-2"
@@ -216,10 +221,10 @@ export function SignupDialog({ className, children }: SignupDialogProps) {
             >
               {isLoading || isSubmitting ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating your account...
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending verification code...
                 </>
               ) : (
-                "Complete Sign Up"
+                "Send Verification Code"
               )}
             </Button>
 

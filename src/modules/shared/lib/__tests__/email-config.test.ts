@@ -5,6 +5,7 @@ vi.mock("server-only", () => ({}))
 import {
   EMAIL_OTP_MIN_SECRET_LENGTH,
   getEmailConfig,
+  getEmailRuntimeDiagnostics,
   getEmailVerificationActivationStart,
   isAllowedEmailRecipient,
   isEmailOtpSendingEnabled,
@@ -113,6 +114,7 @@ describe("OTP delivery configuration", () => {
 
   it("requires an explicit production approval flag", () => {
     vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("VERCEL_ENV", "")
     vi.stubEnv("EMAIL_OTP_SENDING_ENABLED", "true")
     vi.stubEnv("EMAIL_OTP_SECRET", "x".repeat(EMAIL_OTP_MIN_SECRET_LENGTH))
     vi.stubEnv("SMTP_USER", "mailer@example.test")
@@ -122,6 +124,24 @@ describe("OTP delivery configuration", () => {
     expect(getEmailConfig().otpReady).toBe(false)
     vi.stubEnv("EMAIL_OTP_PRODUCTION_APPROVED", "true")
     expect(getEmailConfig().otpReady).toBe(true)
+  })
+
+  it("treats Vercel Preview as non-production even though Next uses production NODE_ENV", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("VERCEL_ENV", "preview")
+    vi.stubEnv("EMAIL_OTP_SENDING_ENABLED", "true")
+    vi.stubEnv("EMAIL_OTP_SECRET", "x".repeat(EMAIL_OTP_MIN_SECRET_LENGTH))
+    vi.stubEnv("SMTP_HOST", "smtp.gmail.com")
+    vi.stubEnv("SMTP_USER", "mailer@example.test")
+    vi.stubEnv("SMTP_APP_PASSWORD", "fake-app-password")
+    vi.stubEnv("EMAIL_FROM", "One Estela Place <mailer@example.test>")
+    vi.stubEnv("EMAIL_TEST_RECIPIENT_ALLOWLIST", "client@example.test")
+
+    const config = getEmailConfig()
+    expect(config.isProduction).toBe(false)
+    expect(config.otpReady).toBe(true)
+    expect(isAllowedEmailRecipient("client@example.test", config)).toBe(true)
+    expect(isAllowedEmailRecipient("other@example.test", config)).toBe(false)
   })
 
   it("requires a separate staging approval flag", () => {
@@ -145,5 +165,36 @@ describe("OTP delivery configuration", () => {
     expect(isEmailOtpSendingEnabled()).toBe(false)
     vi.stubEnv("EMAIL_OTP_STAGING_APPROVED", "true")
     expect(isEmailOtpSendingEnabled()).toBe(true)
+  })
+
+  it("keeps production recipients open unless the explicit allowlist-only gate is enabled", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("EMAIL_TEST_RECIPIENT_ALLOWLIST", "owner@example.test")
+    const config = getEmailConfig()
+
+    expect(isAllowedEmailRecipient("customer@example.test", config)).toBe(true)
+    expect(isAllowedEmailRecipient("owner@example.test", config)).toBe(true)
+
+    vi.stubEnv("EMAIL_TEST_RECIPIENT_ALLOWLIST_ONLY", "true")
+    const restricted = getEmailConfig()
+    expect(isAllowedEmailRecipient("customer@example.test", restricted)).toBe(false)
+    expect(isAllowedEmailRecipient("owner@example.test", restricted)).toBe(true)
+  })
+
+  it("reports only safe OTP readiness booleans and a gate code", () => {
+    vi.stubEnv("EMAIL_OTP_SENDING_ENABLED", "true")
+    vi.stubEnv("EMAIL_OTP_SECRET", "too-short")
+    vi.stubEnv("SMTP_USER", "")
+    vi.stubEnv("SMTP_APP_PASSWORD", "")
+    vi.stubEnv("EMAIL_FROM", "")
+    const diagnostics = getEmailRuntimeDiagnostics()
+
+    expect(diagnostics).toMatchObject({
+      otpSendingEnabled: true,
+      otpSecretConfigured: false,
+      otpReady: false,
+      otpGateReason: "smtp_incomplete",
+    })
+    expect(JSON.stringify(diagnostics)).not.toContain("too-short")
   })
 })

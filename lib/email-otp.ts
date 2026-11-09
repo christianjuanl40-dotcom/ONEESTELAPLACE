@@ -8,6 +8,7 @@ import { getAdminAuth, getAdminFirestore } from "@/lib/firebase-admin"
 import {
   getEmailConfig,
   getEmailOtpSecret,
+  getEmailRuntimeDiagnostics,
   isAllowedEmailRecipient,
   isEmailOtpSendingEnabled,
   isValidEmailAddress,
@@ -184,9 +185,11 @@ function assertEmailPasswordProvider(authUser: { providerData?: Array<{ provider
 function assertOtpSendingReady(secret: string) {
   const config = getEmailConfig()
   if (!isEmailOtpSendingEnabled()) {
+    console.warn("[EMAIL_OTP] delivery gate is closed", getEmailRuntimeDiagnostics(config))
     throw new EmailOtpError(503, "otp_disabled", "Email verification code sending is currently disabled.")
   }
   if (!config.smtpConfigured || !secret) {
+    console.warn("[EMAIL_OTP] delivery is not ready", getEmailRuntimeDiagnostics(config))
     throw new EmailOtpError(503, "otp_not_ready", "Email verification is temporarily unavailable. Please try again later.")
   }
   return config
@@ -261,7 +264,7 @@ async function markDeliverySent(
   }
 }
 
-function renderOtpHtml(code: string, expiryMinutes: number): string {
+export function renderOtpHtml(code: string, expiryMinutes: number): string {
   return `<!doctype html><html><body style="margin:0;background:#f8fafc;color:#0f172a;font-family:Arial,Helvetica,sans-serif;"><div style="padding:24px 12px;"><div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;"><div style="background:#ea580c;padding:24px 28px;color:#fff;"><div style="font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;opacity:.9;">One Estela Place</div><h1 style="margin:10px 0 0;font-size:25px;line-height:1.2;">Verify Your Email</h1></div><div style="padding:28px;"><p style="margin:0 0 18px;color:#475569;font-size:15px;line-height:1.6;">Use the verification code below to finish creating your One Estela Place account.</p><div style="margin:0 auto 20px;padding:18px;border:1px solid #fed7aa;border-radius:12px;background:#fff7ed;text-align:center;"><div style="color:#c2410c;font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;">Verification code</div><div style="margin-top:8px;color:#0f172a;font-size:34px;font-weight:800;letter-spacing:10px;">${code}</div></div><p style="margin:0;color:#64748b;font-size:13px;line-height:1.6;">This code expires in ${expiryMinutes} minutes. If you did not create an account, you can ignore this email.</p></div><div style="padding:16px 28px;background:#f8fafc;color:#64748b;font-size:12px;">One Estela Place · Automated verification message</div></div></div></body></html>`
 }
 

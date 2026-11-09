@@ -1,6 +1,6 @@
 # One Estela Place
 
-**Email/verification follow-up (2026-11-09):** New email/password Clients use a server-verified, six-digit email OTP flow at `/verify-email` with digest-only Firestore challenges, expiry, cooldown/rate limits, attempt limits, atomic claims, replay protection, and Firebase Auth synchronization. New signup profiles carry an immutable Firestore-rule-required onboarding marker, and protected Client mutations keep those accounts out of the portal until Firebase Auth verification is complete; the OTP route is the only authenticated pre-verification exception. The older Firebase link remains an explicit compatibility fallback behind `NEXT_PUBLIC_EMAIL_VERIFICATION_LINK_FALLBACK_ENABLED`. An optional rollout boundary covers unmarked legacy password accounts without unexpectedly locking legacy or federated accounts. Gmail SMTP notifications use a server-only, disabled-by-default Firestore `emailOutbox`; deterministic jobs are created inside committed booking/payment/lifecycle transactions, and the protected worker uses Auth UID recipient resolution, allowlists, leases, bounded retries, and terminal states. A guarded Admin/staff rejection action covers only unsecured pending bookings with no payment activity. `vercel.json` declares a five-minute worker schedule, but no credentials, production records, sends, deployments, or scheduler activation are included in this worktree. See [docs/EMAIL_SETUP.md](docs/EMAIL_SETUP.md).
+**Email/verification follow-up (2026-11-09):** New email/password Clients use an OTP-first signup flow at `/verify-email`: a server-only pending registration stores profile fields and an HMAC-bound code, but creates no Firebase Auth identity or Client profile before successful OTP verification. The user re-enters the password after verification; the browser then creates Firebase Auth and a protected server finalizer creates the Client profile with the immutable `emailVerificationRequired` marker. Challenges have expiry, cooldown/rate limits, attempt limits, single-use authorization, replay protection, and safe delivery-failure handling. Existing authenticated Clients retain the server OTP path, and the older Firebase link remains an explicit compatibility fallback behind `NEXT_PUBLIC_EMAIL_VERIFICATION_LINK_FALLBACK_ENABLED`. An optional rollout boundary covers unmarked legacy password accounts without unexpectedly locking legacy or federated accounts. Gmail SMTP notifications use a server-only, disabled-by-default Firestore `emailOutbox`; deterministic jobs are created inside committed booking/payment/lifecycle transactions, and the protected worker uses Auth UID recipient resolution, explicit production allowlist mode, leases, bounded retries, and terminal states. A guarded Admin/staff rejection action covers only unsecured pending bookings with no payment activity. No deployment scheduler declaration, credentials, production records, sends, or deployments are included in this worktree. See [docs/EMAIL_SETUP.md](docs/EMAIL_SETUP.md).
 
 Booking and rental management system for **One Estela Place**: event venue reservations, office room rentals, payment verification, customer support, and website content management.
 
@@ -100,11 +100,11 @@ Copy-Item ".env.example" ".env.local"
 | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Server-only upload/delete credentials |
 | `NEXT_PUBLIC_PERF_TRACE` | Optional tracing: `1` enables performance logs, `0` disables them |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_APP_PASSWORD`, `EMAIL_FROM` | Server-only Gmail SMTP; sending remains disabled unless explicitly enabled |
-| `APP_BASE_URL`, `EMAIL_SENDING_ENABLED`, `EMAIL_TEST_RECIPIENT_ALLOWLIST`, `EMAIL_MAX_ATTEMPTS` | Server-only notification URL, gate, preview allowlist, and retry limit |
+| `APP_BASE_URL`, `EMAIL_SENDING_ENABLED`, `EMAIL_TEST_RECIPIENT_ALLOWLIST`, `EMAIL_TEST_RECIPIENT_ALLOWLIST_ONLY`, `EMAIL_MAX_ATTEMPTS` | Server-only notification URL, gate, preview allowlist, explicit production smoke-test restriction, and retry limit |
 | `EMAIL_OTP_SENDING_ENABLED`, `EMAIL_OTP_STAGING_APPROVED`, `EMAIL_OTP_SECRET`, `EMAIL_OTP_EXPIRY_SECONDS`, `EMAIL_OTP_RESEND_COOLDOWN_SECONDS`, `EMAIL_OTP_PRODUCTION_APPROVED` | Independent server-only OTP gate, staging-test approval, HMAC secret, expiry/cooldown controls, and explicit production approval guard |
 | `NEXT_PUBLIC_EMAIL_VERIFICATION_LINK_FALLBACK_ENABLED` | Explicit compatibility-only Firebase link fallback; OTP remains primary |
 | `EMAIL_VERIFICATION_ENFORCEMENT_ENABLED`, `EMAIL_VERIFICATION_ENFORCEMENT_START_AT` | Server-only verification rollout gate and legacy-client boundary |
-| `CRON_SECRET` | Server-only secret for `/api/internal/email-worker` |
+| `CRON_SECRET` | Server-only secret for `/api/internal/email-worker` and `/api/internal/email-diagnostics` |
 
 Use the same Firebase project for the browser configuration and Admin credentials. The private key supports escaped `\n` newlines. `.env.local` is ignored by Git; keep actual credential values out of documentation and client code.
 
@@ -118,7 +118,7 @@ Before staging can pass the guard, the owner must create/confirm the staging Fir
 
 1. Enable **Email/Password** sign-in in Firebase Authentication and create a Firestore database.
 2. Configure that project with [firestore.rules](firestore.rules) and [firestore.indexes.json](firestore.indexes.json). [firebase.json](firebase.json) points the Firebase CLI at these files; running Next.js does not deploy them.
-3. Provision the first admin in Firebase Authentication and a matching `users/{uid}` Firestore document with `uid`, `fullName`, `email`, `role: "admin"`, `status: "active"`, and an ISO `createdAt`. There is no checked-in admin seed command. Public signup creates client accounts.
+3. Provision the first admin in Firebase Authentication and a matching `users/{uid}` Firestore document with `uid`, `fullName`, `email`, `role: "admin"`, `status: "active"`, and an ISO `createdAt`. There is no checked-in admin seed command. Public signup creates Client accounts only after successful OTP finalization.
 4. Sign in as admin, open `/dashboard/cms`, and save the initial CMS configuration. The website can display fallback content without a stored document, but booking creation requires a persisted **`cms/data`** catalog.
 5. Review the venue/office prices, capacities, rooms, payment details, policy copy, images, panorama/Virtual Tour entries, contract previews, and **Predefined Questions & Answers** in CMS. Starter question/answer records are shown for review but are not published until an administrator explicitly saves them with the desired entries enabled and published.
 
@@ -139,7 +139,7 @@ Next.js route-group names such as `(client)` and `(admin)` are filesystem organi
 | URL | Purpose / source |
 | --- | --- |
 | `/` | Public landing page: `app/(client)/page.tsx` |
-| `/verify-email` | Six-digit OTP verification, status refresh, resend cooldown, sign-out, and optional Firebase link fallback for signed-in Clients |
+| `/verify-email` | OTP-first pending signup finalization, plus six-digit verification/status/resend/sign-out and optional Firebase link fallback for existing signed-in Clients |
 | `/portal` | Client dashboard with authenticated New Booking/Book Now navigation into the My Bookings reservation flow |
 | `/portal/bookings` | Client booking list, responsive booking overview, and the existing reservation dialog; `newBooking=1` is a one-time UI auto-open intent |
 | `/portal/payments` | My Transactions, responsive financial summaries, payment submissions, and receipts |
@@ -150,7 +150,8 @@ Next.js route-group names such as `(client)` and `(admin)` are filesystem organi
 | `/dashboard/chat`, `/dashboard/reports` | Support and reporting |
 | `/dashboard/staff`, `/dashboard/cms` | Staff management and content settings |
 | `/users` | Users Information, inside the admin route group |
-| `/api/internal/email-worker` | `CRON_SECRET`-protected server-only email outbox worker; `vercel.json` declares a five-minute schedule without activating delivery |
+| `/api/internal/email-worker` | `CRON_SECRET`-protected server-only email outbox worker; invocation scheduling is owner-configured outside this repository |
+| `/api/internal/email-diagnostics` | `CRON_SECRET`-protected safe readiness booleans for owner troubleshooting; never returns credentials or recipient values |
 | `/api/*` | Authenticated server endpoints; see [the API map](ARCHITECTURE.md#api-map) |
 
 ### Booking and payment list convention

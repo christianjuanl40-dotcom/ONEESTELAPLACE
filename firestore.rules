@@ -224,15 +224,11 @@ service cloud.firestore {
           || (hasPermission("chat") && resource.data.get("role", "") == "client")
         ));
 
-      allow create: if ownsUser(userId)
-        && request.resource.data.get("uid", "") == userId
-        && request.resource.data.get("role", "") == "client"
-        && request.resource.data.get("status", "") == "active"
-        // Every browser-created Client is a new signup and must enter the
-        // server-verified email onboarding flow. This marker is immutable to
-        // browser updates and is not used as proof of Firebase verification.
-        && request.resource.data.get("emailVerificationRequired", false) == true
-        && !request.resource.data.keys().hasAny(["permissions"]);
+      // New Client profiles are created only by the post-OTP Admin SDK
+      // finalizer. A browser-authenticated user must not be able to create a
+      // profile before the server has consumed the verified registration
+      // authorization.
+      allow create: if false;
 
       // Administrators manage roles, permissions, and account status through
       // /api/staff. Browser rules intentionally permit only ordinary profile
@@ -475,6 +471,14 @@ service cloud.firestore {
     }
 
     match /emailOtpRateLimits/{rateLimitId} {
+      allow read, write: if false;
+    }
+
+    match /pendingEmailRegistrations/{registrationId} {
+      allow read, write: if false;
+    }
+
+    match /pendingEmailRegistrationIndex/{indexId} {
       allow read, write: if false;
     }
 

@@ -36,8 +36,27 @@ export type EmailConfig = {
   smtpConfigured: boolean
   ready: boolean
   testRecipientAllowlist: string[]
+  testRecipientAllowlistOnly: boolean
   isProduction: boolean
   maxAttempts: number
+}
+
+export type EmailRuntimeDiagnostics = {
+  environment: string
+  isProduction: boolean
+  isStaging: boolean
+  emailSendingEnabled: boolean
+  otpSendingEnabled: boolean
+  otpStagingApproved: boolean
+  otpProductionApproved: boolean
+  otpSecretConfigured: boolean
+  smtpConfigured: boolean
+  appBaseUrlConfigured: boolean
+  otpReady: boolean
+  otpGateReason: "ready" | "otp_flag_false" | "staging_approval_false" | "production_approval_false" | "smtp_incomplete" | "otp_secret_missing"
+  recipientAllowlistConfigured: boolean
+  recipientAllowlistCount: number
+  recipientAllowlistOnly: boolean
 }
 
 function isEnabled(value: string | undefined): boolean {
@@ -83,7 +102,11 @@ export function getEmailConfig(): EmailConfig {
   const appBaseUrl = safeBaseUrl(process.env.APP_BASE_URL)
   const smtpConfigured = host.toLowerCase() === "smtp.gmail.com" && Boolean(user && appPassword && from)
   const appBaseUrlConfigured = Boolean(appBaseUrl)
-  const isProduction = process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production"
+  // Vercel preview functions run with NODE_ENV=production. Prefer the
+  // deployment target when it is present so preview remains isolated from the
+  // explicit production approval gate and recipient policy.
+  const vercelEnvironment = String(process.env.VERCEL_ENV || "").trim().toLowerCase()
+  const isProduction = vercelEnvironment ? vercelEnvironment === "production" : process.env.NODE_ENV === "production"
   const maxAttemptsValue = Number(process.env.EMAIL_MAX_ATTEMPTS || 5)
   const maxAttempts = Number.isInteger(maxAttemptsValue) && maxAttemptsValue >= 1 && maxAttemptsValue <= 10
     ? maxAttemptsValue
@@ -98,6 +121,7 @@ export function getEmailConfig(): EmailConfig {
     : 60
   const otpProductionApproved = isEnabled(process.env.EMAIL_OTP_PRODUCTION_APPROVED)
   const isStaging = String(process.env.ONEESTELA_ENV || "").trim().toLowerCase() === "staging"
+  const testRecipientAllowlistOnly = isEnabled(process.env.EMAIL_TEST_RECIPIENT_ALLOWLIST_ONLY)
   const otpAllowedToSend = otpEnabled
     && (!isStaging || otpStagingApproved)
     && (!isProduction || otpProductionApproved)
@@ -122,6 +146,7 @@ export function getEmailConfig(): EmailConfig {
     smtpConfigured,
     ready: enabled && smtpConfigured && appBaseUrlConfigured,
     testRecipientAllowlist: readAllowlist(process.env.EMAIL_TEST_RECIPIENT_ALLOWLIST),
+    testRecipientAllowlistOnly,
     isProduction,
     maxAttempts,
   }
@@ -137,6 +162,40 @@ export function isEmailOtpSendingEnabled(): boolean {
   return config.otpEnabled
     && (!isStaging || config.otpStagingApproved)
     && (!config.isProduction || config.otpProductionApproved)
+}
+
+/**
+ * Safe runtime configuration diagnostics. This deliberately reports no
+ * credential, address, URL, secret, or project value. It is suitable for a
+ * protected owner diagnostic endpoint and for sanitized readiness logs.
+ */
+export function getEmailRuntimeDiagnostics(config = getEmailConfig()): EmailRuntimeDiagnostics {
+  const isStaging = String(process.env.ONEESTELA_ENV || "").trim().toLowerCase() === "staging"
+  const otpSecretConfigured = String(process.env.EMAIL_OTP_SECRET || "").trim().length >= EMAIL_OTP_MIN_SECRET_LENGTH
+  let otpGateReason: EmailRuntimeDiagnostics["otpGateReason"] = "ready"
+  if (!config.otpEnabled) otpGateReason = "otp_flag_false"
+  else if (isStaging && !config.otpStagingApproved) otpGateReason = "staging_approval_false"
+  else if (config.isProduction && !config.otpProductionApproved) otpGateReason = "production_approval_false"
+  else if (!config.smtpConfigured) otpGateReason = "smtp_incomplete"
+  else if (!otpSecretConfigured) otpGateReason = "otp_secret_missing"
+
+  return {
+    environment: String(process.env.VERCEL_ENV || process.env.NODE_ENV || "unknown").trim().toLowerCase() || "unknown",
+    isProduction: config.isProduction,
+    isStaging,
+    emailSendingEnabled: config.enabled,
+    otpSendingEnabled: config.otpEnabled,
+    otpStagingApproved: config.otpStagingApproved,
+    otpProductionApproved: config.otpProductionApproved,
+    otpSecretConfigured,
+    smtpConfigured: config.smtpConfigured,
+    appBaseUrlConfigured: config.appBaseUrlConfigured,
+    otpReady: config.otpReady,
+    otpGateReason,
+    recipientAllowlistConfigured: config.testRecipientAllowlist.length > 0,
+    recipientAllowlistCount: config.testRecipientAllowlist.length,
+    recipientAllowlistOnly: config.testRecipientAllowlistOnly,
+  }
 }
 
 /**
@@ -173,14 +232,17 @@ export function isValidEmailAddress(value: unknown): value is string {
 
 /**
  * Preview/local environments must have an explicit test recipient. Production
- * may use the configured Gmail recipient policy, while an allowlist remains an
- * optional additional restriction for controlled smoke tests.
+ * accepts real recipients unless the owner explicitly enables
+ * EMAIL_TEST_RECIPIENT_ALLOWLIST_ONLY for a controlled smoke-test deployment.
  */
 export function isAllowedEmailRecipient(email: string, config = getEmailConfig()): boolean {
   const normalized = email.trim().toLowerCase()
   if (!isValidEmailAddress(normalized)) return false
   const isStaging = String(process.env.ONEESTELA_ENV || "").trim().toLowerCase() === "staging"
   if (isStaging && config.testRecipientAllowlist.length !== 1) return false
-  if (config.testRecipientAllowlist.length > 0) return config.testRecipientAllowlist.includes(normalized)
+  if (!config.isProduction && config.testRecipientAllowlist.length > 0) return config.testRecipientAllowlist.includes(normalized)
+  if (config.isProduction && config.testRecipientAllowlistOnly) {
+    return config.testRecipientAllowlist.length > 0 && config.testRecipientAllowlist.includes(normalized)
+  }
   return config.isProduction
 }

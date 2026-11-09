@@ -200,6 +200,9 @@ rulesSuite("Firestore security rules", () => {
     await assertFails(client.collection("emailOtpChallenges").doc("client").get())
     await assertFails(client.collection("emailOtpChallenges").doc("client").set({ status: "active" }))
     await assertFails(admin.collection("emailOtpRateLimits").get())
+    await assertFails(client.collection("pendingEmailRegistrations").doc("registration-123456789").get())
+    await assertFails(client.collection("pendingEmailRegistrations").doc("registration-123456789").set({ status: "active" }))
+    await assertFails(admin.collection("pendingEmailRegistrationIndex").get())
   })
 
   describe.each(["admin", "booking-staff"])("server-authoritative reservations for %s", (uid) => {
@@ -462,7 +465,7 @@ rulesSuite("Firestore security rules", () => {
     }))
   })
 
-  it("requires the verification onboarding marker on browser-created Client profiles", async () => {
+  it("blocks browser-created Client profiles before server OTP finalization", async () => {
     const firestore = testEnv.authenticatedContext("new-client").firestore()
     const profile = {
       uid: "new-client",
@@ -471,7 +474,7 @@ rulesSuite("Firestore security rules", () => {
     }
 
     await assertFails(firestore.collection("users").doc("new-client").set(profile))
-    await assertSucceeds(
+    await assertFails(
       firestore.collection("users").doc("new-client").set({
         ...profile,
         emailVerificationRequired: true,

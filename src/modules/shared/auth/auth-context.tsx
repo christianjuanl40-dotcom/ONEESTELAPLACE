@@ -21,7 +21,7 @@ import {
   onAuthStateChanged,
   type User as FirebaseUser,
 } from "firebase/auth"
-import { doc, getDocFromServer, setDoc, updateDoc } from "firebase/firestore"
+import { doc, getDocFromServer, updateDoc } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
 import { perfMark } from "@/src/modules/shared/lib/perf-trace"
 import type { StaffPermissions } from "@/src/modules/shared/types/permissions"
@@ -87,8 +87,14 @@ export interface AuthContextValue {
   profileLoading: boolean
   initializationError: string | null
   isSigningIn: boolean
+  pendingRegistration: { registrationId: string; email: string } | null
   login: (email: string, password?: string) => Promise<{ success: boolean; message?: string; role?: string; requiresVerification?: boolean }>
-  signup: (input: SignupInput) => Promise<{ success: boolean; message?: string; requiresVerification?: boolean }>
+  signup: (input: SignupInput) => Promise<{ success: boolean; message?: string; requiresVerification?: boolean; registrationId?: string }>
+  restorePendingRegistration: (registrationId: string) => Promise<{ success: boolean; message?: string; email?: string; status?: string }>
+  verifyPendingRegistrationCode: (code: string) => Promise<{ success: boolean; message?: string; email?: string }>
+  resendPendingRegistrationCode: () => Promise<{ success: boolean; message?: string; retryAfterSeconds?: number }>
+  finalizePendingRegistration: (password: string) => Promise<{ success: boolean; message?: string }>
+  clearPendingRegistration: () => void
   requestEmailVerificationCode: () => Promise<{ success: boolean; message?: string; retryAfterSeconds?: number }>
   verifyEmailCode: (code: string) => Promise<{ success: boolean; message?: string; alreadyVerified?: boolean }>
   sendVerificationEmail: () => Promise<{ success: boolean; message?: string }>
@@ -187,7 +193,9 @@ function getPasswordUpdateErrorMessage(error: unknown): string {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<SessionState<AppUser>>({ user: null, phase: "auth", error: null })
   const [isSigningIn, setIsSigningIn] = useState(false)
+  const [pendingRegistration, setPendingRegistration] = useState<{ registrationId: string; email: string } | null>(null)
   const signingIn = useRef(false)
+  const pendingFinalization = useRef(false)
   const user = session.user?.id === auth.currentUser?.uid ? session.user : null
   const isLoading = session.phase === "auth" || session.phase === "profile" || isSigningIn
     || (session.phase === "ready" && Boolean(auth.currentUser) && !user)
@@ -238,7 +246,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       if (!firebaseUser && auth.currentUser) return
       perfMark(firebaseUser ? "[AUTH] onAuthStateChanged fired (signed in)" : "[AUTH] onAuthStateChanged fired (signed out)")
-      if (firebaseUser) void initializer.load(firebaseUser).catch(() => {})
+       if (firebaseUser) {
+         // A newly created Auth identity has no profile until the protected
+         // registration finalizer commits it. Do not turn that short handoff
+         // into a dashboard/session initialization attempt.
+         if (pendingFinalization.current) return
+         void initializer.load(firebaseUser).catch(() => {})
+       }
       else initializer.clear()
     }, error => initializer.fail(error))
     return () => { controller.abort(); unsubscribe(); initializer.dispose() }
@@ -345,66 +359,167 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [initializer])
 
   const signup = useCallback(async (input: SignupInput) => {
-    let uid: string | null = null
-
     try {
-      const credential = await createUserWithEmailAndPassword(auth, input.email, input.password)
-      uid = credential.user.uid
-
-      const firstName = input.firstName.trim()
-      const middleName = input.middleName?.trim() || ""
-      const lastName = input.lastName.trim()
-      const fullName = formatDisplayName({ firstName, middleName, lastName })
-      const role = "client"
-      const createdAt = new Date().toISOString()
-      const userDocRef = doc(db, "users", uid)
-
-      const userData = {
-        uid,
-        email: input.email.toLowerCase().trim(),
-        fullName,
-        firstName,
-        middleName,
-        lastName,
-        phone: input.phone || "",
-        role,
-        profilePicture: "",
-        status: "active",
-        createdAt,
-        emailVerificationRequired: true,
-      }
-
-      await setDoc(userDocRef, userData)
-
-       let verificationMessage = "Your account was created. Request a verification code when email sending is enabled."
-       try {
-         const otpResult = await requestEmailVerificationCode()
-         if (otpResult.success) {
-           verificationMessage = otpResult.message || "Your 6-digit verification code was sent."
-         } else if (otpResult.message) {
-           verificationMessage = `Your account was created, but ${otpResult.message.charAt(0).toLowerCase()}${otpResult.message.slice(1)}`
-         }
-       } catch {
-         verificationMessage = "Your account was created, but the verification code could not be sent yet. Use Resend Code on the next screen."
-       }
-
-      await initializer.load(credential.user, true)
-
-      return { success: true, message: verificationMessage, requiresVerification: true }
-    } catch (error: any) {
-      const errorCode = error?.code || "unknown"
-      const errorMessage = error?.message || String(error)
-
-      if (errorCode === "permission-denied") {
+      // Password is deliberately not included in this request. It remains in
+      // the signup form only until this call returns, then the verification
+      // screen asks for it again in memory after OTP success.
+      const response = await fetch("/api/auth/register/otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firstName: input.firstName,
+          middleName: input.middleName || "",
+          lastName: input.lastName,
+          email: input.email,
+          phone: input.phone || "",
+        }),
+      })
+      const payload = await response.json().catch(() => null) as {
+        error?: unknown
+        registrationId?: unknown
+        email?: unknown
+        retryAfterSeconds?: unknown
+      } | null
+      if (!response.ok) {
         return {
           success: false,
-          message: `Firestore permission denied. Deploy security rules: run 'firebase deploy --only firestore:rules' or check Firebase Console > Firestore > Rules. (code: ${errorCode})`,
+          message: typeof payload?.error === "string" ? payload.error : "We could not start signup. Please try again later.",
         }
       }
-
-      return { success: false, message: `Signup failed (${errorCode}): ${errorMessage}` }
+      const registrationId = typeof payload?.registrationId === "string" ? payload.registrationId : ""
+      const email = typeof payload?.email === "string" ? payload.email : input.email.trim().toLowerCase()
+      if (!registrationId || !email) return { success: false, message: "Signup could not be started. Please try again later." }
+      setPendingRegistration({ registrationId, email })
+      return {
+        success: true,
+        message: "Your verification code was sent. Enter it before creating your account.",
+        requiresVerification: true,
+        registrationId,
+      }
+    } catch {
+      return { success: false, message: "We could not start signup. Check your connection and try again." }
     }
-  }, [initializer, requestEmailVerificationCode])
+  }, [])
+
+  const restorePendingRegistration = useCallback(async (registrationId: string) => {
+    const normalizedId = registrationId.trim()
+    if (!normalizedId) return { success: false, message: "This signup session is missing. Start signup again." }
+    try {
+      const response = await fetch("/api/auth/register/otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "status", registrationId: normalizedId }),
+      })
+      const payload = await response.json().catch(() => null) as {
+        error?: unknown
+        email?: unknown
+        status?: unknown
+      } | null
+      if (!response.ok) {
+        return { success: false, message: typeof payload?.error === "string" ? payload.error : "This signup session has expired. Start signup again." }
+      }
+      const email = typeof payload?.email === "string" ? payload.email : ""
+      if (!email) return { success: false, message: "This signup session is invalid. Start signup again." }
+      setPendingRegistration({ registrationId: normalizedId, email })
+      return { success: true, email, status: typeof payload?.status === "string" ? payload.status : undefined }
+    } catch {
+      return { success: false, message: "We could not load the signup session. Check your connection and try again." }
+    }
+  }, [])
+
+  const verifyPendingRegistrationCode = useCallback(async (code: string) => {
+    const pending = pendingRegistration
+    if (!pending) return { success: false, message: "This signup session is missing. Start signup again." }
+    try {
+      const response = await fetch("/api/auth/register/otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verify", registrationId: pending.registrationId, code: code.trim() }),
+      })
+      const payload = await response.json().catch(() => null) as { error?: unknown; email?: unknown } | null
+      if (!response.ok) {
+        return { success: false, message: typeof payload?.error === "string" ? payload.error : "We could not verify that code. Please try again." }
+      }
+      const email = typeof payload?.email === "string" ? payload.email : pending.email
+      setPendingRegistration({ ...pending, email })
+      return { success: true, email, message: "Email verified. Re-enter your password to create your account." }
+    } catch {
+      return { success: false, message: "We could not verify that code. Check your connection and try again." }
+    }
+  }, [pendingRegistration])
+
+  const resendPendingRegistrationCode = useCallback(async () => {
+    const pending = pendingRegistration
+    if (!pending) return { success: false, message: "This signup session is missing. Start signup again." }
+    try {
+      const response = await fetch("/api/auth/register/otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resend", registrationId: pending.registrationId }),
+      })
+      const payload = await response.json().catch(() => null) as {
+        error?: unknown
+        retryAfterSeconds?: unknown
+        email?: unknown
+      } | null
+      const retryAfterSeconds = typeof payload?.retryAfterSeconds === "number" && Number.isFinite(payload.retryAfterSeconds)
+        ? Math.max(0, Math.ceil(payload.retryAfterSeconds))
+        : undefined
+      if (!response.ok) {
+        return { success: false, message: typeof payload?.error === "string" ? payload.error : "We could not send a new verification code. Please try again.", retryAfterSeconds }
+      }
+      if (typeof payload?.email === "string" && payload.email) setPendingRegistration({ ...pending, email: payload.email })
+      return { success: true, message: "A new verification code was sent. Check your inbox and spam folder.", retryAfterSeconds }
+    } catch {
+      return { success: false, message: "We could not send a new verification code. Check your connection and try again." }
+    }
+  }, [pendingRegistration])
+
+  const finalizePendingRegistration = useCallback(async (password: string) => {
+    const pending = pendingRegistration
+    if (!pending) return { success: false, message: "This signup session is missing. Start signup again." }
+    const normalizedEmail = pending.email.trim().toLowerCase()
+    let currentUser = auth.currentUser
+    if (currentUser && (currentUser.email || "").trim().toLowerCase() !== normalizedEmail) {
+      return { success: false, message: "A different Firebase account is already signed in. Sign out and try again." }
+    }
+
+    pendingFinalization.current = true
+    try {
+      if (!currentUser) {
+        const credential = await createUserWithEmailAndPassword(auth, normalizedEmail, password)
+        currentUser = credential.user
+      }
+      const response = await fetch("/api/auth/register/finalize", {
+        method: "POST",
+        headers: await getAuthHeaders(true),
+        body: JSON.stringify({ registrationId: pending.registrationId }),
+      })
+      const payload = await response.json().catch(() => null) as { error?: unknown } | null
+      if (!response.ok) {
+        pendingFinalization.current = false
+        return { success: false, message: typeof payload?.error === "string" ? payload.error : "Your account could not be finalized. Keep this page open and try again." }
+      }
+
+      initializer.clear()
+      try {
+        await signOut(auth)
+      } catch {
+        pendingFinalization.current = false
+        return { success: false, message: "Your account was created, but sign out could not be completed. Please sign out before logging in." }
+      }
+      pendingFinalization.current = false
+      setPendingRegistration(null)
+      return { success: true, message: "Account created successfully. Please log in manually to continue." }
+    } catch (error: any) {
+      pendingFinalization.current = false
+      return { success: false, message: getFirebaseErrorMessage(error) }
+    }
+  }, [initializer, pendingRegistration])
+
+  const clearPendingRegistration = useCallback(() => {
+    setPendingRegistration(null)
+  }, [])
 
   const sendVerificationEmailForCurrentUser = useCallback(async () => {
     const currentUser = auth.currentUser
@@ -423,6 +538,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     initializer.clear()
+    setPendingRegistration(null)
     try {
       await signOut(auth)
       return true
@@ -603,8 +719,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profileLoading: session.phase === "profile",
       initializationError: session.error,
       isSigningIn,
+      pendingRegistration,
       login,
       signup,
+      restorePendingRegistration,
+      verifyPendingRegistrationCode,
+      resendPendingRegistrationCode,
+      finalizePendingRegistration,
+      clearPendingRegistration,
       requestEmailVerificationCode,
       verifyEmailCode,
       sendVerificationEmail: sendVerificationEmailForCurrentUser,
@@ -616,7 +738,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updatePassword,
       refreshUser,
     }),
-    [user, isLoading, session.phase, session.error, isSigningIn, login, signup, requestEmailVerificationCode, verifyEmailCode, sendVerificationEmailForCurrentUser, logout, updateProfilePicture, removeProfilePicture, updateProfileDetails, updatePassword, refreshUser]
+    [user, isLoading, session.phase, session.error, isSigningIn, pendingRegistration, login, signup, restorePendingRegistration, verifyPendingRegistrationCode, resendPendingRegistrationCode, finalizePendingRegistration, clearPendingRegistration, requestEmailVerificationCode, verifyEmailCode, sendVerificationEmailForCurrentUser, logout, updateProfilePicture, removeProfilePicture, updateProfileDetails, updatePassword, refreshUser]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

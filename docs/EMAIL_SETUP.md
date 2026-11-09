@@ -31,7 +31,7 @@ In Firebase Console:
 3. Review Authentication → Templates → Email address verification only if the owner deliberately enables the compatibility link fallback. The primary signup flow uses the server OTP endpoint, not Firebase's automatic verification-mail delivery.
 4. Do not add arbitrary redirect destinations. If the fallback is enabled, the application calls Firebase `sendEmailVerification()` without accepting a browser-supplied redirect URL.
 
-Firebase `emailVerified` is authoritative. The OTP verifier re-reads Firebase Auth after the Admin SDK update, and the client status check reloads the Firebase user. New browser-created Client profiles are required by Firestore rules to carry an immutable `emailVerificationRequired` onboarding marker; it classifies the mandatory flow but is not proof of verification and is not client-editable after creation. The OTP route is the only authenticated pre-verification exception. Protected server mutations validate the Firebase ID token plus the marker and, for unmarked legacy password accounts, the optional rollout policy.
+Firebase `emailVerified` is authoritative. New signup first creates only a server-side pending registration challenge; it does not create Firebase Auth, a Client profile, or persist the password. After the OTP succeeds, the browser re-enters the password, creates Firebase Auth, and calls the protected finalizer. The Admin SDK marks Auth verified and atomically creates the Client profile with an immutable `emailVerificationRequired` onboarding marker. The marker classifies the mandatory flow but is not proof of verification. Existing authenticated accounts use the separate OTP route, and protected server mutations validate the Firebase ID token plus the marker and, for unmarked legacy password accounts, the optional rollout policy.
 
 ## 3. Environment variables
 
@@ -47,6 +47,8 @@ EMAIL_FROM=
 APP_BASE_URL=http://localhost:3000
 EMAIL_SENDING_ENABLED=false
 EMAIL_TEST_RECIPIENT_ALLOWLIST=
+# Production accepts real recipients unless this is explicitly true.
+EMAIL_TEST_RECIPIENT_ALLOWLIST_ONLY=false
 EMAIL_MAX_ATTEMPTS=5
 EMAIL_OTP_SENDING_ENABLED=false
 EMAIL_OTP_STAGING_APPROVED=false
@@ -60,7 +62,7 @@ EMAIL_VERIFICATION_ENFORCEMENT_START_AT=
 CRON_SECRET=
 ```
 
-`EMAIL_MAX_ATTEMPTS` is optional and defaults to 5. `EMAIL_OTP_SECRET` is server-only and must be a strong random secret of at least 32 characters; it is used only for HMAC digests and is never sent to the browser. OTP expiry is bounded to 60–3600 seconds and resend cooldown to 30–900 seconds; invalid values use safe defaults of 600 and 60. `APP_BASE_URL` must be an HTTPS origin outside local development. It is used only to build fixed portal links in transactional email templates.
+`EMAIL_MAX_ATTEMPTS` is optional and defaults to 5. `EMAIL_TEST_RECIPIENT_ALLOWLIST_ONLY` is an explicit production smoke-test restriction; when true, production worker/OTP recipients must be in the normalized allowlist. It is false by default, so production delivery is not silently limited by a leftover test allowlist. `EMAIL_OTP_SECRET` is server-only and must be a strong random secret of at least 32 characters; it is used only for HMAC digests and is never sent to the browser. OTP expiry is bounded to 60–3600 seconds and resend cooldown to 30–900 seconds; invalid values use safe defaults of 600 and 60. `APP_BASE_URL` must be an HTTPS origin outside local development. It is used only to build fixed portal links in transactional email templates.
 
 ### Local `.env.local`
 
@@ -74,20 +76,22 @@ Add the SMTP values, `APP_BASE_URL` for the preview origin, `CRON_SECRET`, a ran
 
 Add the dedicated Gmail secrets, the HTTPS production `APP_BASE_URL`, a strong `CRON_SECRET`, and a separate strong `EMAIL_OTP_SECRET` through Vercel's encrypted environment-variable UI. Do not paste values into deploy logs. Keep `EMAIL_SENDING_ENABLED=false`, `EMAIL_OTP_SENDING_ENABLED=false`, `EMAIL_OTP_PRODUCTION_APPROVED=false`, and verification enforcement disabled until the owner completes staging/preview smoke tests and explicitly approves any production activation. This worktree does not activate production.
 
-## 4. Verification-pending flow
+## 4. OTP-first signup and verification flow
 
 New email/password Client registration:
 
-1. Creates the Firebase Auth account and existing Client profile.
-2. Requests a six-digit OTP through the authenticated `/api/auth/email-otp` route. The route derives UID/email from Firebase Auth; browser-supplied UID/email fields are ignored.
-3. Opens `/verify-email` with the registered address displayed in a privacy-safe form.
-4. Provides six-slot numeric entry, complete-code paste support, status refresh, resend cooldown, loading/error/success announcements, and Sign Out.
+1. Sends only sanitized profile fields to unauthenticated `/api/auth/register/otp`. No password, Firebase Auth identity, or `users/{uid}` profile exists at this point.
+2. Stores the pending registration server-side with a normalized-email digest, OTP HMAC digest, expiry, resend/IP/email limits, delivery state, and the profile fields needed after verification. The code is sent directly through the server-only Gmail transport.
+3. Opens `/verify-email` with the registered address displayed in a privacy-safe form. The page provides six-slot numeric entry, complete-code paste support, resend cooldown, status/error announcements, and Cancel Signup.
+4. A successful code claim sets a short-lived, single-use HttpOnly authorization cookie. Replaying the code cannot mint another authorization.
+5. The user re-enters the password. The browser creates the Firebase Auth email/password identity only after OTP success, then sends its ID token and the HttpOnly authorization to `/api/auth/register/finalize`.
+6. The Admin SDK verifies the email-bound authorization, marks Firebase Auth `emailVerified`, and atomically creates/acknowledges the Client profile. The finalizer is idempotent for the same UID and clears the cookies after success. The page signs out the newly created identity and requires a manual login.
 
-The server stores only an HMAC digest bound to UID, normalized email, code, and a unique challenge ID. Challenges expire, can be resent only after the configured cooldown, are limited by account/email/IP issuance windows, lock after five incorrect attempts, are atomically claimed for verification, clear their digest after success, and are invalidated if the Auth email changes. Successful verification updates Firebase Auth `emailVerified`; Firebase Auth is re-read before the success result is returned. OTP delivery is direct Gmail SMTP and is intentionally separate from `emailOutbox`.
+The pending-registration server stores only an HMAC digest of the OTP bound to normalized email and registration ID; it never stores the password or plaintext code. Pending challenges expire, can be resent only after cooldown, are limited by email/IP issuance windows, lock after five incorrect attempts, record delivery failures without creating an account, and clear the code digest after success. The authenticated legacy path stores an HMAC digest bound to UID, normalized email, code, and challenge ID, and invalidates it if the Auth email changes. Successful legacy verification updates Firebase Auth `emailVerified` and re-reads Auth before returning. OTP delivery is direct Gmail SMTP and is intentionally separate from `emailOutbox`.
 
 The compatibility Firebase link is available only when `NEXT_PUBLIC_EMAIL_VERIFICATION_LINK_FALLBACK_ENABLED=true`. It retains the existing Firebase action-handler behavior and is never selected by a browser-supplied redirect. A verified user can continue to `/portal`.
 
-Existing users are not globally gated by default. New marked email/password Client signups are verification-gated on protected mutations immediately; the OTP issue/verify route remains available to complete that flow. When enforcement is activated, the server additionally requires verification only for unmarked email/password Client accounts created at or after `EMAIL_VERIFICATION_ENFORCEMENT_START_AT`. Admin, Staff, Google/provider-authenticated users, already-verified users, and legacy Clients retain their existing role and access behavior.
+Existing users are not globally gated by default. New finalized email/password Client signups are verification-gated on protected mutations immediately; the authenticated OTP issue/verify route remains available for the legacy account path. When enforcement is activated, the server additionally requires verification only for unmarked email/password Client accounts created at or after `EMAIL_VERIFICATION_ENFORCEMENT_START_AT`. Admin, Staff, Google/provider-authenticated users, already-verified users, and legacy Clients retain their existing role and access behavior.
 
 ## 5. Transactional email architecture
 
@@ -128,7 +132,22 @@ GET or POST /api/internal/email-worker?limit=10
 Authorization: Bearer <CRON_SECRET>
 ```
 
-It returns 404 for missing/incorrect secrets, does not run when sending is disabled, and returns a safe configuration error if SMTP or `APP_BASE_URL` is incomplete. `vercel.json` declares the owner-controlled schedule `*/5 * * * *` for this endpoint. A repository declaration is not a deployment or activation; Vercel plan support, project configuration, `CRON_SECRET`, and explicit owner approval must still be confirmed before any live scheduler can run.
+It returns 404 for missing/incorrect secrets, does not run when sending is disabled, and returns a safe configuration error if SMTP or `APP_BASE_URL` is incomplete. This repository does not declare a deployment scheduler; use an owner-controlled scheduler or invoke the endpoint manually. Vercel plan support, project configuration, `CRON_SECRET`, and explicit owner approval must still be confirmed before any live scheduler can run.
+
+The protected readiness endpoint is:
+
+```text
+GET or POST /api/internal/email-diagnostics
+Authorization: Bearer <CRON_SECRET>
+```
+
+It returns only safe booleans, counts, an OTP gate reason, and a Firebase project-match result. It never returns SMTP credentials, the OTP secret, recipient addresses, or the project credential. Use it to diagnose a deployed `503` without pulling encrypted Vercel values:
+
+```powershell
+Invoke-WebRequest `
+  -Uri "$env:APP_BASE_URL/api/internal/email-diagnostics" `
+  -Headers @{ Authorization = "Bearer $env:CRON_SECRET" }
+```
 
 It can also be invoked manually for an owner-authorized smoke test:
 
@@ -180,7 +199,7 @@ The email tests inject a fake SMTP transport. They do not connect to Gmail and d
 
    The launcher rejects multiple allowlist addresses, missing staging SMTP credentials, production approval, mismatched Firebase identity, and missing staging approval.
 3. Run `npm run dev:staging -- --check` again. It validates the configuration and exits without starting Next.js or sending an OTP. Only after it passes, start the local server with `npm run dev:staging -- --port 3000`.
-4. In a private browser window at `http://localhost:3000`, register exactly one new synthetic Client using the exact allowlisted address. Signup creates only that staging Auth/profile record and requests one OTP. Do not use production domains, customer addresses, resend, or the email worker.
+4. In a private browser window at `http://localhost:3000`, register exactly one new synthetic Client using the exact allowlisted address. Signup first creates only a pending-registration record and requests one OTP; Firebase Auth/profile creation happens only after the code and re-entered password. Do not use production domains, customer addresses, resend, or the email worker.
 5. Open `/verify-email`, enter the six-digit code from the controlled inbox, and confirm success. In Firebase Console, explicitly select `one-estela-place-staging`, open that test Auth user, and confirm `Email verified` is true. The server also re-reads Auth after the Admin update.
 6. Do not put the code in logs, screenshots, tickets, or test output. Invalid, expired, locked, email-changed, and already-used behavior is covered by the automated tests; do not spend the one-delivery test on those cases.
 7. Immediately disable the mode in `.env.staging.local` by setting `EMAIL_OTP_SENDING_ENABLED=false` and `EMAIL_OTP_STAGING_APPROVED=false`, then stop/restart the staging server. Leave transactional email and verification enforcement disabled.
@@ -196,7 +215,7 @@ Do not replay historical bookings or run a mass send.
 
 ## 8. Firestore deployment
 
-The outbox and OTP challenge/rate-limit collections are server-only and the rules explicitly deny browser access. No new index is required by the current worker or OTP queries. If rules are changed during owner review, deploy only the reviewed rules:
+The outbox, OTP challenge/rate-limit, and pending-registration collections are server-only and the rules explicitly deny browser access. No new index is required by the current worker or OTP queries. If rules are changed during owner review, deploy only the reviewed rules:
 
 ```powershell
 firebase deploy --only firestore:rules
@@ -208,7 +227,7 @@ The implementation does not deploy automatically.
 
 - **No jobs are created:** confirm `EMAIL_SENDING_ENABLED=true` for the server environment; ordinary local/test runs intentionally skip enqueueing.
 - **Worker returns `email_configuration_incomplete`:** check SMTP host/port/security, Gmail user/App Password, `EMAIL_FROM`, and HTTPS `APP_BASE_URL`.
-- **Jobs are blocked:** Preview/local delivery requires a normalized address in `EMAIL_TEST_RECIPIENT_ALLOWLIST`.
+- **Jobs are blocked:** Preview/local delivery requires a normalized address in `EMAIL_TEST_RECIPIENT_ALLOWLIST`; production uses the allowlist only when `EMAIL_TEST_RECIPIENT_ALLOWLIST_ONLY=true`.
 - **SMTP authentication fails:** generate a new App Password, confirm 2-Step Verification, and verify the dedicated account has SMTP access. Never print the secret.
 - **OTP is unavailable:** confirm `EMAIL_OTP_SENDING_ENABLED=true`, `EMAIL_OTP_STAGING_APPROVED=true`, a strong `EMAIL_OTP_SECRET`, complete staging Gmail SMTP values, and exactly one staging allowlist address. Production also requires explicit `EMAIL_OTP_PRODUCTION_APPROVED=true`; do not set that flag during ordinary staging work.
 - **OTP code fails:** request a fresh code after the cooldown; codes are single-use, expire, bind to the current Auth email, and lock after five failed attempts.
