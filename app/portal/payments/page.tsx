@@ -84,8 +84,10 @@ import {
   findPaymentReceipt,
   getPaymentOverallStatusLabel,
   getPendingPaymentTotal,
+  filterPaymentRecordsByMethod,
   getRecordsForBooking,
   type PaymentRecordLike,
+  type PaymentMethodFilter,
   type ReceiptPresentation,
 } from "@/src/modules/shared/lib/payment-calculations";
 
@@ -113,6 +115,19 @@ const FILTER_OPTIONS: { value: TransactionFilter; label: string }[] = [
   { value: "refund_eligible", label: "Refund Eligible" },
   { value: "non_refundable", label: "Non-Refundable" },
 ];
+
+const PAYMENT_HISTORY_METHOD_FILTERS: ReadonlyArray<{
+  value: PaymentMethodFilter;
+  label: string;
+}> = [
+  { value: "all", label: "All Payments" },
+  { value: "bank", label: "Bank Transfer" },
+  { value: "office", label: "Pay at the Office" },
+];
+
+function getPaymentHistoryMethodFilterLabel(filter: PaymentMethodFilter) {
+  return PAYMENT_HISTORY_METHOD_FILTERS.find((option) => option.value === filter)?.label || "Payments";
+}
 
 function getDeadline(booking?: Booking | null) {
   if (!booking?.createdAt) return null;
@@ -368,36 +383,11 @@ function getSettlementState(booking: Booking, records?: PaymentRecordLike[] | nu
     hasActivePaymentSubmission ||
     (summary.overallStatus === "for_review" && !isLegacyAwaitingInitialPayment);
 
-  return {
-    isCancelled,
-    isCompleted,
-    isUnderReview,
-    summary,
-  };
-}
-
-function PaymentActionButtons({
-  booking,
-  onPay,
-  onSettle,
-  compact,
-  records,
-}: {
-  booking: Booking;
-  onPay: (b: Booking) => void;
-  onSettle: (b: Booking) => void;
-  compact?: boolean;
-  records?: PaymentRecordLike[] | null;
-}) {
   const remainingMs = getRemainingMs(booking);
   const isExpired = booking.status === "pending" && remainingMs <= 0;
   const isCashPending =
     booking.paymentMethod === "cash" &&
     booking.paymentStatus === "cash_pending";
-  const { isUnderReview, isCancelled, isCompleted, summary } = getSettlementState(
-    booking,
-    records,
-  );
 
   // The settlement button is driven ENTIRELY by the canonical payment summary.
   // It appears ONLY for a booking that completed its required downpayment but
@@ -420,19 +410,45 @@ function PaymentActionButtons({
     !isCashPending &&
     !isExpired &&
     !isUnderReview;
-  const showSettle = canSettleRemainingBalance;
   // INCOMPLETE / REJECTED — the required downpayment is NOT yet complete, so
   // the client MUST still have a way to submit another payment toward it.
-  // An old incomplete/rejected record must never leave the client without a
-  // payment action; only a completed downpayment (partial) upgrades this to
-  // Settle Remaining Balance, and fully_paid shows no action at all.
   const showMakePayment =
     !isCancelled &&
     !isCompleted &&
-    !showSettle &&
+    !canSettleRemainingBalance &&
     (summary.overallStatus === "incomplete" || summary.overallStatus === "rejected");
 
-  if (showSettle) {
+  return {
+    isCancelled,
+    isCompleted,
+    isUnderReview,
+    summary,
+    canSettleRemainingBalance,
+    showPayNow,
+    showMakePayment,
+    hasPaymentAction: canSettleRemainingBalance || showPayNow || showMakePayment,
+  };
+}
+
+function PaymentActionButtons({
+  booking,
+  onPay,
+  onSettle,
+  compact,
+  records,
+}: {
+  booking: Booking;
+  onPay: (b: Booking) => void;
+  onSettle: (b: Booking) => void;
+  compact?: boolean;
+  records?: PaymentRecordLike[] | null;
+}) {
+  const { canSettleRemainingBalance, showPayNow, showMakePayment } = getSettlementState(
+    booking,
+    records,
+  );
+
+  if (canSettleRemainingBalance) {
     return (
       <Button
         onClick={() => onSettle(booking)}
@@ -666,7 +682,7 @@ function TransactionTableRow({
           <TableCell className="min-w-0 max-w-0 px-2.5 align-top whitespace-normal"><p className="oe-table-primary max-w-full line-clamp-2">{resource.primary}</p>{resource.room && <p className="oe-table-secondary mt-0.5 max-w-full line-clamp-1">Room: {resource.room}</p>}</TableCell>
           <TableCell className="min-w-0 max-w-0 px-2.5 align-top whitespace-normal"><p className="oe-table-primary max-w-full line-clamp-2">{schedule.primary}</p><p className="oe-table-secondary mt-0.5 max-w-full line-clamp-2">{schedule.secondary}</p>{booking.status === "pending" && !isCashPending && !isExpired && <p className="mt-1 max-w-full break-words text-xs font-semibold leading-4 text-orange-700">Time left: {formatCountdown(remainingMs)}</p>}</TableCell>
           <TableCell className="min-w-0 max-w-0 px-2.5 align-top whitespace-normal"><div className="min-w-0 space-y-1.5"><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="oe-financial-label">Total</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.displayTotal)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="oe-financial-label">Received</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.amountPaid)}</span></p><p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="oe-financial-label">Balance</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.remaining)}</span></p>{data.pendingReview > 0 && <p className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2"><span className="oe-financial-label">Pending review</span><span className="oe-financial-value min-w-0 text-right tabular-nums">{formatMoney(data.pendingReview)}</span></p>}</div></TableCell>
-           <TableCell data-transaction-status className="min-w-0 max-w-0 px-2.5 whitespace-nowrap text-center align-middle"><span className={cn("oe-status-badge oe-payment-status", data.statusClass)}>{data.statusLabel}</span></TableCell>
+           <TableCell data-transaction-status className="min-w-0 max-w-0 px-2.5 whitespace-nowrap text-center align-middle"><span className={cn("oe-status-badge oe-payment-status oe-client-payment-status", data.statusClass)}>{data.statusLabel}</span></TableCell>
            <TableCell className="min-w-0 max-w-0 px-2.5 align-middle text-right"><div className="oe-transaction-actions">{action}</div></TableCell>
       </tr>
       {mode === "history" && expanded && (
@@ -721,7 +737,7 @@ function TransactionCompactRow({
 
   return (
     <div ref={rowRef} data-transaction-target={booking.id} className={cn("rounded-xl border border-slate-200 bg-white p-3 shadow-sm", isHighlighted && "notification-target-highlight")}>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div className="flex min-w-0 items-start gap-2">{mode === "history" && onToggle && <button type="button" onClick={() => onToggle(booking)} aria-expanded={expanded} aria-label={expanded ? `Hide transaction summary for ${booking.id}` : `Show transaction summary for ${booking.id}`} className="mt-0.5 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"><ChevronDown className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")} /></button>}<div className="min-w-0"><p className="oe-table-label truncate">{booking.id}</p><p className="oe-table-primary mt-0.5 line-clamp-2">{booking.eventName || booking.companyName || "Untitled booking"}</p></div></div><span className={cn("oe-status-badge oe-payment-status shrink-0", data.statusClass)}>{data.statusLabel}</span></div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div className="flex min-w-0 items-start gap-2">{mode === "history" && onToggle && <button type="button" onClick={() => onToggle(booking)} aria-expanded={expanded} aria-label={expanded ? `Hide transaction summary for ${booking.id}` : `Show transaction summary for ${booking.id}`} className="mt-0.5 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"><ChevronDown className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")} /></button>}<div className="min-w-0"><p className="oe-table-label truncate">{booking.id}</p><p className="oe-table-primary mt-0.5 line-clamp-2">{booking.eventName || booking.companyName || "Untitled booking"}</p></div></div><span className={cn("oe-status-badge oe-payment-status oe-client-payment-status shrink-0", data.statusClass)}>{data.statusLabel}</span></div>
       <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
         <div className="min-w-0"><p className="oe-table-label">Reserved space</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>
         <div className="min-w-0"><p className="oe-table-label">Date / period</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{schedule.primary}</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{schedule.secondary}</p></div>
@@ -839,6 +855,8 @@ function TransactionsContent() {
     ? bookings.find((booking) => booking.id === viewingReceiptSnapshot.id) || viewingReceiptSnapshot
     : null;
   const [isPaymentHistoryOpen, setIsPaymentHistoryOpen] = useState(false);
+  const [paymentHistoryMethodFilter, setPaymentHistoryMethodFilter] = useState<PaymentMethodFilter>("all");
+  const previousPaymentHistoryMethodFilter = useRef<PaymentMethodFilter>("all");
   const [storedReceiptsByBooking, setStoredReceiptsByBooking] = useState<Map<string, any[]>>(new Map());
 
   const setSelectedProofFile = (file: File | null) => {
@@ -992,9 +1010,26 @@ function TransactionsContent() {
     return merged;
   }, [viewingReceipt, viewingReceiptRecords, viewingStoredReceipts]);
 
+  const visibleReceiptHistory = useMemo(
+    () => filterPaymentRecordsByMethod(viewingReceiptHistory, paymentHistoryMethodFilter),
+    [paymentHistoryMethodFilter, viewingReceiptHistory],
+  );
+
   const { selected: selectedViewingReceipt, selectedKey: selectedReceiptKey, select: selectReceipt } =
-    usePaymentHistorySelection(viewingReceipt?.id || "", viewingReceiptHistory);
-  const receiptSelectionUnavailable = Boolean(selectedReceiptKey) && !selectedViewingReceipt;
+    usePaymentHistorySelection(viewingReceipt?.id || "", visibleReceiptHistory);
+  const noFilteredReceiptHistory = paymentHistoryMethodFilter !== "all" && visibleReceiptHistory.length === 0;
+  const receiptSelectionUnavailable = !noFilteredReceiptHistory && Boolean(selectedReceiptKey) && !selectedViewingReceipt;
+
+  useEffect(() => {
+    if (previousPaymentHistoryMethodFilter.current === paymentHistoryMethodFilter) return;
+    previousPaymentHistoryMethodFilter.current = paymentHistoryMethodFilter;
+    if (visibleReceiptHistory.length > 0) selectReceipt(visibleReceiptHistory[0]);
+  }, [paymentHistoryMethodFilter, selectReceipt, visibleReceiptHistory]);
+
+  useEffect(() => {
+    setPaymentHistoryMethodFilter("all");
+    previousPaymentHistoryMethodFilter.current = "all";
+  }, [viewingReceipt?.id]);
 
   const selectedReceiptPresentation = useMemo<ReceiptPresentation | null>(() => {
     if (!viewingReceipt) return null
@@ -2469,10 +2504,37 @@ function TransactionsContent() {
                         variant="outline"
                         className="h-11 w-full justify-between rounded-xl border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-200 dark:bg-white dark:hover:bg-slate-50 [&[data-state=open]>svg]:rotate-180"
                       >
-                        Submission History ({viewingReceiptHistory.length})
+                        Submission History ({visibleReceiptHistory.length}{paymentHistoryMethodFilter === "all" ? "" : ` / ${viewingReceiptHistory.length}`})
                         <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-slate-500 transition-transform" />
                       </Button>
                     </CollapsibleTrigger>
+                    <div
+                      role="radiogroup"
+                      aria-label="Filter payment history by method"
+                      className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-3"
+                    >
+                      {PAYMENT_HISTORY_METHOD_FILTERS.map((option) => {
+                        const isActive = paymentHistoryMethodFilter === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            role="radio"
+                            aria-checked={isActive}
+                            data-payment-method-filter={option.value}
+                            onClick={() => setPaymentHistoryMethodFilter(option.value)}
+                            className={cn(
+                              "min-h-9 rounded-lg border px-2 py-1.5 text-[10px] font-black leading-tight transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300",
+                              isActive
+                                ? "border-orange-300 bg-orange-50 text-orange-700"
+                                : "border-slate-200 bg-white text-slate-600 hover:border-orange-200 hover:text-orange-700",
+                            )}
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
                 <div className="min-h-0 flex-1 overflow-y-auto sm:flex sm:overflow-hidden">
@@ -2481,10 +2543,19 @@ function TransactionsContent() {
                       <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-black">
                         Payment Submissions
                       </p>
-                      <div className="space-y-1.5">
-                        {viewingReceiptHistory.map((receipt, idx) => {
-                          const isSelected = selectedViewingReceipt === receipt;
-                          return (
+                       <div className="space-y-1.5">
+                         {noFilteredReceiptHistory ? (
+                           <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center">
+                             <p className="text-xs font-black text-slate-900">
+                               No {getPaymentHistoryMethodFilterLabel(paymentHistoryMethodFilter)} transactions recorded
+                             </p>
+                             <p className="mt-1 text-[10px] font-semibold text-slate-500">
+                               This booking has no {getPaymentHistoryMethodFilterLabel(paymentHistoryMethodFilter).toLowerCase()} payment submissions on file.
+                             </p>
+                           </div>
+                         ) : visibleReceiptHistory.map((receipt, idx) => {
+                           const isSelected = selectedViewingReceipt === receipt;
+                           return (
                             <button
                               key={
                                 receipt.paymentId ||
@@ -2522,8 +2593,8 @@ function TransactionsContent() {
                               )}
                             </button>
                           );
-                        })}
-                      </div>
+                         })}
+                       </div>
                     </CollapsibleContent>
                   )}
                   <div className="min-w-0 p-5 sm:min-h-0 sm:flex-1 sm:overflow-y-auto">
@@ -2532,54 +2603,59 @@ function TransactionsContent() {
                         ? `Submission ${selectedReceiptPresentation.transaction.paymentNumber} of ${viewingReceiptHistory.length}`
                         : "Payment Receipt"}
                     </p>
-                    {receiptSelectionUnavailable ? (
+                    {noFilteredReceiptHistory ? (
+                      <p role="status" className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm font-semibold text-slate-600">
+                        No {getPaymentHistoryMethodFilterLabel(paymentHistoryMethodFilter)} transactions recorded for this booking.
+                      </p>
+                    ) : receiptSelectionUnavailable ? (
                       <p role="status" className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
                         The selected submission is no longer available. Choose a submission from history.
                       </p>
                     ) : (
-                    <ReceiptDetails
-                      key={selectedReceiptKey || viewingReceipt.id}
-                      booking={viewingReceipt}
-                      receipt={selectedViewingReceipt?.receipt || null}
-                      receiptPresentation={selectedReceiptPresentation}
+                     <ReceiptDetails
+                       key={selectedReceiptKey || viewingReceipt.id}
+                       booking={viewingReceipt}
+                       receipt={selectedViewingReceipt?.receipt || null}
+                       paymentMethodOverride={selectedViewingReceipt?.paymentMethod || selectedViewingReceipt?.method || selectedViewingReceipt?.receipt?.paymentMethod}
+                       receiptPresentation={selectedReceiptPresentation}
                       submissionCount={viewingReceiptHistory.length || undefined}
                       isCancelled={
                         String(viewingReceipt.status).toLowerCase() === "cancelled" ||
                         String(viewingReceipt.status).toLowerCase() === "declined"
                       }
-                    />
-                    )}
-                    {viewingReceipt && viewingSettlementState && (
-                      <div className="mt-5 rounded-2xl border border-orange-100 bg-orange-50 p-4">
-                        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-                          <div>
-                            <p className="text-xs font-black uppercase tracking-[0.16em] text-orange-800">
-                              Remaining Balance
-                            </p>
-                            <p className="mt-1 text-xl font-black text-orange-700">
-                              {formatMoney(viewingSettlementState.summary.remainingBalance)}
-                            </p>
-                          </div>
-                          <PaymentActionButtons
-                            booking={viewingReceipt}
-                            onPay={(booking) => {
-                              setViewingReceipt(null);
-                              setIsPaymentHistoryOpen(false);
-                              handlePay(booking);
-                            }}
-                            onSettle={(booking) => {
-                              setViewingReceipt(null);
-                              setIsPaymentHistoryOpen(false);
-                              handleSettle(booking);
-                            }}
-                            records={viewingReceiptRecords}
-                          />
-                        </div>
-                      </div>
+                     />
                     )}
                   </div>
                 </div>
               </Collapsible>
+            )}
+            {viewingReceipt && viewingSettlementState?.hasPaymentAction && (
+              <div className="sticky bottom-0 z-10 shrink-0 border-t border-slate-200 bg-white/95 px-5 py-3 shadow-[0_-8px_20px_rgba(15,23,42,0.08)] backdrop-blur sm:px-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-black uppercase tracking-[0.16em] text-orange-800">
+                      Remaining Balance
+                    </p>
+                    <p className="mt-0.5 text-lg font-black tabular-nums text-orange-700">
+                      {formatMoney(viewingSettlementState.summary.remainingBalance)}
+                    </p>
+                  </div>
+                  <PaymentActionButtons
+                    booking={viewingReceipt}
+                    onPay={(booking) => {
+                      setViewingReceipt(null);
+                      setIsPaymentHistoryOpen(false);
+                      handlePay(booking);
+                    }}
+                    onSettle={(booking) => {
+                      setViewingReceipt(null);
+                      setIsPaymentHistoryOpen(false);
+                      handleSettle(booking);
+                    }}
+                    records={viewingReceiptRecords}
+                  />
+                </div>
+              </div>
             )}
           </div>
         </DialogContent>
@@ -2768,12 +2844,14 @@ function OfficePaymentTracker({
 function ReceiptDetails({
   booking,
   receipt,
+  paymentMethodOverride,
   receiptPresentation,
   submissionCount,
   isCancelled,
 }: {
   booking: Booking;
   receipt: any;
+  paymentMethodOverride?: unknown;
   receiptPresentation: ReceiptPresentation | null;
   submissionCount?: number;
   isCancelled: boolean;
@@ -2806,7 +2884,7 @@ function ReceiptDetails({
     receipt?.contractTerm || (booking as any).contractTerm || (booking as any).rentalTerm;
   const paymentType = transaction.paymentTypeLabel || "Booking Payment";
   const paymentMethod = getReceiptPaymentMethodLabel(
-    transaction.paymentMethod || receipt?.paymentMethod,
+    paymentMethodOverride || transaction.paymentMethod || receipt?.paymentMethod,
   );
   const paymentStatus = transaction.statusLabel;
   const dateGenerated =

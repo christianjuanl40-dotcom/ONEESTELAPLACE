@@ -436,6 +436,14 @@
   text-align: center;
 }
 
+.oe-client-payment-status {
+  min-width: 0;
+  width: fit-content;
+  max-width: 100%;
+  padding-inline: 0.625rem;
+  white-space: nowrap;
+}
+
 .oe-transaction-actions {
   display: flex;
   flex-direction: column;
@@ -470,9 +478,9 @@
    its percentage columns instead of forcing the historical 1180px canvas. */
 .oe-transactions-table .oe-payment-status {
   min-width: 0;
-  width: 100%;
+  width: fit-content;
   max-width: 100%;
-  padding-inline: 0.5rem;
+  margin-inline: auto;
 }
 
 /* A fixed five-action footer must not consume the details on short phones.
