@@ -13,8 +13,9 @@ import {
 import { formatDisplayName } from "@/src/modules/shared/lib/name-utils"
 import { validatePaymentReference } from "@/src/modules/shared/lib/payment-reference"
 import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-identity"
-import { enqueueEmailEvent } from "@/lib/email-outbox"
+import { enqueueEmailEvents, getCreatedEmailJobIds } from "@/lib/email-outbox"
 import { buildBookingEmailPayload } from "@/lib/email-templates"
+import { scheduleImmediateEmailDispatch } from "@/lib/email-dispatch"
 import {
   calculatePaymentSummary,
   centsToPaymentAmount,
@@ -391,7 +392,7 @@ export async function POST(request: NextRequest) {
           : {}),
       }
 
-      await enqueueEmailEvent(transaction, firestore, {
+      const emailEvent = {
         eventType: "payment_submitted",
         eventId: `payment_submitted_${paymentId}`,
         bookingId,
@@ -405,7 +406,8 @@ export async function POST(request: NextRequest) {
             paymentNumber: String(paymentNumber),
           },
         }),
-      })
+      } as const
+      const emailCreated = await enqueueEmailEvents(transaction, firestore, [emailEvent])
 
       transaction.update(bookingRef, bookingUpdate)
       transaction.create(firestore.collection("payments").doc(paymentId), paymentRecord)
@@ -428,12 +430,15 @@ export async function POST(request: NextRequest) {
           createdAt: now,
           link: `/dashboard/payments?highlight=${bookingId}`,
         },
+        emailJobIds: getCreatedEmailJobIds([emailEvent], emailCreated),
       }
     })
+    const { emailJobIds, ...responseResult } = result
+    scheduleImmediateEmailDispatch(emailJobIds)
 
     try {
       await firestore.collection("notifications").add({
-        ...result.notification,
+        ...responseResult.notification,
         createdAt: new Date(),
       })
     } catch (error: unknown) {
@@ -443,7 +448,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    return NextResponse.json(result, { status: 201 })
+    return NextResponse.json(responseResult, { status: 201 })
   } catch (error: unknown) {
     return errorResponse(error)
   }

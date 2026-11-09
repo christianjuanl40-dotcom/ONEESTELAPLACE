@@ -22,8 +22,9 @@ import {
 import { getCatalogAvailabilitySpace } from "@/src/modules/shared/lib/resource-identity"
 import { isCatalogPublished } from "@/src/modules/shared/lib/catalog-status"
 import { validateCatalogGuestCount } from "@/src/modules/shared/lib/catalog-capacity"
-import { enqueueEmailEvent } from "@/lib/email-outbox"
+import { enqueueEmailEvents, getCreatedEmailJobIds } from "@/lib/email-outbox"
 import { buildBookingEmailPayload } from "@/lib/email-templates"
+import { scheduleImmediateEmailDispatch } from "@/lib/email-dispatch"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -131,7 +132,7 @@ export async function POST(request: NextRequest) {
 
     const firestore = getAdminFirestore()
     const cmsRef = firestore.collection("cms").doc("data")
-    const createdBooking = await firestore.runTransaction(async (transaction) => {
+    const createdBookingResult = await firestore.runTransaction(async (transaction) => {
       const cmsSnapshot = await transaction.get(cmsRef)
       if (!cmsSnapshot.exists) {
         throw new ApiAuthError(503, "Booking configuration is temporarily unavailable.")
@@ -317,19 +318,26 @@ export async function POST(request: NextRequest) {
         updatedAt: now,
       }
 
-      await enqueueEmailEvent(transaction, firestore, {
+      const emailEvent = {
         eventType: "booking_submitted",
         eventId: `booking_submitted_${bookingNumber.id}`,
         bookingId: bookingNumber.id,
         recipientUid: user.uid,
         payload: buildBookingEmailPayload({ ...booking, id: bookingNumber.id }),
-      })
+      } as const
+      const emailCreated = await enqueueEmailEvents(transaction, firestore, [emailEvent])
       transaction.set(cmsRef, { bookingCounter: bookingNumber.next }, { merge: true })
       commitExpiredAvailabilityHolds(transaction, firestore, expiredBookings)
       commitEventAvailabilityLock(transaction, eventLock)
       transaction.create(firestore.collection("bookings").doc(bookingNumber.id), booking)
-      return { ...booking, id: bookingNumber.id }
+      return {
+        ...booking,
+        id: bookingNumber.id,
+        emailJobIds: getCreatedEmailJobIds([emailEvent], emailCreated),
+      }
     })
+    const { emailJobIds, ...createdBooking } = createdBookingResult
+    scheduleImmediateEmailDispatch(emailJobIds)
 
     try {
       await firestore.collection("notifications").add({

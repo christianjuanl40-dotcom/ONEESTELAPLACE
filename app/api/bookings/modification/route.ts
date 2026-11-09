@@ -27,8 +27,9 @@ import {
   buildBookingScheduleHistoryUpdate,
   getBookingScheduleSnapshot,
 } from "@/src/modules/shared/lib/booking-schedule-history"
-import { enqueueEmailEvent } from "@/lib/email-outbox"
+import { enqueueEmailEvents, getCreatedEmailJobIds } from "@/lib/email-outbox"
 import { buildBookingEmailPayload } from "@/lib/email-templates"
+import { scheduleImmediateEmailDispatch } from "@/lib/email-dispatch"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -389,7 +390,7 @@ export async function POST(request: NextRequest) {
 
       if (action === "request") {
         if (String(booking.status || "").toLowerCase() === "modification_under_review" || booking.modificationRequested === true) {
-          return { changed: false, booking: { ...booking, id: bookingId } }
+          return { changed: false, booking: { ...booking, id: bookingId }, emailJobIds: [] }
         }
         const changes = normalizeChanges(body.changes)
         const candidate = buildCandidate(booking, changes)
@@ -413,7 +414,7 @@ export async function POST(request: NextRequest) {
           adminLogs: appendLog(booking, "REQUEST_MODIFICATION", `Client requested modification. Reason: ${reason}.`, now),
         }
         transaction.update(bookingRef, fields as any)
-        return { changed: true, booking: { ...booking, ...fields, id: bookingId }, userId: String(booking.userId || "") }
+        return { changed: true, booking: { ...booking, ...fields, id: bookingId }, userId: String(booking.userId || ""), emailJobIds: [] }
       }
 
       if (action === "admin_update") {
@@ -425,7 +426,7 @@ export async function POST(request: NextRequest) {
           JSON.stringify(editableFields[key] ?? null) !== JSON.stringify(booking[key] ?? null)
         ))
         if (changedFieldNames.length === 0) {
-          return { changed: false, booking: { ...booking, id: bookingId }, userId: String(booking.userId || "") }
+          return { changed: false, booking: { ...booking, id: bookingId }, userId: String(booking.userId || ""), emailJobIds: [] }
         }
 
         // Keep the existing resource/capacity/hold validation for every
@@ -466,11 +467,12 @@ export async function POST(request: NextRequest) {
           ),
         }
         const updatedBooking = { ...booking, ...fields, id: bookingId }
+        let emailJobIds: string[] = []
         if (schedulingChange) {
           const historyFields = scheduleHistory as DataRecord
           const historyEntries = Array.isArray(historyFields.scheduleHistory) ? historyFields.scheduleHistory : []
           const revision = Number((historyEntries.at(-1) as DataRecord | undefined)?.revision || 1)
-          await enqueueEmailEvent(transaction, firestore, {
+          const emailEvent = {
             eventType: "booking_schedule_updated",
             eventId: `booking_schedule_updated_${bookingId}_${revision}`,
             bookingId,
@@ -480,14 +482,14 @@ export async function POST(request: NextRequest) {
               previousSchedule: getBookingScheduleSnapshot(booking),
               effectiveSchedule: getBookingScheduleSnapshot(candidate),
             }),
-          })
-        }
-        if (schedulingChange) {
+          } as const
+          const emailCreated = await enqueueEmailEvents(transaction, firestore, [emailEvent])
+          emailJobIds = getCreatedEmailJobIds([emailEvent], emailCreated)
           commitEventAvailabilityLock(transaction, eventLock)
           commitExpiredAvailabilityHolds(transaction, firestore, eventLock.expiredBookings)
         }
         transaction.update(bookingRef, fields as any)
-        return { changed: true, booking: updatedBooking, userId: String(booking.userId || "") }
+        return { changed: true, booking: updatedBooking, userId: String(booking.userId || ""), emailJobIds }
       }
 
       if (String(booking.status || "").toLowerCase() !== "modification_under_review" || !booking.requestedChanges) {
@@ -524,11 +526,12 @@ export async function POST(request: NextRequest) {
           adminLogs: appendLog(booking, "APPROVE_MODIFICATION", "Admin approved the requested booking changes.", now),
         }
         const updatedBooking = { ...booking, ...fields, id: bookingId }
+        let emailJobIds: string[] = []
         if (schedulingChange) {
           const historyFields = scheduleHistory as DataRecord
           const historyEntries = Array.isArray(historyFields.scheduleHistory) ? historyFields.scheduleHistory : []
           const revision = Number((historyEntries.at(-1) as DataRecord | undefined)?.revision || 1)
-          await enqueueEmailEvent(transaction, firestore, {
+          const emailEvent = {
             eventType: "booking_schedule_updated",
             eventId: `booking_schedule_updated_${bookingId}_${revision}`,
             bookingId,
@@ -538,12 +541,14 @@ export async function POST(request: NextRequest) {
               previousSchedule: getBookingScheduleSnapshot(booking),
               effectiveSchedule: getBookingScheduleSnapshot(candidate),
             }),
-          })
+          } as const
+          const emailCreated = await enqueueEmailEvents(transaction, firestore, [emailEvent])
+          emailJobIds = getCreatedEmailJobIds([emailEvent], emailCreated)
+          commitEventAvailabilityLock(transaction, eventLock)
+          commitExpiredAvailabilityHolds(transaction, firestore, eventLock.expiredBookings)
         }
-        commitEventAvailabilityLock(transaction, eventLock)
-        commitExpiredAvailabilityHolds(transaction, firestore, eventLock.expiredBookings)
         transaction.update(bookingRef, fields as any)
-        return { changed: true, booking: updatedBooking, userId: String(booking.userId || "") }
+        return { changed: true, booking: updatedBooking, userId: String(booking.userId || ""), emailJobIds }
       }
 
       const fields: DataRecord = {
@@ -563,10 +568,13 @@ export async function POST(request: NextRequest) {
         adminLogs: appendLog(booking, "DECLINE_MODIFICATION", `Admin declined the requested booking changes. Reason: ${reason}.`, now),
       }
       transaction.update(bookingRef, fields as any)
-      return { changed: true, booking: { ...booking, ...fields, id: bookingId }, userId: String(booking.userId || "") }
+      return { changed: true, booking: { ...booking, ...fields, id: bookingId }, userId: String(booking.userId || ""), emailJobIds: [] }
     })
 
-    if (result.changed && result.userId && action !== "admin_update") {
+    const { emailJobIds, ...responseResult } = result
+    scheduleImmediateEmailDispatch(emailJobIds)
+
+    if (responseResult.changed && responseResult.userId && action !== "admin_update") {
       try {
         await firestore.collection("notifications").add({
           type: action === "request" ? "modification_requested" : action === "approve" ? "modification_approved" : "modification_declined",
@@ -577,8 +585,8 @@ export async function POST(request: NextRequest) {
               ? `Your modification request for Booking ${bookingId} has been approved.`
               : `Your modification request for Booking ${bookingId} has been declined.`,
           bookingId,
-          userId: action === "request" ? "admin" : result.userId,
-          ...(action === "request" ? { relatedUserId: result.userId } : {}),
+          userId: action === "request" ? "admin" : responseResult.userId,
+          ...(action === "request" ? { relatedUserId: responseResult.userId } : {}),
           isRead: false,
           moduleRead: false,
           createdAt: new Date(),
@@ -589,14 +597,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (result.changed && result.userId && action === "admin_update") {
+    if (responseResult.changed && responseResult.userId && action === "admin_update") {
       try {
         await firestore.collection("notifications").add({
           type: "booking_updated",
           title: "Booking Updated",
           message: `An administrator updated Booking ${bookingId}. Review your booking details for the latest information.`,
           bookingId,
-          userId: result.userId,
+          userId: responseResult.userId,
           isRead: false,
           moduleRead: false,
           createdAt: new Date(),
@@ -607,7 +615,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ booking: result.booking, alreadyProcessed: !result.changed })
+    return NextResponse.json({ booking: responseResult.booking, alreadyProcessed: !responseResult.changed })
   } catch (error: unknown) {
     return errorResponse(error)
   }

@@ -31,8 +31,9 @@ import {
   type PaymentRecordLike,
 } from "@/src/modules/shared/lib/payment-calculations"
 import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-identity"
-import { enqueueEmailEvents } from "@/lib/email-outbox"
+import { enqueueEmailEvents, getCreatedEmailJobIds } from "@/lib/email-outbox"
 import { buildBookingEmailPayload } from "@/lib/email-templates"
+import { scheduleImmediateEmailDispatch } from "@/lib/email-dispatch"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -323,7 +324,7 @@ export async function POST(request: NextRequest) {
       // reviews with no amount/snapshot. It must not touch any persisted history.
       if (action === "verify" && isVerifiedPaymentRecord(target)) return {
         booking: bookingData, payment: target, summary: calculateReceiptPaymentSummary(bookingData, allRecords),
-        alreadyVerified: true, action, userId: String(bookingData.userId || ""), customerName: "",
+        alreadyVerified: true, action, userId: String(bookingData.userId || ""), customerName: "", emailJobIds: [],
       }
 
       const submittedAmount = getPaymentRecordAmount(target)
@@ -414,7 +415,7 @@ export async function POST(request: NextRequest) {
         : action === "reject"
           ? "payment_rejected" as const
           : "payment_incomplete" as const
-      await enqueueEmailEvents(transaction, firestore, [
+      const emailEvents = [
         {
           eventType: emailEventType,
           eventId: `${emailEventType}_${String(target.id)}`,
@@ -441,7 +442,8 @@ export async function POST(request: NextRequest) {
             remainingBalance: transition.summary.remainingBalance,
           }),
         }] : []),
-      ])
+      ]
+      const emailCreated = await enqueueEmailEvents(transaction, firestore, emailEvents)
 
       // Replace changed top-level maps rather than recursively merging a previous
       // payment's latest-receipt snapshot into this selected payment's receipt.
@@ -465,32 +467,35 @@ export async function POST(request: NextRequest) {
         customerName: String(
           (isRecord(bookingData.userInfo) && bookingData.userInfo.name) || target.customerName || "Client",
         ),
+        emailJobIds: getCreatedEmailJobIds(emailEvents, emailCreated),
       }
     })
+    const { emailJobIds, ...responseResult } = result
+    scheduleImmediateEmailDispatch(emailJobIds)
 
-    if (!result.alreadyVerified && result.userId) {
+    if (!responseResult.alreadyVerified && responseResult.userId) {
       try {
-        const notificationType = result.action === "reject"
+        const notificationType = responseResult.action === "reject"
           ? "payment_rejected"
-          : result.action === "incomplete"
+          : responseResult.action === "incomplete"
             ? "payment_incomplete"
             : "payment_approved"
-        const notificationTitle = result.action === "reject"
+        const notificationTitle = responseResult.action === "reject"
           ? "Payment Rejected"
-          : result.action === "incomplete"
+          : responseResult.action === "incomplete"
             ? "Payment Requires Correction"
             : "Payment Approved"
         await firestore.collection("notifications").add({
           type: notificationType,
           title: notificationTitle,
-          message: result.action === "reject"
+          message: responseResult.action === "reject"
             ? `Your payment for Booking ${bookingId} has been rejected.`
-            : result.action === "incomplete"
+            : responseResult.action === "incomplete"
               ? `Your payment for Booking ${bookingId} needs correction or additional information.`
               : `Your payment for Booking ${bookingId} has been approved.`,
           bookingId,
-          userId: result.userId,
-          relatedUserName: result.customerName,
+          userId: responseResult.userId,
+          relatedUserName: responseResult.customerName,
           isRead: false,
           moduleRead: false,
           createdAt: new Date(),
@@ -504,7 +509,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store", "X-Request-Id": requestId } })
+    return NextResponse.json(responseResult, { headers: { "Cache-Control": "private, no-store", "X-Request-Id": requestId } })
   } catch (error: unknown) {
     return errorResponse(error, requestId)
   }

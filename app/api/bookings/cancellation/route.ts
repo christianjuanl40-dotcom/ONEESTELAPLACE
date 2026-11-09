@@ -21,8 +21,9 @@ import {
   type CancellationRecord,
 } from "@/src/modules/shared/lib/cancellation"
 import { getRecordsForBooking, type PaymentRecordLike } from "@/src/modules/shared/lib/payment-calculations"
-import { enqueueEmailEvent } from "@/lib/email-outbox"
+import { enqueueEmailEvents, getCreatedEmailJobIds } from "@/lib/email-outbox"
 import { buildBookingEmailPayload } from "@/lib/email-templates"
+import { scheduleImmediateEmailDispatch } from "@/lib/email-dispatch"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -191,6 +192,7 @@ export async function POST(request: NextRequest) {
         return {
           changed: false,
           booking: getBookingResponse(booking, bookingId),
+          emailJobIds: [],
         }
       }
 
@@ -208,21 +210,24 @@ export async function POST(request: NextRequest) {
       return {
         changed: true,
         booking: getBookingResponse({ ...booking, ...fields }, bookingId),
+        emailJobIds: [],
       }
     })
+    const { emailJobIds, ...responseResult } = result
+    scheduleImmediateEmailDispatch(emailJobIds)
 
-    if (result.changed) {
+    if (responseResult.changed) {
       await notifyCancellation(
         "cancellation_requested",
         bookingId,
-        result.booking,
-        `A cancellation has been requested for ${String(result.booking.venue || result.booking.eventName || "a booking")}.`,
+        responseResult.booking,
+        `A cancellation has been requested for ${String(responseResult.booking.venue || responseResult.booking.eventName || "a booking")}.`,
       )
     }
 
     return NextResponse.json(
-      { booking: result.booking, alreadyRequested: !result.changed },
-      { status: result.changed ? 201 : 200 },
+      { booking: responseResult.booking, alreadyRequested: !responseResult.changed },
+      { status: responseResult.changed ? 201 : 200 },
     )
   } catch (error: unknown) {
     return errorResponse(error, "POST /api/bookings/cancellation")
@@ -258,6 +263,7 @@ export async function PATCH(request: NextRequest) {
           return {
             changed: false,
             booking: getBookingResponse(booking, bookingId),
+            emailJobIds: [],
           }
         }
         if (hasPendingCancellation(booking)) {
@@ -287,17 +293,19 @@ export async function PATCH(request: NextRequest) {
         }
         const fields = buildAdminCancellationFields(booking, reason, reviewedAt, reviewer, paymentRecords)
         const updatedBooking = getBookingResponse({ ...booking, ...fields }, bookingId)
-        await enqueueEmailEvent(transaction, firestore, {
+        const emailEvent = {
           eventType: "booking_cancelled",
           eventId: `booking_cancelled_${bookingId}`,
           bookingId,
           recipientUid: String(booking.userId || booking.uid || ""),
           payload: buildBookingEmailPayload(updatedBooking),
-        })
+        } as const
+        const emailCreated = await enqueueEmailEvents(transaction, firestore, [emailEvent])
         transaction.update(bookingRef, fields as any)
         return {
           changed: true,
           booking: updatedBooking,
+          emailJobIds: getCreatedEmailJobIds([emailEvent], emailCreated),
         }
       }
 
@@ -317,29 +325,35 @@ export async function PATCH(request: NextRequest) {
         ? buildCancellationApprovalFields(booking, reviewedAt, reviewer, paymentRecords)
         : buildCancellationDeclineFields(booking, reason, reviewedAt, reviewer)
       const updatedBooking = getBookingResponse({ ...booking, ...fields }, bookingId)
+      let emailJobIds: string[] = []
       if (action === "approve") {
-        await enqueueEmailEvent(transaction, firestore, {
+        const emailEvent = {
           eventType: "booking_cancelled",
           eventId: `booking_cancelled_${bookingId}`,
           bookingId,
           recipientUid: String(booking.userId || booking.uid || ""),
           payload: buildBookingEmailPayload(updatedBooking),
-        })
+        } as const
+        const emailCreated = await enqueueEmailEvents(transaction, firestore, [emailEvent])
+        emailJobIds = getCreatedEmailJobIds([emailEvent], emailCreated)
       }
       transaction.update(bookingRef, fields as any)
       return {
         changed: true,
         booking: updatedBooking,
+        emailJobIds,
       }
     })
+    const { emailJobIds, ...responseResult } = result
+    scheduleImmediateEmailDispatch(emailJobIds)
 
-    if (result.changed) {
+    if (responseResult.changed) {
       await notifyCancellation(
         action === "admin_cancel"
           ? "booking_cancelled"
           : action === "approve" ? "cancellation_approved" : "cancellation_declined",
         bookingId,
-        result.booking,
+        responseResult.booking,
         action === "admin_cancel"
           ? `Booking ${bookingId} was cancelled by the One Estela Place administrator. Any eligible refund remains separate from the cancellation workflow.`
           : action === "approve"
@@ -348,7 +362,7 @@ export async function PATCH(request: NextRequest) {
       )
     }
 
-    return NextResponse.json({ booking: result.booking, reviewedBy: user.uid })
+    return NextResponse.json({ booking: responseResult.booking, reviewedBy: user.uid })
   } catch (error: unknown) {
     return errorResponse(error, "PATCH /api/bookings/cancellation")
   }

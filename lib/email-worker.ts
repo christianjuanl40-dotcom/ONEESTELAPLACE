@@ -19,6 +19,11 @@ export type EmailWorkerDependencies = {
   verifyTransport?: boolean
 }
 
+export type EmailWorkerOptions = {
+  /** Restricts processing to freshly created deterministic outbox documents. */
+  jobIds?: readonly string[]
+}
+
 export type EmailWorkerResult = {
   status: "disabled" | "not_ready" | "processed"
   processed: number
@@ -89,9 +94,11 @@ function due(job: EmailOutboxJob, now: Date): boolean {
   return !Number.isFinite(next) || next <= now.getTime()
 }
 
-async function recoverExpiredClaims(firestore: Firestore, now: Date): Promise<void> {
-  const snapshot = await firestore.collection(EMAIL_OUTBOX_COLLECTION).where("status", "==", "processing").get()
-  for (const document of snapshot.docs) {
+async function recoverExpiredClaims(firestore: Firestore, now: Date, jobIds?: readonly string[]): Promise<void> {
+  const documents = jobIds === undefined
+    ? (await firestore.collection(EMAIL_OUTBOX_COLLECTION).where("status", "==", "processing").get()).docs
+    : await Promise.all(jobIds.map((jobId) => firestore.collection(EMAIL_OUTBOX_COLLECTION).doc(jobId).get()))
+  for (const document of documents) {
     const data = asData(document.data())
     const expires = timestampMs(data.claimExpiresAt)
     if (Number.isFinite(expires) && expires > now.getTime()) continue
@@ -114,19 +121,21 @@ async function recoverExpiredClaims(firestore: Firestore, now: Date): Promise<vo
   }
 }
 
-async function findCandidates(firestore: Firestore, now: Date): Promise<EmailOutboxJob[]> {
-  const [pending, retry] = await Promise.all([
-    firestore.collection(EMAIL_OUTBOX_COLLECTION).where("status", "==", "pending").get(),
-    firestore.collection(EMAIL_OUTBOX_COLLECTION).where("status", "==", "retry").get(),
-  ])
-  const jobs = [...pending.docs, ...retry.docs]
+async function findCandidates(firestore: Firestore, now: Date, jobIds?: readonly string[]): Promise<EmailOutboxJob[]> {
+  const documents = jobIds === undefined
+    ? await Promise.all([
+        firestore.collection(EMAIL_OUTBOX_COLLECTION).where("status", "==", "pending").get(),
+        firestore.collection(EMAIL_OUTBOX_COLLECTION).where("status", "==", "retry").get(),
+      ]).then(([pending, retry]) => [...pending.docs, ...retry.docs])
+    : await Promise.all(jobIds.map((jobId) => firestore.collection(EMAIL_OUTBOX_COLLECTION).doc(jobId).get()))
+  const jobs = documents
     .map((document) => toJob(document.id, document.data()))
     .filter((job): job is EmailOutboxJob => Boolean(job && due(job, now)))
   return jobs.sort((first, second) => timestampMs(first.nextAttemptAt) - timestampMs(second.nextAttemptAt))
 }
 
-async function claimNext(firestore: Firestore, now: Date): Promise<EmailOutboxJob | null> {
-  const candidates = await findCandidates(firestore, now)
+async function claimNext(firestore: Firestore, now: Date, jobIds?: readonly string[]): Promise<EmailOutboxJob | null> {
+  const candidates = await findCandidates(firestore, now, jobIds)
   for (const candidate of candidates) {
     const ref = firestore.collection(EMAIL_OUTBOX_COLLECTION).doc(candidate.id)
     const claimed = await firestore.runTransaction(async (transaction) => {
@@ -222,7 +231,16 @@ async function handleJob(
   }
 }
 
-export async function processEmailOutbox(limit = 10, dependencies: EmailWorkerDependencies = {}): Promise<EmailWorkerResult> {
+function normalizeJobIds(jobIds: readonly string[] | undefined): string[] | undefined {
+  if (jobIds === undefined) return undefined
+  return [...new Set(jobIds.map((jobId) => String(jobId).trim()).filter(Boolean))]
+}
+
+export async function processEmailOutbox(
+  limit = 10,
+  dependencies: EmailWorkerDependencies = {},
+  options: EmailWorkerOptions = {},
+): Promise<EmailWorkerResult> {
   const config = getEmailConfig()
   if (!config.enabled) return { status: "disabled", processed: 0, sent: 0, retried: 0, failed: 0, blocked: 0 }
   if (!config.ready) return { status: "not_ready", processed: 0, sent: 0, retried: 0, failed: 0, blocked: 0, errorCode: "email_configuration_incomplete" }
@@ -232,6 +250,7 @@ export async function processEmailOutbox(limit = 10, dependencies: EmailWorkerDe
   const transport = dependencies.transport || getEmailTransport(config)
   const nowProvider = dependencies.now || (() => new Date())
   const verifyTransport = dependencies.verifyTransport !== false
+  const jobIds = normalizeJobIds(options.jobIds)
   if (verifyTransport && typeof transport.verify === "function") {
     try {
       await transport.verify()
@@ -241,11 +260,11 @@ export async function processEmailOutbox(limit = 10, dependencies: EmailWorkerDe
   }
 
   const now = nowProvider()
-  await recoverExpiredClaims(firestore, now)
+  await recoverExpiredClaims(firestore, now, jobIds)
   const counts = { processed: 0, sent: 0, retried: 0, failed: 0, blocked: 0 }
   const boundedLimit = Math.max(1, Math.min(Math.floor(limit) || 10, 25))
   for (let index = 0; index < boundedLimit; index++) {
-    const job = await claimNext(firestore, nowProvider())
+    const job = await claimNext(firestore, nowProvider(), jobIds)
     if (!job) break
     const result = await handleJob(firestore, auth, transport, job, config, nowProvider())
     counts.processed++

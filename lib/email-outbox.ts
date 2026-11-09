@@ -64,6 +64,17 @@ function safeDocumentId(eventId: string): string {
   return `evt_${normalized.slice(0, 100)}_${digest}`
 }
 
+export function getEmailOutboxJobId(eventId: string): string {
+  return safeDocumentId(eventId.trim())
+}
+
+export function getCreatedEmailJobIds(
+  events: readonly EmailOutboxEvent[],
+  created: readonly boolean[],
+): string[] {
+  return events.flatMap((event, index) => created[index] ? [getEmailOutboxJobId(event.eventId)] : [])
+}
+
 function safeText(value: unknown, maxLength: number, fallback = ""): string {
   return typeof value === "string" ? value.trim().slice(0, maxLength) || fallback : fallback
 }
@@ -133,7 +144,7 @@ export async function enqueueEmailEvents(
     if (!event.eventId.trim() || !event.recipientUid.trim() || !event.bookingId.trim()) return
 
     const eventId = event.eventId.trim()
-    const ref = firestore.collection(EMAIL_OUTBOX_COLLECTION).doc(safeDocumentId(eventId))
+    const ref = firestore.collection(EMAIL_OUTBOX_COLLECTION).doc(getEmailOutboxJobId(eventId))
     const existing = jobs.get(ref.path)
     if (existing) {
       existing.indexes.push(index)

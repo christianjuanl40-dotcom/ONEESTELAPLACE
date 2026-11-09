@@ -22,8 +22,9 @@ import {
 } from "@/src/modules/shared/lib/payment-calculations"
 import { buildVerifiedPaymentTransition, didBookingBecomeSecured } from "@/src/modules/shared/lib/payment-verification"
 import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-identity"
-import { enqueueEmailEvents } from "@/lib/email-outbox"
+import { enqueueEmailEvents, getCreatedEmailJobIds } from "@/lib/email-outbox"
 import { buildBookingEmailPayload } from "@/lib/email-templates"
+import { scheduleImmediateEmailDispatch } from "@/lib/email-dispatch"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -176,6 +177,7 @@ export async function POST(request: NextRequest) {
             payment: { ...(savedPaymentSnapshot.data() as DataRecord), id: savedPaymentId },
             userId: "",
             alreadyProcessed: true,
+            emailJobIds: [],
           }
         }
       }
@@ -336,9 +338,9 @@ export async function POST(request: NextRequest) {
       const { id: _bookingId, ...bookingToPersist } = bookingWithReceipt
       const { id: _paymentId, ...paymentToPersist } = transition.payment
       const recipientUid = String(booking.userId || booking.uid || "")
-      await enqueueEmailEvents(transaction, firestore, [
+      const emailEvents = [
         {
-          eventType: "payment_verified",
+          eventType: "payment_verified" as const,
           eventId: `payment_verified_${paymentId}`,
           bookingId,
           recipientUid,
@@ -362,7 +364,8 @@ export async function POST(request: NextRequest) {
             remainingBalance: transition.summary.remainingBalance,
           }),
         }] : []),
-      ])
+      ]
+      const emailCreated = await enqueueEmailEvents(transaction, firestore, emailEvents)
       transaction.set(bookingRef, {
         ...stripUndefinedDeep(bookingToPersist) as DataRecord,
         updatedAt: now,
@@ -394,10 +397,13 @@ export async function POST(request: NextRequest) {
         payment: { ...transition.payment, id: paymentId, receiptNumber },
         userId: String(booking.userId || booking.uid || ""),
         alreadyProcessed: false,
+        emailJobIds: getCreatedEmailJobIds(emailEvents, emailCreated),
       }
     })
+    const { emailJobIds, ...responseResult } = result
+    scheduleImmediateEmailDispatch(emailJobIds)
 
-    if (result.userId && !result.alreadyProcessed) {
+    if (responseResult.userId && !responseResult.alreadyProcessed) {
       try {
         await firestore.collection("notifications").add({
           type: "payment_approved",
@@ -414,7 +420,7 @@ export async function POST(request: NextRequest) {
         console.error("[POST /api/payments/onsite] Notification write failed:", error)
       }
     }
-    return NextResponse.json(result, { status: result.alreadyProcessed ? 200 : 201 })
+    return NextResponse.json(responseResult, { status: responseResult.alreadyProcessed ? 200 : 201 })
   } catch (error: unknown) {
     return errorResponse(error)
   }

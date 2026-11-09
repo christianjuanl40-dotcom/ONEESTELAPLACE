@@ -104,6 +104,8 @@ The dedicated server-only Firestore collection is `emailOutbox`. It is not reada
 
 The job is created in the same Firestore transaction as the successful business transition when `EMAIL_SENDING_ENABLED=true`. A disabled environment does not enqueue or replay historical events. The worker resolves the destination address from Firebase Auth using `recipientUid`; browser-submitted recipient addresses are ignored.
 
+After that transaction commits, the booking/payment route handler passes only the newly-created deterministic job IDs to `lib/email-dispatch.ts`. It schedules the existing `processEmailOutbox()` worker with Next.js 16 `after()` so processing can begin after the response without blocking the business operation. This is best effort: configuration, lease, Auth, or SMTP failures are caught and leave the outbox job for the normal retry/fallback path. Immediate dispatch never uses a browser credential, never accepts a client-supplied job ID, never scans historical records, and never sends inside the Firestore transaction. The claim transaction is shared with the scheduled worker, so an immediate/scheduled race is protected by the existing lease/idempotency state.
+
 Current event mappings:
 
 | Event | Subject | Source |
@@ -196,7 +198,13 @@ Invoke-WebRequest `
 
 Do not expose the endpoint without `CRON_SECRET`. The worker processes transactional jobs only; it does not send OTP messages.
 
-### 6.1 Prepared GitHub Actions worker (not activated)
+### 6.1 Immediate post-response dispatch
+
+Booking creation, booking lifecycle/cancellation/modification transitions, and payment submission/review/onsite transitions keep deterministic outbox creation inside the business transaction. Once Firestore commits, the route handler schedules best-effort `after()` processing scoped to only the job IDs newly created in that transaction. The callback calls the same worker implementation as the protected endpoint, with the same Firebase Auth recipient lookup, SMTP transport, claim lease, retry, duplicate-prevention, and terminal-state logic. It does not use `CRON_SECRET`; that secret remains only for the external scheduled endpoint.
+
+If `after()` is unavailable, times out, or the worker cannot connect to SMTP, the successful booking/payment response is not rolled back. The job remains pending/retry/failed according to worker state and is handled by the approximately five-minute GitHub Actions fallback when that owner-controlled scheduler is enabled. This implementation does not provide an inbox-time guarantee; SMTP acceptance and actual recipient receipt must be checked separately.
+
+### 6.2 Prepared GitHub Actions worker (not activated)
 
 `.github/workflows/email-worker.yml` is checked in with a five-minute schedule and manual dispatch, but it is disabled by default. Every worker job requires both:
 
@@ -207,7 +215,7 @@ When the job runs, it sends one `POST` request with `Authorization: Bearer $CRON
 
 The workflow is intentionally not enabled by committing it. Do not set `EMAIL_WORKER_ENABLED=true` until the backlog steps below are complete.
 
-### 6.2 Pre-release backlog disposition
+### 6.3 Pre-release backlog disposition
 
 The last authorized read-only inspection found exactly three `pending` jobs created before this release: one `booking_submitted`, one `payment_submitted`, and one `payment_verified`, spanning `2026-11-09T02:26:24.683Z` through `2026-11-09T02:27:12.437Z`. No worker invocation, send, or outbox mutation was performed.
 

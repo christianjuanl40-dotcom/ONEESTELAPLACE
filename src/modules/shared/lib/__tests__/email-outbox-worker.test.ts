@@ -182,6 +182,40 @@ describe("email worker", () => {
     expect(store.data.get("emailOutbox/job-1")).toMatchObject({ status: "sent", attempts: 1 })
   })
 
+  it("allows immediate scoped processing and scheduled processing to race without duplicate sends", async () => {
+    const store = new TransactionStore()
+    seedJob(store)
+    const sendMail = vi.fn().mockResolvedValue({ messageId: "scoped-single-claim" })
+
+    const [immediate, scheduled] = await Promise.all([
+      processEmailOutbox(1, workerDependencies(store, sendMail), { jobIds: ["job-1"] }),
+      processEmailOutbox(1, workerDependencies(store, sendMail)),
+    ])
+
+    expect(sendMail).toHaveBeenCalledTimes(1)
+    expect([immediate.sent, scheduled.sent].sort()).toEqual([0, 1])
+    expect(store.data.get("emailOutbox/job-1")).toMatchObject({ status: "sent", attempts: 1 })
+  })
+
+  it("never scans historical jobs when immediate processing is scoped", async () => {
+    const store = new TransactionStore()
+    seedJob(store)
+    const target = store.data.get("emailOutbox/job-1")!
+    store.seed("emailOutbox/historical-job", {
+      ...target,
+      eventId: "historical-payment",
+      bookingId: "BK-HISTORICAL",
+      payload: { ...payload, bookingReference: "BK-HISTORICAL" },
+    })
+    const sendMail = vi.fn().mockResolvedValue({ messageId: "scoped-only" })
+
+    const result = await processEmailOutbox(10, workerDependencies(store, sendMail), { jobIds: ["job-1"] })
+
+    expect(result).toMatchObject({ processed: 1, sent: 1 })
+    expect(sendMail).toHaveBeenCalledTimes(1)
+    expect(store.data.get("emailOutbox/historical-job")).toMatchObject({ status: "pending", attempts: 0 })
+  })
+
   it("recovers an expired lease and never sends an unallowlisted browser address", async () => {
     const store = new TransactionStore()
     const now = new Date("2026-11-08T00:10:00.000Z")

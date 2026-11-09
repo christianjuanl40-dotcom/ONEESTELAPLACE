@@ -26,8 +26,9 @@ import {
   automaticBookingExpiryFields,
 } from "@/src/modules/shared/lib/booking-lifecycle"
 import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-identity"
-import { enqueueEmailEvent } from "@/lib/email-outbox"
+import { enqueueEmailEvents, getCreatedEmailJobIds } from "@/lib/email-outbox"
 import { buildBookingEmailPayload } from "@/lib/email-templates"
+import { scheduleImmediateEmailDispatch } from "@/lib/email-dispatch"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -279,7 +280,7 @@ export async function POST(request: NextRequest) {
           ? findPaymentReceipt(booking, latestVerified, existingHistory)
           : matchingRecords.length === 0 && booking.receipt && isRecord(booking.receipt) ? booking.receipt : undefined
         if (existingReceipt) {
-          return { changed: false, booking, receipt: existingReceipt, userId: String(booking.userId || "") }
+          return { changed: false, booking, receipt: existingReceipt, userId: String(booking.userId || ""), emailJobIds: [] }
         }
 
         const receipt = buildReceipt(booking, matchingRecords, now)
@@ -301,6 +302,7 @@ export async function POST(request: NextRequest) {
           booking: { ...booking, ...bookingUpdate },
           receipt,
           userId: String(booking.userId || ""),
+          emailJobIds: [],
         }
       }
 
@@ -309,7 +311,7 @@ export async function POST(request: NextRequest) {
           throw new ApiAuthError(403, "You do not have access to this booking.")
         }
         if (String(booking.status || "").toLowerCase() === "cancelled") {
-          return { changed: false, booking, userId: String(booking.userId || "") }
+          return { changed: false, booking, userId: String(booking.userId || ""), emailJobIds: [] }
         }
         if (String(booking.status || "").toLowerCase() !== "pending") {
           throw new ApiAuthError(409, "Only pending bookings can expire automatically.")
@@ -328,12 +330,12 @@ export async function POST(request: NextRequest) {
         }
         const fields = automaticBookingExpiryFields(booking, now)
         transaction.update(bookingRef, fields)
-        return { changed: true, booking: { ...booking, ...fields }, userId: String(booking.userId || "") }
+        return { changed: true, booking: { ...booking, ...fields }, userId: String(booking.userId || ""), emailJobIds: [] }
       }
 
       if (action === "complete") {
         if (normalizeLifecycleValue(booking.status) === "completed") {
-          return { changed: false, booking, userId: String(booking.userId || "") }
+          return { changed: false, booking, userId: String(booking.userId || ""), emailJobIds: [] }
         }
         if (isTerminalAvailabilityBooking(booking) || !isAvailabilityBlockingBooking(booking)) {
           throw new ApiAuthError(409, "A released reservation cannot be marked completed.")
@@ -356,13 +358,13 @@ export async function POST(request: NextRequest) {
           adminLogs: appendLog(booking, "MARK_BOOKING_COMPLETED", "Admin marked the booking as completed.", now),
         }
         transaction.update(bookingRef, fields)
-        return { changed: true, booking: { ...booking, ...fields }, userId: String(booking.userId || "") }
+        return { changed: true, booking: { ...booking, ...fields }, userId: String(booking.userId || ""), emailJobIds: [] }
       }
 
       if (action === "status") {
         const currentStatus = normalizeLifecycleValue(booking.status)
         if (currentStatus === requestedStatus) {
-          return { changed: false, booking, userId: String(booking.userId || "") }
+          return { changed: false, booking, userId: String(booking.userId || ""), emailJobIds: [] }
         }
         if (isTerminalAvailabilityBooking(booking) || !isAvailabilityBlockingBooking(booking)) {
           throw new ApiAuthError(409, "A released reservation cannot be reactivated. Create a new booking with an availability check.")
@@ -397,15 +399,21 @@ export async function POST(request: NextRequest) {
             adminLogs: appendLog(booking, "REJECT_BOOKING", "Administrator rejected the unsecured booking request.", now),
           }
           const updatedBooking = { ...booking, ...fields, id: bookingId }
-          await enqueueEmailEvent(transaction, firestore, {
+          const emailEvent = {
             eventType: "booking_rejected",
             eventId: `booking_rejected_${bookingId}`,
             bookingId,
             recipientUid: String(booking.userId || booking.uid || ""),
             payload: buildBookingEmailPayload(updatedBooking),
-          })
+          } as const
+          const emailCreated = await enqueueEmailEvents(transaction, firestore, [emailEvent])
           transaction.update(bookingRef, fields)
-          return { changed: true, booking: updatedBooking, userId: String(booking.userId || "") }
+          return {
+            changed: true,
+            booking: updatedBooking,
+            userId: String(booking.userId || ""),
+            emailJobIds: getCreatedEmailJobIds([emailEvent], emailCreated),
+          }
         }
 
         const bookingCode = String(booking.bookingCode || "").trim()
@@ -426,22 +434,25 @@ export async function POST(request: NextRequest) {
           adminLogs: appendLog(booking, "UPDATE_BOOKING_STATUS", `Admin updated the booking status to ${requestedStatus}.`, now),
         }
         const updatedBooking = { ...booking, ...fields, id: bookingId }
+        let emailJobIds: string[] = []
         if (requestedStatus === "confirmed" || requestedStatus === "reservation_secured") {
-          await enqueueEmailEvent(transaction, firestore, {
+          const emailEvent = {
             eventType: "booking_approved",
             eventId: `booking_approved_${bookingId}`,
             bookingId,
             recipientUid: String(booking.userId || booking.uid || ""),
             payload: buildBookingEmailPayload(updatedBooking),
-          })
+          } as const
+          const emailCreated = await enqueueEmailEvents(transaction, firestore, [emailEvent])
+          emailJobIds = getCreatedEmailJobIds([emailEvent], emailCreated)
         }
         transaction.update(bookingRef, fields)
-        return { changed: true, booking: updatedBooking, userId: String(booking.userId || "") }
+        return { changed: true, booking: updatedBooking, userId: String(booking.userId || ""), emailJobIds }
       }
 
       if (action === "contract_signed") {
         if (booking.contractSigned === true && normalizeLifecycleValue(booking.contractStatus) === "signed") {
-          return { changed: false, booking, userId: String(booking.userId || "") }
+          return { changed: false, booking, userId: String(booking.userId || ""), emailJobIds: [] }
         }
         if (isTerminalAvailabilityBooking(booking) || !isAvailabilityBlockingBooking(booking)) {
           throw new ApiAuthError(409, "A contract cannot activate a released reservation.")
@@ -468,19 +479,25 @@ export async function POST(request: NextRequest) {
             : `Admin marked contract as signed at One Estela Place office. Signed by: ${signedBy}. Method: Face-to-face.`, now),
         }
         const updatedBooking = { ...booking, ...fields, id: bookingId }
-        await enqueueEmailEvent(transaction, firestore, {
+        const emailEvent = {
           eventType: "booking_approved",
           eventId: `booking_approved_${bookingId}`,
           bookingId,
           recipientUid: String(booking.userId || booking.uid || ""),
           payload: buildBookingEmailPayload(updatedBooking),
-        })
+        } as const
+        const emailCreated = await enqueueEmailEvents(transaction, firestore, [emailEvent])
         transaction.update(bookingRef, fields)
-        return { changed: true, booking: updatedBooking, userId: String(booking.userId || "") }
+        return {
+          changed: true,
+          booking: updatedBooking,
+          userId: String(booking.userId || ""),
+          emailJobIds: getCreatedEmailJobIds([emailEvent], emailCreated),
+        }
       }
 
       if (booking.balanceReminderSent === true) {
-        return { changed: false, booking, userId: String(booking.userId || "") }
+        return { changed: false, booking, userId: String(booking.userId || ""), emailJobIds: [] }
       }
       const bookingCode = String(booking.bookingCode || "").trim()
       const records = await readPaymentRecords(transaction, firestore, bookingId, bookingCode)
@@ -501,19 +518,27 @@ export async function POST(request: NextRequest) {
         adminLogs: appendLog(booking, "BALANCE_REMINDER_SENT", "Admin sent a remaining balance reminder.", now),
       }
       const updatedBooking = { ...booking, ...fields, id: bookingId }
-      await enqueueEmailEvent(transaction, firestore, {
+      const emailEvent = {
         eventType: "balance_reminder",
         eventId: `balance_reminder_${bookingId}`,
         bookingId,
         recipientUid: String(booking.userId || booking.uid || ""),
         payload: buildBookingEmailPayload(updatedBooking, { remainingBalance: summary.remainingBalance }),
-      })
+      } as const
+      const emailCreated = await enqueueEmailEvents(transaction, firestore, [emailEvent])
       transaction.update(bookingRef, fields)
-      return { changed: true, booking: updatedBooking, userId: String(booking.userId || "") }
+      return {
+        changed: true,
+        booking: updatedBooking,
+        userId: String(booking.userId || ""),
+        emailJobIds: getCreatedEmailJobIds([emailEvent], emailCreated),
+      }
     })
 
+    const { emailJobIds, ...responseResult } = result
+    scheduleImmediateEmailDispatch(emailJobIds)
     const rejectionNotification = action === "status" && requestedStatus === "declined"
-    if (result.changed && result.userId && (action === "balance_reminder" || action === "contract_signed" || rejectionNotification)) {
+    if (responseResult.changed && responseResult.userId && (action === "balance_reminder" || action === "contract_signed" || rejectionNotification)) {
       try {
         const isReminder = action === "balance_reminder"
         const isRejection = rejectionNotification
@@ -526,7 +551,7 @@ export async function POST(request: NextRequest) {
               ? `Your booking request ${bookingId} was not accepted. Review the saved details in your Client Portal.`
               : `Your contract for Booking ${bookingId} has been signed.`,
           bookingId,
-          userId: result.userId,
+          userId: responseResult.userId,
           isRead: false,
           moduleRead: false,
           createdAt: new Date(),
@@ -539,7 +564,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ booking: result.booking, receipt: result.receipt, changed: result.changed })
+    return NextResponse.json({ booking: responseResult.booking, receipt: responseResult.receipt, changed: responseResult.changed })
   } catch (error: unknown) {
     return errorResponse(error)
   }
