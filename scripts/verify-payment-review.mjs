@@ -314,13 +314,17 @@ try {
 
   // Top-level views filter transaction methods, never the booking preference.
   await page.goto(`${origin}/__payment-review?admin`)
-  const methodTab = name => page.getByRole('tab', { name, exact:true })
-  const reviewRow = () => page.locator('[data-payment-booking="BK-REVIEW"]:visible')
-  await methodTab('All Transactions').waitFor()
-  const savedLedger = await page.evaluate(() => JSON.stringify(window.paymentFixture.snapshot().paymentRecords))
-  assert.match(await reviewRow().innerText(), /Bank Transfer/)
-  assert.match(await reviewRow().innerText(), /Pay at the Office/)
-  await methodTab('Bank Transfer').click()
+   const methodTab = name => page.getByRole('tab', { name, exact:true })
+   const reviewRow = () => page.locator('[data-payment-booking="BK-REVIEW"]:visible')
+   await methodTab('All Transactions').waitFor()
+   const tabsBox = await page.locator('[role="tablist"]').boundingBox()
+   const savedLedger = await page.evaluate(() => JSON.stringify(window.paymentFixture.snapshot().paymentRecords))
+   assert.match(await reviewRow().innerText(), /Bank Transfer/)
+   assert.doesNotMatch(await reviewRow().innerText(), /Pay at the Office\s*·\s*Bank Transfer/,
+     'a booking row must not combine booking preference and multiple transaction methods')
+   assert.equal(await reviewRow().locator('[data-payment-submission-method]').count(), 1, 'the table identifies one transaction method')
+   await methodTab('Bank Transfer').click()
+   assert.deepEqual(await page.locator('[role="tablist"]').boundingBox(), tabsBox, 'method tabs keep a stable content width')
   assert.equal(await page.locator('[data-payment-booking="BK-OTHER"]:visible').count(),0)
   assert.doesNotMatch(await reviewRow().innerText(), /Pay at the Office/)
   await reviewRow().getByRole('button', { name:'Review', exact:true }).click()
@@ -328,7 +332,8 @@ try {
   assert.match(await page.locator('.receipt-print').innerText(), /₱2,500\.00/)
   assert.equal(await page.getByRole('button',{name:/^Submission 2\D/}).count(),0)
   await page.getByRole('button',{name:'Close payment review'}).click()
-  await methodTab('Pay at the Office').click()
+   await methodTab('Pay at the Office').click()
+   assert.deepEqual(await page.locator('[role="tablist"]').boundingBox(), tabsBox, 'method tabs do not shift the table when filtering')
   assert.doesNotMatch(await reviewRow().innerText(), /Bank Transfer/)
   await reviewRow().getByRole('button',{name:'Review',exact:true}).click()
   await noteIs('Payment 2 proof was unreadable.')
@@ -374,13 +379,19 @@ try {
         assert.ok(Math.abs(box.x-boxes[0].x)<1,'badges share a consistent horizontal position')
       }
        if(width>=1280){
-        const cells=page.locator(surface==='admin'?'[data-payment-review-status]':'[data-transaction-status]')
+         const cells=page.locator(surface==='admin'?'[data-payment-review-status]':'[data-transaction-status]')
         for(const cell of await cells.all()){
           const c=await cell.boundingBox(),b=await cell.locator('.oe-payment-status').boundingBox()
           assert.ok(Math.abs(c.x+c.width/2-b.x-b.width/2)<1,'badges centered in their semantic column')
         }
-        const container=page.locator('[data-slot="table-container"]').first()
-        await container.evaluate(el=>{el.scrollLeft=el.scrollWidth})
+         const container=page.locator('[data-slot="table-container"]').first()
+         const dimensions=await container.evaluate(el=>({clientWidth:el.clientWidth,scrollWidth:el.scrollWidth}))
+         assert.ok(dimensions.scrollWidth<=dimensions.clientWidth+1,`${surface} ${width}px table fits without desktop clipping`)
+         const tableBox=await container.boundingBox()
+         const firstRow=container.locator('tbody tr').first()
+         const action=await firstRow.getByRole('button').last().boundingBox()
+         assert.ok(tableBox&&action&&action.x>=tableBox.x&&action.x+action.width<=tableBox.x+tableBox.width+1,`${surface} ${width}px action remains fully visible`)
+         await container.evaluate(el=>{el.scrollLeft=el.scrollWidth})
         assert.equal(await container.evaluate(el=>el.scrollWidth<=el.clientWidth+1||el.scrollLeft>0),true)
       }
       if(surface==='client'){
@@ -765,7 +776,7 @@ try {
   })
   await page.waitForFunction(()=>Array.from(document.querySelectorAll('button')).some(el=>el.textContent.includes('Proceed to Details')&&!el.disabled))
   await proceed.click()
-   await page.getByPlaceholder('Enter registered business name',{exact:true}).fill('Second business')
+   await page.getByPlaceholder('Enter name of business',{exact:true}).fill('Second business')
   await page.locator('select').selectOption('others')
   await page.getByPlaceholder('Please specify business nature...').fill('Creative services')
   await page.getByRole('checkbox').check()
@@ -843,9 +854,9 @@ try {
       assert.equal(await modification().evaluate(el=>el.scrollWidth>el.clientWidth+1),false)
       await page.screenshot({path:join(output,'booking-modify-custom-business-mobile.png')})
     }
-     await modification().getByPlaceholder('Enter registered business name',{exact:true}).fill('Corrected business name')
+     await modification().getByPlaceholder('Enter name of business',{exact:true}).fill('Corrected business name')
     const changes=await submitModification()
-    assert.equal(changes.companyName,'Corrected company title')
+     assert.equal(changes.companyName,'Corrected business name')
     assert.equal(Object.hasOwn(changes,'natureOfBusiness'),false,'stored business labels and codes must not be normalized on an unrelated edit')
     assert.equal(Object.hasOwn(changes,'eventType'),false)
     checks+=3

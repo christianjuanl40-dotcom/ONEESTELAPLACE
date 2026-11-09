@@ -407,7 +407,7 @@ try {
     officeRentalTerm: "1_year", status: "modification_under_review", modificationRequested: true,
     modificationStatus: "Under Review", modificationReason: "Detailed modification reason. ".repeat(100),
   }))
-  for (const label of ["Business Name", "Nature of Business", "Rental Term"]) await details().locator("dt").getByText(label, { exact: true }).waitFor()
+  for (const label of ["Name of Business", "Nature of Business", "Rental Term"]) await details().locator("dt").getByText(label, { exact: true }).waitFor()
   assert.equal(await bookingDialog().getByRole("button", { name: "Approve Modification", exact: true }).isEnabled(), true)
   assert.ok((await bookingDialog().locator("footer").boundingBox()).height <= 220)
   assert.deepEqual(errors, [], "browser must not report runtime errors")

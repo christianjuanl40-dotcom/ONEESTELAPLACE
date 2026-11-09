@@ -147,8 +147,8 @@ try {
       previous = box
     }
   }
-  const footerArrangement = async (expected, dialog = modal()) => {
-    const footer = dialog.locator("footer"), actions = footer.getByRole("button")
+   const footerArrangement = async (expected, dialog = modal()) => {
+     const footer = dialog.locator("footer"), actions = footer.getByRole("button")
     // Fixture publications are external-store updates; wait for React's next
     // committed render before checking its exact (unchanged) action contract.
     await page.waitForFunction(([element, labels]) => JSON.stringify(
@@ -161,22 +161,60 @@ try {
     assert.equal(await footer.count(), 1)
     assert.deepEqual((await actions.allTextContents()).map(text => text.trim()), expected, "footer contains management actions in logical order")
     assert.equal(await footer.getByRole("button", { name: /View Receipt|Contract$/ }).count(), 0, "document actions never appear in the footer")
-    const footerBox = await footer.boundingBox()
-    const padding = await footer.evaluate(el => { const style = getComputedStyle(el);return { left: parseFloat(style.paddingLeft), right: parseFloat(style.paddingRight) } })
-    assert.equal(padding.left, page.viewportSize().width >= 640 ? 24 : 16)
-    const stacked = await dialog.getByRole("region", { name: "Booking details content", exact: true }).count() > 0
-    const contractActions = footer.locator('button[data-contract-action="true"]')
-    if (await contractActions.count()) {
-      assert.equal(await contractActions.count(), 1, "only one contract action is rendered")
-      await actionStyle(contractActions.first(), true)
-      const contractBox = await contractActions.first().boundingBox()
-      assert.ok(Math.abs(contractBox.width - (footerBox.width - padding.left - padding.right)) < 1, "contract action spans both footer columns")
-      const ordinaryActions = footer.locator('button:not([data-contract-action="true"])')
-      if (await ordinaryActions.count()) await equalWidthActions(ordinaryActions, { x: footerBox.x + padding.left, width: footerBox.width - padding.left - padding.right }, stacked)
-    } else {
-      await equalWidthActions(actions, { x: footerBox.x + padding.left, width: footerBox.width - padding.left - padding.right }, stacked)
-    }
-    const dominant = await actions.evaluateAll(nodes => nodes.filter(el => !el.disabled && getComputedStyle(el).color === 'rgb(255, 255, 255)').length)
+     const footerBox = await footer.boundingBox()
+     const padding = await footer.evaluate(el => { const style = getComputedStyle(el);return { left: parseFloat(style.paddingLeft), right: parseFloat(style.paddingRight) } })
+     assert.equal(padding.left, page.viewportSize().width >= 640 ? 24 : 16)
+     const grid = footer.locator(":scope > div"), gridBox = await grid.boundingBox()
+     assert.ok(gridBox && footerBox)
+     const gap = await grid.evaluate(el => parseFloat(getComputedStyle(el).columnGap))
+     const boxes = await actions.evaluateAll(nodes => nodes.map(el => {
+       const rect = el.getBoundingClientRect()
+       return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, overflow: el.scrollWidth > el.clientWidth }
+     }))
+     const mobile = page.viewportSize().width < 768
+     const contentWidth = gridBox.width
+     const assertRow = (row, expectedCount, expectedWidth) => {
+       assert.equal(row.length, expectedCount)
+       row.forEach((box, index) => {
+         assert.ok(Math.abs(box.width - expectedWidth) < 1, "actions use equal widths within each row")
+         assert.ok(Math.abs(box.x - gridBox.x - index * (expectedWidth + gap)) < 1, "actions align to their grid columns")
+       })
+     }
+     for (const box of boxes) {
+       assert.equal(box.height, 44)
+       assert.equal(box.overflow, false)
+     }
+     if (mobile) {
+       for (const [index, box] of boxes.entries()) {
+         assert.ok(Math.abs(box.width - contentWidth) < 1)
+         assert.ok(Math.abs(box.x - gridBox.x) < 1)
+         if (index > 0) assert.ok(Math.abs(box.y - boxes[index - 1].y - (44 + gap)) < 1)
+       }
+     } else if (boxes.length === 1) {
+       assertRow(boxes, 1, contentWidth)
+     } else if (boxes.length === 2 || boxes.length === 4) {
+       const columns = 2
+       const expectedWidth = (contentWidth - gap) / columns
+       assertRow(boxes.slice(0, columns), columns, expectedWidth)
+       if (boxes.length === 4) assertRow(boxes.slice(columns), columns, expectedWidth)
+       if (boxes.length === 4) assert.ok(Math.abs(boxes[2].y - boxes[0].y - (44 + gap)) < 1)
+     } else if (boxes.length === 3) {
+       const half = (contentWidth - gap) / 2
+       assertRow(boxes.slice(0, 2), 2, half)
+       assert.ok(Math.abs(boxes[2].width - contentWidth) < 1)
+       assert.ok(Math.abs(boxes[2].x - gridBox.x) < 1)
+       assert.ok(Math.abs(boxes[2].y - boxes[0].y - (44 + gap)) < 1)
+     } else if (boxes.length === 5) {
+       const third = (contentWidth - gap * 2) / 3
+       const half = (contentWidth - gap) / 2
+       assertRow(boxes.slice(0, 3), 3, third)
+       assert.equal(boxes.slice(3).length, 2)
+       assert.ok(Math.abs(boxes[3].width - half) < 1 && Math.abs(boxes[4].width - half) < 1)
+       assert.ok(Math.abs(boxes[3].x - gridBox.x) < 1)
+       assert.ok(Math.abs(boxes[4].x - gridBox.x - (half + gap)) < 1)
+       assert.ok(Math.abs(boxes[3].y - boxes[0].y - (44 + gap)) < 1)
+     }
+     const dominant = await actions.evaluateAll(nodes => nodes.filter(el => !el.disabled && getComputedStyle(el).color === 'rgb(255, 255, 255)').length)
     assert.ok(dominant <= 1, "at most one visually dominant primary action")
   }
   const documentsArrangement = async () => {

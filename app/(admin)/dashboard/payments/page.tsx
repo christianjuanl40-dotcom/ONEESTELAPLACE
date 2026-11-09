@@ -821,8 +821,8 @@ export default function AdminPaymentsPage() {
           </div>
         </header>
 
-        <Tabs value={methodFilter} onValueChange={(value) => setMethodFilter(value as PaymentMethodFilter)} className="mb-4 min-w-0">
-          <TabsList aria-label="Transaction payment method" className="grid h-auto w-full grid-cols-1 gap-1 bg-slate-100 p-1 sm:w-fit sm:grid-cols-3">
+        <Tabs value={methodFilter} onValueChange={(value) => setMethodFilter(value as PaymentMethodFilter)} className="mb-4 min-w-0 w-full">
+          <TabsList aria-label="Transaction payment method" className="grid h-auto w-full grid-cols-1 gap-1 bg-slate-100 p-1 sm:max-w-[640px] sm:grid-cols-3">
             <TabsTrigger className="min-h-11 whitespace-normal px-3 data-[state=active]:bg-orange-50 data-[state=active]:text-orange-800" value="all">All Transactions</TabsTrigger>
             <TabsTrigger className="min-h-11 whitespace-normal px-3 data-[state=active]:bg-orange-50 data-[state=active]:text-orange-800" value="bank">Bank Transfer</TabsTrigger>
             <TabsTrigger className="min-h-11 whitespace-normal px-3 data-[state=active]:bg-orange-50 data-[state=active]:text-orange-800" value="office">Pay at the Office</TabsTrigger>
@@ -1070,7 +1070,7 @@ function PaymentVerificationTable({
   return (
     <>
       <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:block">
-        <Table className="min-w-[1040px] w-full table-fixed">
+        <Table className="min-w-[1040px] w-full table-fixed xl:min-w-0">
           <caption className="sr-only">Admin payment verification records grouped by booking</caption>
           <colgroup>
             <col style={{ width: "24%" }} />
@@ -1153,7 +1153,7 @@ function PaymentVerificationTableRow({
         {resource.room && <p className="oe-table-secondary mt-0.5 line-clamp-1">Room: {resource.room}</p>}
       </TableCell>
       <TableCell className="min-w-0 px-2.5 align-top whitespace-normal">
-        <PaymentMethodLabel payment={payment} className="oe-table-secondary" />
+        <PaymentMethodLabel payment={payment} submission={submission} className="oe-table-secondary" />
         <p className="oe-table-primary mt-0.5 tabular-nums">{formatCurrency(submittedAmount)}</p>
         <p className="oe-table-secondary mt-0.5 line-clamp-2 break-words" title={submission?.referenceNo || submission?.id || undefined}>
           Submitted {formatSubmittedAt(submission?.submittedAt || payment.paymentSubmittedAt)}
@@ -1212,7 +1212,7 @@ function PaymentVerificationCompactRow({
       </div>
       <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
          <div className="min-w-0"><p className="oe-table-label">Reserved space</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{resource.primary}{resource.room ? ` · ${resource.room}` : ""}</p></div>
-         <div className="min-w-0"><p className="oe-table-label">Method</p><PaymentMethodLabel payment={payment} className="oe-table-secondary mt-0.5" /></div>
+          <div className="min-w-0"><p className="oe-table-label">Method</p><PaymentMethodLabel payment={payment} submission={submission} className="oe-table-secondary mt-0.5" /></div>
          <div className="min-w-0"><p className="oe-table-label">Submitted</p><p className="oe-table-primary mt-0.5 tabular-nums">{formatCurrency(submittedAmount)}</p><p className="oe-table-secondary mt-0.5 line-clamp-1">{formatSubmittedAt(submission?.submittedAt || payment.paymentSubmittedAt)}</p></div>
          <div className="min-w-0"><p className="oe-table-label">Submission</p><p className="oe-table-secondary mt-0.5 line-clamp-2">{submission?.referenceNo || submission?.id || "Record available in review"}</p>{submission && <p className="oe-table-secondary mt-0.5">{getPaymentRecordStatusLabel(submission)}</p>}<p className="oe-table-secondary mt-0.5">{payment.paymentCount ?? 1} total</p></div>
       </div>
@@ -1676,20 +1676,27 @@ function PaymentReviewModal({
   )
 }
 
-function PaymentMethodLabel({ payment, className }: { payment: BookingRecord; className?: string }) {
-  const records: PaymentRecord[] = payment.viewPayments || payment.incomingPayments || []
-  const labels = records.length ? [...new Set(records.map((record) => getReceiptPaymentMethodLabel(record.paymentMethod || record.method)))]
-    : [getReceiptPaymentMethodLabel(payment.receipt?.paymentMethod || payment.actualPaymentMethod || "")]
-  const isBank = labels.includes("Bank Transfer")
+function PaymentMethodLabel({ payment, submission, className }: { payment: BookingRecord; submission?: PaymentRecord | null; className?: string }) {
+  // The table represents one booking, but its method label must describe the
+  // transaction currently projected into that row. Never join every method in
+  // the booking ledger or fall back to the booking preference while a concrete
+  // submission is available.
+  const transactionMethod = submission?.paymentMethod || submission?.method || payment.receipt?.paymentMethod || payment.actualPaymentMethod || ""
+  const label = getReceiptPaymentMethodLabel(transactionMethod)
+  const isBank = label === "Bank Transfer"
 
   return (
-    <span className={cn("inline-flex max-w-full items-center gap-1.5 text-sm font-normal text-black", className)}>
+    <span
+      data-payment-submission-method={label}
+      aria-label={`Transaction method: ${label}`}
+      className={cn("inline-flex max-w-full items-center gap-1.5 text-sm font-normal text-black", className)}
+    >
       {isBank ? (
         <FileImage className="h-3.5 w-3.5 shrink-0 text-blue-500" />
       ) : (
         <Banknote className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
       )}
-      <span className="break-words">{labels.join(" · ")}</span>
+      <span className="break-words">{label}</span>
     </span>
   )
 }

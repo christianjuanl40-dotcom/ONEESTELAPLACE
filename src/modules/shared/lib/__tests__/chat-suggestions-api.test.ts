@@ -99,6 +99,16 @@ describe("predefined question configuration API", () => {
 })
 
 describe("trusted predefined answer delivery", () => {
+  it("delivers the existing built-in question set when CMS configuration is absent", async () => {
+    const store = boundary.firestore as TransactionStore
+    const response = await sendAnswer(request({ questionId: "book-venue", idempotencyKey: "fallback-answer-1" }))
+    expect(response.status).toBe(201)
+    expect([...store.data.values()]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: "How do I book a venue?", sourceQuestionId: "book-venue" }),
+      expect.objectContaining({ text: expect.stringContaining("You can start a booking request"), isBot: true }),
+    ]))
+  })
+
   it("writes the customer question and configured answer once across concurrent retries", async () => {
     const store = boundary.firestore as TransactionStore
     store.seed("chatSuggestionQuestions/config", { revision: 4, questions: [question()] })
@@ -141,6 +151,21 @@ describe("trusted predefined answer delivery", () => {
 })
 
 describe("filtered customer question retrieval", () => {
+  it("returns the existing no-booking questions when publication configuration is missing", async () => {
+    const response = await getPublished(publishedRequest())
+    expect(response.status).toBe(200)
+    const payload = await response.json()
+    expect(payload.context.kind).toBe("no_booking")
+    expect(payload.questions.map((entry: { questionId: string }) => entry.questionId)).toEqual([
+      "book-venue",
+      "available-spaces",
+      "payment-methods",
+    ])
+    expect(payload.questions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ answer: expect.any(String) }),
+    ]))
+  })
+
   it("returns only the current status category's top three questions without answers", async () => {
     const store = boundary.firestore as TransactionStore
     const pendingQuestions = [1, 2, 3, 4].map((priority) => question({

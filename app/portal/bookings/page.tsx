@@ -811,7 +811,7 @@ function BookingDetailsModal({
                   <BookingDetailField label={isOfficeRental ? "Rental Type" : "Event Type"}>{typeLabel}</BookingDetailField>
                   {isOfficeRental ? <>
                     <BookingDetailField label="Rental Term">{formatTextLabel(booking.officeRentalTerm || booking.rentalTerm || booking.contractTerm) || "—"}</BookingDetailField>
-                    <BookingDetailField label="Business Name" wide>{booking.companyName || booking.eventName || "N/A"}</BookingDetailField>
+                    <BookingDetailField label="Name of Business" wide>{booking.companyName || booking.eventName || "N/A"}</BookingDetailField>
                     <BookingDetailField label="Nature of Business" wide>{booking.natureOfBusiness || booking.eventType || "N/A"}</BookingDetailField>
                     {!isCancelled && <BookingDetailField label="Remaining Duration">{getRemainingDuration(booking.endDate || booking.date, booking.date) || "—"}</BookingDetailField>}
                   </> : <>
@@ -2011,13 +2011,13 @@ function ModifyBookingFlowModal({
 
                       <div className="space-y-1.5">
                         <label htmlFor="modify-business-name" className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
-                          Business Name <span className="text-rose-500">*</span>
+                          Name of Business <span className="text-rose-500">*</span>
                         </label>
                         <Input
                           id="modify-business-name"
                           value={companyName}
                           onChange={(e) => setCompanyName(e.target.value)}
-                          placeholder="Enter registered business name"
+                          placeholder="Enter name of business"
                           className="h-10 w-full rounded-xl bg-slate-50 border border-slate-200 px-3 text-xs focus-visible:ring-2 focus-visible:ring-[#ea580c]"
                         />
                       </div>

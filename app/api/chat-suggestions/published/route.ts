@@ -10,6 +10,7 @@ import {
 import {
   CHAT_SUGGESTION_CONFIG_COLLECTION,
   CHAT_SUGGESTION_CONFIG_DOCUMENT,
+  getEffectiveChatSuggestionQuestions,
   getChatSuggestionContext,
   normalizeChatSuggestionQuestions,
   type ChatSuggestionKind,
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
     ])
 
     const configData = configSnapshot.exists ? configSnapshot.data() as DataRecord : {}
-    const questions = normalizeChatSuggestionQuestions(configData.questions)
+    const questions = getEffectiveChatSuggestionQuestions(normalizeChatSuggestionQuestions(configData.questions))
     const revision = typeof configData.revision === "number" ? configData.revision : 0
     const bookings = bookingSnapshot.docs.map((snapshot) => ({
       ...(snapshot.data() as DataRecord),

@@ -241,6 +241,33 @@ export function toPublishedChatSuggestionQuestions(
     .map(({ questionId, question, statusGroup, priority }) => ({ questionId, question, statusGroup, priority }))
 }
 
+/**
+ * The built-in questions are the existing starter content for the support
+ * surface. They fill only status groups with no published CMS question, so a
+ * missing/partial local configuration cannot leave a stable conversation with
+ * no way to start the intended predefined-question flow.
+ */
+export function getEffectiveChatSuggestionQuestions(
+  configuredQuestions: ReadonlyArray<ChatSuggestionQuestion>,
+): ChatSuggestionQuestion[] {
+  const effective = configuredQuestions.map((question) => ({ ...question }))
+  const publishedGroups = new Set(
+    toPublishedChatSuggestionQuestions(configuredQuestions).map((question) => question.statusGroup),
+  )
+  const configuredIds = new Set(configuredQuestions.map((question) => question.questionId))
+
+  // Keep owner-published questions authoritative for their status group, but
+  // retain the existing built-in set for any group that has no published
+  // entry. This prevents one partially configured CMS category from making a
+  // different stable client conversation appear broken.
+  for (const question of DEFAULT_CHAT_SUGGESTION_QUESTIONS) {
+    if (publishedGroups.has(question.statusGroup) || configuredIds.has(question.questionId)) continue
+    effective.push({ ...question, isPublished: true })
+  }
+
+  return effective
+}
+
 export function normalizePublishedChatSuggestionQuestions(value: unknown): PublishedChatSuggestionQuestion[] {
   if (!Array.isArray(value)) return []
   return value.filter(isRecord).map((raw) => {

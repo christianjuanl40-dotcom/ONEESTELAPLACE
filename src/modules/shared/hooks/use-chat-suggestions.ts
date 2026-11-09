@@ -10,6 +10,7 @@ import {
   CHAT_SUGGESTION_CONFIG_COLLECTION,
   CHAT_SUGGESTION_VERSION_DOCUMENT,
   CHAT_SUGGESTION_COOLDOWN_MS,
+  getChatSuggestionQuestionSet,
   getChatSuggestionContext,
   getTimestampMs,
   isChatSuggestionKind,
@@ -75,7 +76,7 @@ function parseFilteredSuggestionResponse(value: unknown, fallbackRevision: numbe
     throw new Error("Suggested questions response was invalid.")
   }
 
-  const questions = normalizePublishedChatSuggestionQuestions(value.questions)
+  const configuredQuestions = normalizePublishedChatSuggestionQuestions(value.questions)
     .filter((question) => question.statusGroup === rawContext.kind)
     .slice(0, 3)
     .map((question) => ({
@@ -84,6 +85,9 @@ function parseFilteredSuggestionResponse(value: unknown, fallbackRevision: numbe
       statusGroup: question.statusGroup,
       priority: question.priority,
     }))
+  const questions = configuredQuestions.length > 0
+    ? configuredQuestions
+    : getChatSuggestionQuestionSet(rawContext.kind).slice(0, 3)
 
   return {
     uid: "",

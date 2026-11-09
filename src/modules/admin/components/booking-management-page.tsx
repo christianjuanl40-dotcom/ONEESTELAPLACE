@@ -226,7 +226,7 @@ function MarkCompletedAction({
 
 function ContractSigningAction({ onClick, secondary = false, disabled = false }: { onClick: () => void; secondary?: boolean; disabled?: boolean }) {
   return (
-    <div className="col-span-full min-w-0 w-full">
+    <div className="min-w-0 w-full">
       <TooltipProvider delayDuration={400}>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -1235,7 +1235,7 @@ function AdminBookingTable({
   return (
     <>
       <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm md:block">
-          <Table className="min-w-[1080px] table-fixed">
+          <Table className="min-w-[1080px] table-fixed xl:min-w-0">
           <caption className="sr-only">Admin booking management records</caption>
           <colgroup>
             <col style={{ width: "19%" }} />
@@ -2007,7 +2007,7 @@ export function BookingDetailsModal({
                 <BookingDetail label="Venue / Office" value={booking.venue || "—"} />
                 {isOfficeRental && (
                   <>
-                      <BookingDetail label="Business Name" value={(booking as any).companyName || booking.eventName || "N/A"} />
+                      <BookingDetail label="Name of Business" value={(booking as any).companyName || booking.eventName || "N/A"} />
                      <BookingDetail label="Nature of Business" value={(booking as any).natureOfBusiness || booking.eventType || "N/A"} />
                      <BookingDetail label="Rental Term" value={(booking as any).rentalTerm || (booking as any).contractTerm || (booking as any).officeRentalTerm || "—"} />
                      <BookingDetail label="Reserved Room" value={(booking as any).roomName || (booking as any).spaceName || (booking as any).room || booking.spaceId || "—"} />

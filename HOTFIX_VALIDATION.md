@@ -2,7 +2,7 @@
 
 ## 1. Issues investigated
 
-Balance-reminder action → lifecycle transaction → booking marker/email outbox → notification persistence → scoped realtime inbox → client rendering; active support-chat initialization, predefined-question cooldown, page/widget navigation; booking footers/tables; client transaction actions/history; payment-method views and unified financial reporting; deployed email-dispatch provenance/runtime readiness; office Business Name terminology and compatibility.
+Balance-reminder action → lifecycle transaction → booking marker/email outbox → notification persistence → scoped realtime inbox → client rendering; active support-chat initialization, predefined-question cooldown, page/widget navigation; booking footers/tables; client transaction actions/history; payment-method views and unified financial reporting; deployed email-dispatch provenance/runtime readiness; office Name of Business terminology and compatibility.
 
 ## 2. Confirmed root causes
 
@@ -13,7 +13,7 @@ Balance-reminder action → lifecycle transaction → booking marker/email outbo
 - **Cramped transactions:** fixed-width desktop tables allocated insufficient status/action space; the CSS badge was 8.5rem despite the documented 11rem convention. Unknown transaction methods could inherit a booking's selected preference.
 - Several requested booking behaviors already existed: compact responsive action grids, separated client reference/event columns, newest-first admin ordering, original/current schedules, revision history, and canonical reporting. These were preserved rather than rewritten.
 - **Email automation:** source inspection confirms deterministic outbox creation inside successful booking/payment transactions, scoped `after()` dispatch after commit, shared claim/lease/retry processing, and a guarded scheduled fallback. Production inspection remains read-only and cannot identify the active immutable build without authenticated deployment metadata/diagnostics: GitHub records a newer Production deployment of the pre-`after()` SHA, while both fetched immutable URLs returned Vercel authentication pages. No protected diagnostic call succeeded because no local `CRON_SECRET` was available; no worker invocation or email send was attempted. The source now exposes a protected `after-scoped-outbox-v1` marker and sanitized deployment SHA for owner verification after deployment, and route `maxDuration` is 60 seconds to cover bounded SMTP timeouts. This is a deployment/configuration/runtime readiness improvement, not proof of inbox delivery.
-- **Office terminology:** office Final Details and matching client/admin booking details now say **Business Information** / **Business Name**. Persisted `companyName`, `eventName`, `natureOfBusiness`, terms, validation, server authorization, and event-booking labels remain compatible.
+- **Office terminology:** office Final Details, client modification/details, and admin booking details now say **Business Information** / **Name of Business**, with the matching supporting description and placeholder. Persisted `companyName`, `eventName`, `natureOfBusiness`, terms, validation, server authorization, and event-booking labels remain compatible.
 
 ## 3. Changes implemented
 
@@ -97,16 +97,24 @@ scripts/verify-payment-submission.mjs
 
 `README.md`, `ARCHITECTURE.md`, `DESIGN_PALETTE.md`, `CMS_ARCHITECTURE.md`, `IMPROVEMENTS.md`, `PRELAUNCH_AUDIT.md`, `READ_LOADING_INVESTIGATION.md`, `docs/EMAIL_SETUP.md`, and this new `HOTFIX_VALIDATION.md`. Historical reports retain their original dates/findings, with labeled follow-up notes only.
 
+### Final acceptance follow-up files
+
+```text
+firestore.indexes.json
+src/modules/client/components/reserve-dialog.tsx
+src/modules/shared/lib/__tests__/notification-access.test.ts
+```
+
 ## 5. Validation results
 
 | Check | Result |
 | --- | --- |
-| Full Vitest: `npx vitest run --maxWorkers=2` | **53 files passed, 1 skipped; 859 tests passed, 130 skipped, 0 failed (989 total).** Skips are conditional emulator tests, not counted as passes. |
+| Full Vitest: `npx vitest run --maxWorkers=2` | **53 files passed, 1 skipped; 862 tests passed, 130 skipped, 0 failed (992 total).** Skips are conditional emulator tests, not counted as passes. |
 | Disposable Firestore: rules + availability/reminder transaction suites, `--maxWorkers=1 --hookTimeout=60000` | **2 files / 141 tests passed; 0 failed, 0 skipped.** Includes the 130 conditional tests plus 11 repeated loopback-guard tests. New reminder concurrency, later events, read-state preservation, unchanged payment ledger, outbox atomicity, and browser retry/marker denial are covered. |
 | `node scripts/verify-hotfix-reliability.mjs` | **24 checks passed**, no browser runtime errors; actual providers/hook with local service boundaries. |
 | `npx vitest run` email dispatch/config/diagnostics subset | **4 files / 27 tests passed**, including scoped `after()` IDs, fallback/retry/claim races, duplicate prevention, historical exclusion, safe diagnostics, and transactional readiness reporting. |
 | `node scripts/verify-admin-booking-actions.mjs` | **20 scenarios passed**, including saved/cooldown/error reminder feedback and double-click protection. |
-| `node scripts/verify-office-availability.mjs` | **40 scenarios passed** at 1366/1280/390/320px, including Business Name required-state validation, office submission persistence, Terms & Conditions, occupancy, full-term availability, and retry recovery. |
+| `node scripts/verify-office-availability.mjs` | **40 scenarios passed** at 1366/1280/390/320px, including Name of Business required-state validation, office submission persistence, Terms & Conditions, occupancy, full-term availability, and retry recovery. |
 | `node scripts/verify-booking-details.mjs --no-screenshots` | **67 responsive scenarios passed**; screenshots deliberately skipped, geometry/keyboard/action assertions retained. |
 | `node scripts/verify-booking-table.mjs` | **8 scenarios passed**: newest-first ordering, search/filter/status behavior, pagination, realtime insertion, and contained scrolling. |
 | `node scripts/verify-payment-review.mjs --payments-only` | **108 assertions/scenarios passed**, including top-level method tabs, mixed-ledger receipts, historical aliases, preference changes, keyboard use, statuses/actions and money at seven widths. |
@@ -135,10 +143,10 @@ Browser sizes include **320, 375, 768, 1024, and 1440px**, plus 1280/1366px wher
 ## 6. Remaining risks / limitations
 
 - Browser workflows use actual components/providers with isolated service fixtures; they do not prove live Firebase Auth signup/relogin, deployed index readiness, production notification display, SMTP acceptance, or email inbox delivery. No live accounts or production records were created/modified.
-- The welcome is deliberately empty-conversation guidance, not a newly persisted bot message. Existing persisted automated replies remain untouched. Published suggestions still depend on owner-reviewed CMS publication.
+- The welcome is deliberately empty-conversation guidance, not a newly persisted bot message. Existing persisted automated replies remain untouched. CMS-published suggestions remain authoritative for configured status groups; the existing built-in questions fill missing/empty groups, and clicking one still uses the authenticated idempotent answer route.
 - Recent legacy sent markers may suppress another reminder until their 24-hour window ends even when old delivery is unconfirmed. Missing/invalid old timestamps cannot establish a cooldown. No legacy notification migration or replay was performed.
 - Notifications remain bounded to the latest 100 records. Older persisted records are not deleted, but this task adds no inbox archive/pagination feature.
-- The new reminder retry collection is protected by unchanged default-deny rules. Existing Firebase configuration, rules, indexes, payment authority, financial helpers, receipt identities, and production data are unchanged.
+- The new reminder retry collection is protected by unchanged default-deny rules. The declared notification indexes now cover both the canonical ordered inbox and the scoped staff type-filter query; no Firebase index deployment was performed. Existing Firebase configuration, rules, payment authority, financial helpers, receipt identities, and production data are unchanged.
 - Real-data financial reconciliation was not performed: no production ledger/refund records were accessed. Synthetic and emulator checks are explicitly distinguished from live accounting evidence.
 - The active production alias still cannot be conclusively mapped to a commit from public metadata: GitHub shows Production deployment `a35c403` after the `56caf08` immediate-dispatch deployment, while both immutable URLs returned Vercel authentication pages. Protected diagnostics could not be read without an owner-supplied `CRON_SECRET`; transactional configuration, SMTP acceptance, job state, runtime timeout behavior, and inbox delivery therefore remain unverified in production. No worker endpoint was invoked and no production email was sent.
 
@@ -149,3 +157,24 @@ Local validation is complete, but production readiness remains **owner-gated**. 
 ## 8. Git working-tree status
 
 The task started with a clean working tree. Changes are intentionally uncommitted; final status is **47 modified, 7 untracked (54 paths)**. No user changes were reverted or discarded. No commit, push, deployment, Firebase rules/index deployment, production-data operation, worker invocation, or production email was performed.
+
+## 9. Follow-up after initial review — 2026-11-09
+
+The original 54-path hotfix batch was committed and pushed after explicit owner approval as `74570c1` (`fix: complete release hotfix reliability`). A final acceptance follow-up then added the declared `notifications` composite index for the ordered staff type-filter query, replaced the last office validation message using `company / tenant` terminology with **Business Name**, and added a regression assertion for the index manifest. These follow-up edits remain local and uncommitted; no deployment or Firebase index operation was performed.
+
+## 10. Final visual regression follow-up — 2026-11-09
+
+The acceptance follow-up keeps the pre-existing local edits and adds the admin booking/payment table fit, count-aware Booking Details action grids, exact office Final Details copy, transaction-level method labels, and predefined-question fallback changes. Browser harnesses capture the six requested widths (320/375/768/1024/1280/1440) with table/action bounding-box checks and screenshots. Final local results:
+
+| Check | Result |
+| --- | --- |
+| `node scripts/verify-booking-table.mjs` | **8 scenarios passed**; six requested widths, contained scrolling, table/action bounding boxes, and screenshots. |
+| `node scripts/verify-payment-review.mjs` | **272 assertions/scenarios passed**; six requested widths plus 1366px, desktop fit/action bounding boxes, method tabs, receipts, and screenshots. |
+| `node scripts/verify-booking-details.mjs` | **67 scenarios passed**; six requested widths plus 1366px, 1–5 action-grid geometry, document actions, keyboard order, and screenshots. |
+| `node scripts/verify-admin-booking-actions.mjs` | **20 scenarios passed**; six requested widths plus 1366px, five-action thirds/halves geometry, permissions, reminders, modification, cancellation, and screenshots. |
+| `node scripts/verify-hotfix-reliability.mjs` | **27 checks passed**; six requested widths, no welcome/message fabrication, built-in question fallback, answer selection, notification/chat retries, and screenshots. |
+| `node scripts/verify-office-availability.mjs` | **40 scenarios passed** at 1366/1280/390/320px, including Name of Business copy/required-state validation and office workflows. |
+| `node scripts/verify-payment-submission.mjs` | **275 assertions/scenarios passed**; payment submission, office details, receipt/proof, and responsive booking details. |
+| `node scripts/verify-safe-build.mjs --webpack` | **Passed** compilation, TypeScript, and **23/23** static pages with disposable identity, disabled email, and loopback emulators. |
+
+The full suite remains **53 files passed, 1 skipped; 862 tests passed, 130 skipped, 0 failed**, TypeScript passed, and lint reported **0 errors / 160 existing warnings**. All changes remain uncommitted and local; no production data, Firebase deployment, email dispatch, or live CMS publication was used.

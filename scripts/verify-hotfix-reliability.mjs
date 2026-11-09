@@ -64,14 +64,16 @@ const modules = {
     import React,{useEffect,useState} from 'react';import {createRoot} from 'react-dom/client';
     import {ChatProvider,useChat} from '@/src/modules/shared/contexts/chat-context';
     import {NotificationProvider,useNotifications} from '@/src/modules/shared/contexts/notification-context';
-    import {useChatSuggestions} from '@/src/modules/shared/hooks/use-chat-suggestions';
+     import {useChatSuggestions} from '@/src/modules/shared/hooks/use-chat-suggestions';
+     import {ChatSuggestionPills} from '@/src/modules/shared/components/chat-suggestion-pills';
     import {ChatWelcome} from '@/src/modules/shared/components/chat-welcome';
     import {useAuth} from 'virtual:hotfix-state';import '@/app/globals.css';
     const h=React.createElement;
-    function Chat(){const chat=useChat();const {user}=useAuth();const suggestions=useChatSuggestions({visible:!!user,chatReady:chat.isChatLoaded});
-      useEffect(()=>{chat.loadChat();return chat.unloadChat},[chat.loadChat,chat.unloadChat]);
-      window.chatActions=chat;
-      return h('section',{'aria-label':'Chat regression'},h('p',{'data-chat-ready':true},String(chat.isChatLoaded)),h('p',{'data-chat-error':true},chat.chatError),h(ChatWelcome,{ready:chat.isChatLoaded,empty:!chat.messages.length,error:chat.chatError}),h('div',{'data-messages':true},chat.messages.map(m=>h('p',{key:m.id},m.text))),h('div',{'data-suggestions':true},suggestions.suggestions.map(q=>h('button',{key:q.id,onClick:suggestions.dismiss},q.text))));
+     function Chat(){const chat=useChat();const {user}=useAuth();const suggestionState=useChatSuggestions({visible:!!user,chatReady:chat.isChatLoaded});
+       useEffect(()=>{chat.loadChat();return chat.unloadChat},[chat.loadChat,chat.unloadChat]);
+       const selectSuggestion=async suggestion=>{await chat.sendPredefinedQuestion(suggestion.id);suggestionState.dismiss()};
+       window.chatActions=chat;
+       return h('section',{'aria-label':'Chat regression'},h('p',{'data-chat-ready':true},String(chat.isChatLoaded)),h('p',{'data-chat-error':true},chat.chatError),h(ChatWelcome,{ready:chat.isChatLoaded,empty:!chat.messages.length,error:chat.chatError}),h('div',{'data-messages':true},chat.messages.map(m=>h('p',{key:m.id},m.text))),h(ChatSuggestionPills,{suggestions:suggestionState.suggestions,bookingLabel:suggestionState.context?.bookingId?suggestionState.context.bookingLabel:undefined,onSelect:selectSuggestion,onDismiss:suggestionState.dismiss,disabled:false}));
     }
     function App(){const [visible,setVisible]=useState(true);const notifications=useNotifications();window.notificationActions=notifications;
       return h('main',{className:'mx-auto max-w-4xl p-4'},h('button',{onClick:()=>setVisible(v=>!v)},'Toggle conversation'),visible&&h(Chat),h('section',{'aria-label':'Saved notifications'},h('p',{'data-notification-loading':true},String(notifications.isLoading)),h('p',{'data-notification-error':true},notifications.error),notifications.notifications.map(n=>h('article',{key:n.id},h('h2',null,n.title),h('p',null,n.message)))));
@@ -86,7 +88,7 @@ const mocks = [
 const server = await createServer({
   configFile: false, envFile: false, envDir: false, root, cacheDir: join(output, "vite-cache"), logLevel: "error",
   define: { "process.env.NEXT_PUBLIC_PERF_TRACE": JSON.stringify("0") }, server: { host: "127.0.0.1", port: 0 },
-  resolve: { alias: { "@": root } }, oxc: { jsx: { runtime: "automatic" } },
+  resolve: { alias: { "@": root, "@shared": join(root, "src/modules/shared") } }, oxc: { jsx: { runtime: "automatic" } },
   css: { postcss: { plugins: [tailwindcss({ config: join(root, "tailwind.config.ts") })] } },
   optimizeDeps: { noDiscovery: true, include: ["react", "react-dom", "react-dom/client", "react/jsx-runtime", "react/jsx-dev-runtime"] },
   plugins: [{ name: "local-hotfix-fixtures", enforce: "pre", resolveId(source) {
@@ -108,11 +110,13 @@ try {
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`
   browser = await chromium.launch({ headless: true, channel: process.env.PAYMENT_REVIEW_BROWSER_CHANNEL || undefined })
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
-  const errors = []
+   const errors = []
+   let answerRequests = 0
   page.on("pageerror", (error) => errors.push(error.message))
   await page.route("**/*", (route) => {
     const url = route.request().url()
-    if (url === `${origin}/api/chat-suggestions/published`) return route.fulfill({ json: { revision: 1, context: { kind: "no_booking", contextKey: "no-booking:1" }, questions: [{ questionId: "question", question: "How do I book a venue?", statusGroup: "no_booking", priority: 1 }] } })
+     if (url === `${origin}/api/chat-suggestions/published`) return route.fulfill({ json: { revision: 1, context: { kind: "no_booking", contextKey: "no-booking:1" }, questions: [] } })
+     if (url === `${origin}/api/chat-suggestions/answer`) { answerRequests++; return route.fulfill({ status: 201, json: { questionMessageId: "FIXTURE-QUESTION", answerMessageId: "FIXTURE-ANSWER", automaticReplySent: true, alreadyProcessed: false } }) }
     return url.startsWith(origin) ? route.continue() : route.abort()
   })
   await page.goto(`${origin}/__hotfix`)
@@ -123,10 +127,22 @@ try {
   await page.getByRole("heading", { name: "Welcome to One Estela Place!" }).waitFor()
   await page.getByRole("button", { name: "How do I book a venue?" }).waitFor()
   await page.waitForFunction(() => window.fixture.stats().records.some(([path, data]) => path === "users/NEW" && data.chatSuggestionState?.lastShownAt))
-  for (let index = 0; index < 5; index++) await page.evaluate(() => window.fixture.sync())
-  assert.equal(await page.getByRole("button", { name: "How do I book a venue?" }).count(), 1, "own cooldown snapshot must not dismiss the displayed question")
-  assert.equal(await page.evaluate(() => window.fixture.stats().records.filter(([path]) => path.startsWith('chatMessages/')).length), 0, "welcome and suggestion displays must not insert chat messages")
-  checks += 3
+   for (let index = 0; index < 5; index++) await page.evaluate(() => window.fixture.sync())
+   assert.equal(await page.getByRole("button", { name: "How do I book a venue?" }).count(), 1, "own cooldown snapshot must not dismiss the displayed question")
+   assert.equal(await page.evaluate(() => window.fixture.stats().records.filter(([path]) => path.startsWith('chatMessages/')).length), 0, "welcome and suggestion displays must not insert chat messages")
+   for (const width of [320, 375, 768, 1024, 1280, 1440]) {
+     await page.setViewportSize({ width, height: 900 })
+     const suggestion = page.getByRole("button", { name: "How do I book a venue?" })
+     const box = await suggestion.boundingBox()
+     assert.ok(box && box.x >= 0 && box.x + box.width <= width + 1, `${width}px suggestion stays inside the chat surface`)
+     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `${width}px chat has no page overflow`)
+     await page.screenshot({ path: join(output, `empty-chat-${width}.png`) })
+   }
+   await page.setViewportSize({ width: 1440, height: 900 })
+   await page.getByRole("button", { name: "How do I book a venue?" }).click()
+   assert.equal(answerRequests, 1, "selecting a predefined question reaches the existing answer endpoint")
+   assert.equal(await page.getByRole("button", { name: "How do I book a venue?" }).count(), 0, "selecting a predefined question dismisses only after the answer request succeeds")
+   checks += 5
   await page.evaluate(() => { window.chatActions.loadChat(); window.chatActions.loadChat() })
   await page.waitForFunction(() => window.chatActions.isChatLoaded)
   assert.equal(await page.getByRole("heading", { name: "Welcome to One Estela Place!" }).count(), 1)
@@ -180,13 +196,14 @@ try {
   await page.waitForFunction(() => !window.notificationActions.error)
   assert.equal(await page.evaluate(() => window.fixture.stats().subscriptions), before + 1, "retry uses only the canonical ordered inbox, no partial fallback")
   checks++
-  for (const width of [320, 375, 768, 1024, 1440]) {
-    await page.setViewportSize({ width, height: 900 })
-    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
-    checks++
-  }
-  assert.deepEqual(errors, [])
-  const result = { checks, widths: [320, 375, 768, 1024, 1440], errors, serviceBoundary: "in-memory only; no live Auth/Firestore", artifacts: output }
+   for (const width of [320, 375, 768, 1024, 1280, 1440]) {
+     await page.setViewportSize({ width, height: 900 })
+     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
+     await page.screenshot({ path: join(output, `chat-history-${width}.png`) })
+     checks++
+   }
+   assert.deepEqual(errors, [])
+   const result = { checks, widths: [320, 375, 768, 1024, 1280, 1440], errors, serviceBoundary: "in-memory only; no live Auth/Firestore", artifacts: output }
   await writeFile(join(output, "results.json"), JSON.stringify(result, null, 2))
   console.log(JSON.stringify(result, null, 2))
 } finally {

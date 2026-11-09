@@ -248,15 +248,24 @@ try {
     assert.ok(metrics.scrollWidth <= metrics.innerWidth + 1)
   })
 
-  await check("desktop, tablet, and mobile layouts retain usable overflow", async () => {
-    for (const width of [1440, 1024, 768, 375, 320]) {
-      await page.setViewportSize({ width, height: 720 })
-      await waitForPaint()
-      const metrics = await pageScrollMetrics()
-      assert.ok(metrics.scrollWidth <= metrics.innerWidth + 1, `${width}px page has horizontal overflow`)
-      if (width >= 768) assert.ok(await table().count() === 1)
-      else assert.ok((await mobileIds()).length > 0)
-    }
+   await check("desktop, tablet, and mobile layouts retain usable overflow", async () => {
+     for (const width of [320, 375, 768, 1024, 1280, 1440]) {
+       await page.setViewportSize({ width, height: 720 })
+       await waitForPaint()
+       const metrics = await pageScrollMetrics()
+       assert.ok(metrics.scrollWidth <= metrics.innerWidth + 1, `${width}px page has horizontal overflow`)
+       if (width >= 768) {
+         assert.ok(await table().count() === 1)
+         if (width >= 1280) {
+           const dimensions = await table().evaluate((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth }))
+           assert.ok(dimensions.scrollWidth <= dimensions.clientWidth + 1, `${width}px booking table fits the available content area`)
+           const container = await table().boundingBox()
+           const action = await table().locator('[data-slot="table-body"] tr').first().locator('[data-slot="table-cell"]').last().getByRole('button').boundingBox()
+           assert.ok(container && action && action.x >= container.x && action.x + action.width <= container.x + container.width + 1, `${width}px booking action is fully visible`)
+         }
+       } else assert.ok((await mobileIds()).length > 0)
+       await page.screenshot({ path: join(output, `booking-table-${width}.png`) })
+     }
     await page.setViewportSize({ width: 375, height: 720 })
     await page.evaluate(() => window.scrollTo(0, 0))
     const mobileRow = page.locator(".space-y-2.md\\:hidden").getByText("BOOK-REALTIME-NEW", { exact: true })

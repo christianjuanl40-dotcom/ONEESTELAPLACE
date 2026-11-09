@@ -776,7 +776,7 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
       toast({
         title: "Missing Name",
         description: isOffice
-          ? "Please enter the company / tenant name."
+          ? "Please enter the name of your business."
           : "Please enter the event name.",
         variant: "destructive",
       })
@@ -1573,7 +1573,9 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
           
           <div className="shrink-0 mb-5 text-center">
             <h2 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">Final Details</h2>
-            <p className="text-slate-500 mt-1 text-xs">Complete your {isOffice ? 'business' : 'event'} information to finalize your request.</p>
+            <p className="text-slate-500 mt-1 text-xs">
+              {isOffice ? "Complete your business information to finalize your request." : "Complete your event information to finalize your request."}
+            </p>
           </div>
 
           <form onSubmit={executeSubmit} className="flex flex-col gap-4">
@@ -1587,9 +1589,10 @@ export function ReserveDialog({ children, open: controlledOpen, onOpenChange: se
             
             <div className="space-y-1">
                 <label htmlFor={isOffice ? "office-business-name" : "event-name"} className="text-[10px] font-bold text-black uppercase tracking-[0.2em]">
-                    {isOffice ? 'Business Name *' : 'Event Name *'}
+                    {isOffice ? 'Name of Business *' : 'Event Name *'}
                 </label>
-                <Input id={isOffice ? "office-business-name" : "event-name"} required value={eventName} onChange={e => setEventName(e.target.value)} placeholder={isOffice ? "Enter registered business name" : "e.g. 18th Birthday Party"} className="h-10 w-full rounded-xl bg-slate-50 border border-slate-200 px-3 text-xs focus-visible:ring-2 focus-visible:ring-[#ea580c]" />
+                <Input id={isOffice ? "office-business-name" : "event-name"} required value={eventName} onChange={e => setEventName(e.target.value)} placeholder={isOffice ? "Enter name of business" : "e.g. 18th Birthday Party"} aria-describedby={isOffice ? "office-business-name-description" : undefined} className="h-10 w-full rounded-xl bg-slate-50 border border-slate-200 px-3 text-xs focus-visible:ring-2 focus-visible:ring-[#ea580c]" />
+                {isOffice && <p id="office-business-name-description" className="text-xs leading-5 text-slate-500">Complete your business information to finalize your request.</p>}
             </div>
 
             {isOffice ? (

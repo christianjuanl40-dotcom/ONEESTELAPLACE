@@ -181,22 +181,35 @@ try {
   const assertActionGrid = async () => {
     const dialog = adminModal(), body = dialog.getByRole('region', { name: 'Booking details content', exact: true })
     const footer = dialog.locator('footer'), grid = footer.locator(':scope > div')
-    const columns = page.viewportSize().width >= 640 ? 2 : 1
+    const columns = page.viewportSize().width >= 640 ? 6 : 1
     assert.equal(await grid.evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length), columns)
     const boxes = await footer.getByRole('button').evaluateAll(nodes => nodes.map(el => {
       const r = el.getBoundingClientRect(); return { contract:el.hasAttribute('data-contract-action'), x:r.x, y:r.y, width:r.width, height:r.height, overflow:el.scrollWidth > el.clientWidth + 1 }
     }))
     assert.ok(boxes.length >= 5, 'exercise the crowded five-action state, not just two controls')
     const gridBox = await grid.boundingBox()
-    const contract = boxes.find(box => box.contract)
-    assert.ok(contract && gridBox && Math.abs(contract.width - gridBox.width) < 1, 'contract action spans the full action grid')
-    const ordinary = boxes.filter(box => !box.contract)
-    const ordinaryWidth = gridBox ? (columns === 1 ? gridBox.width : (gridBox.width - 8) / 2) : 0
-    for (const [index, box] of ordinary.entries()) {
+    assert.ok(gridBox)
+    for (const box of boxes) {
       assert.equal(box.height, 44)
       assert.equal(box.overflow, false)
-      assert.ok(Math.abs(box.width - ordinaryWidth) < 1, 'ordinary actions retain two-column width')
-      if (index >= columns) assert.ok(Math.abs(box.y - ordinary[index-columns].y - 52) < 1, '44px buttons with 8px row gaps')
+    }
+    if (page.viewportSize().width < 640) {
+      for (const [index, box] of boxes.entries()) {
+        assert.ok(Math.abs(box.width - gridBox.width) < 1, 'mobile actions stack at full width')
+        if (index > 0) assert.ok(Math.abs(box.y - boxes[index - 1].y - 52) < 1, 'mobile actions retain the compact gap')
+      }
+    } else {
+      const firstRowWidth = (gridBox.width - 16) / 3
+      const secondRowWidth = (gridBox.width - 8) / 2
+      for (const [index, box] of boxes.slice(0, 3).entries()) {
+        assert.ok(Math.abs(box.width - firstRowWidth) < 1, 'first three actions use balanced thirds')
+        assert.ok(Math.abs(box.x - gridBox.x - index * (firstRowWidth + 8)) < 1, 'first row actions align to their columns')
+      }
+      for (const [index, box] of boxes.slice(3).entries()) {
+        assert.ok(Math.abs(box.width - secondRowWidth) < 1, 'last two actions use balanced halves')
+        assert.ok(Math.abs(box.x - gridBox.x - index * (secondRowWidth + 8)) < 1, 'second row actions align to their columns')
+        assert.ok(Math.abs(box.y - boxes[0].y - 52) < 1, 'five actions use two balanced rows')
+      }
     }
     const shortPhone = page.viewportSize().width < 640 && page.viewportSize().height <= 680
     const scroller = shortPhone ? dialog.locator('[data-admin-booking-scroll]') : body
@@ -379,7 +392,7 @@ try {
     await page.setViewportSize({width,height:width===320?568:844})
     await openDetails()
     await page.evaluate(()=>window.fixture.patchBooking({bookingCategory:'office',bookingType:'office',isOfficeRental:true,officeId:'OFFICE',spaceId:'ROOM',guestCount:1,companyName:'Fixture Company',natureOfBusiness:'Services',officeRentalTerm:'6_months',endDate:'2099-08-31'}))
-    await adminModal().getByText('Business Name',{exact:true}).waitFor()
+    await adminModal().getByText('Name of Business',{exact:true}).waitFor()
     await adminModal().getByRole('button',{name:'Modify Booking',exact:true}).click()
     const modify=modifyModal()
     await modify.getByText('Editable event details',{exact:true}).waitFor()

@@ -12,6 +12,7 @@ import {
 import {
   CHAT_SUGGESTION_CONFIG_COLLECTION,
   CHAT_SUGGESTION_CONFIG_DOCUMENT,
+  getEffectiveChatSuggestionQuestions,
   getChatSuggestionContext,
   normalizeChatSuggestionQuestions,
   type ChatSuggestionQuestion,
@@ -136,9 +137,8 @@ export async function POST(request: NextRequest) {
       }
 
       const configSnapshot = await transaction.get(configRef)
-      if (!configSnapshot.exists) throw new ApiAuthError(409, "Predefined questions are not available yet.")
-      const configData = configSnapshot.data() as DataRecord
-      const questions = normalizeChatSuggestionQuestions(configData.questions)
+      const configData = configSnapshot.exists ? configSnapshot.data() as DataRecord : {}
+      const questions = getEffectiveChatSuggestionQuestions(normalizeChatSuggestionQuestions(configData.questions))
       const revision = typeof configData.revision === "number" ? configData.revision : 0
 
       const bookingSnapshot = await transaction.get(firestore.collection("bookings").where("userId", "==", user.uid))
