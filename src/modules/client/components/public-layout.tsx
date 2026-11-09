@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import {
   Facebook,
@@ -47,6 +47,15 @@ export function PublicLayout({ children }: PublicLayoutProps) {
   const { user, logout, isLoading, initializationError } = useAuth()
   const { cmsData } = useCMS()
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+
+  useEffect(() => {
+    if (isLoading || user || typeof window === "undefined") return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("auth") !== "login") return
+    window.history.replaceState(null, "", "/")
+    const timer = window.setTimeout(() => window.dispatchEvent(new Event("openLoginDialog")), 150)
+    return () => window.clearTimeout(timer)
+  }, [isLoading, user])
 
   const handleLogout = () => {
     setShowLogoutConfirm(true)

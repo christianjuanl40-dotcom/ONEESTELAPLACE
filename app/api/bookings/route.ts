@@ -22,6 +22,8 @@ import {
 import { getCatalogAvailabilitySpace } from "@/src/modules/shared/lib/resource-identity"
 import { isCatalogPublished } from "@/src/modules/shared/lib/catalog-status"
 import { validateCatalogGuestCount } from "@/src/modules/shared/lib/catalog-capacity"
+import { enqueueEmailEvent } from "@/lib/email-outbox"
+import { buildBookingEmailPayload } from "@/lib/email-templates"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -84,7 +86,7 @@ function getNextBookingId(counterValue: unknown): { id: string; next: number } {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await requireAuthenticatedUser(request)
+    const user = await requireAuthenticatedUser(request, { requireVerifiedClient: true })
     if (user.role !== "client") {
       throw new ApiAuthError(403, "Only client accounts can create bookings.")
     }
@@ -315,6 +317,13 @@ export async function POST(request: NextRequest) {
         updatedAt: now,
       }
 
+      await enqueueEmailEvent(transaction, firestore, {
+        eventType: "booking_submitted",
+        eventId: `booking_submitted_${bookingNumber.id}`,
+        bookingId: bookingNumber.id,
+        recipientUid: user.uid,
+        payload: buildBookingEmailPayload({ ...booking, id: bookingNumber.id }),
+      })
       transaction.set(cmsRef, { bookingCounter: bookingNumber.next }, { merge: true })
       commitExpiredAvailabilityHolds(transaction, firestore, expiredBookings)
       commitEventAvailabilityLock(transaction, eventLock)

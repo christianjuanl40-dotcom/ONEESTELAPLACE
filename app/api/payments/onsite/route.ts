@@ -22,6 +22,8 @@ import {
 } from "@/src/modules/shared/lib/payment-calculations"
 import { buildVerifiedPaymentTransition } from "@/src/modules/shared/lib/payment-verification"
 import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-identity"
+import { enqueueEmailEvent } from "@/lib/email-outbox"
+import { buildBookingEmailPayload } from "@/lib/email-templates"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -332,6 +334,21 @@ export async function POST(request: NextRequest) {
       }
       const { id: _bookingId, ...bookingToPersist } = bookingWithReceipt
       const { id: _paymentId, ...paymentToPersist } = transition.payment
+      await enqueueEmailEvent(transaction, firestore, {
+        eventType: "payment_verified",
+        eventId: `payment_verified_${paymentId}`,
+        bookingId,
+        recipientUid: String(booking.userId || ""),
+        payload: buildBookingEmailPayload(bookingWithReceipt, {
+          payment: {
+            method: "Pay at the Office",
+            amount: amountReceived,
+            status: "Verified",
+            ...(adminNote ? { note: adminNote } : {}),
+            ...(transition.payment.paymentNumber !== undefined ? { paymentNumber: String(transition.payment.paymentNumber) } : {}),
+          },
+        }),
+      })
       transaction.set(bookingRef, {
         ...stripUndefinedDeep(bookingToPersist) as DataRecord,
         updatedAt: now,

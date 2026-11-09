@@ -101,6 +101,7 @@ export type BookingStatusLabel =
   | "Slot Secured"
   | "Cancellation Under Review"
   | "Modification Under Review"
+  | "Rejected"
   | "Cancelled"
   | "Completed"
   | "Contract Signing Required"
@@ -488,7 +489,7 @@ interface BookingContextType {
   _registerDataNeed: (key: BookingDataKey, now: boolean) => void;
 
   addBooking: (booking: Omit<Booking, "id" | "createdAt">) => Promise<string>;
-  updateBookingStatus: (id: string, status: BookingStatus) => Promise<Booking | null>;
+  updateBookingStatus: (id: string, status: BookingStatus, reason?: string) => Promise<Booking | null>;
   cancelBooking: (id: string) => Promise<Booking | null>;
   getUserBookings: (userId: string) => Booking[];
   getBookingById: (id: string) => Booking | undefined;
@@ -735,15 +736,17 @@ export function canRequestCancellation(booking: Partial<Booking>): boolean {
 }
 
 function getDisplayBookingStatus(booking: Partial<Booking>): BookingStatusLabel {
-  if (booking.status === "completed") return "Completed"
-  if (booking.status === "cancelled") return "Cancelled"
-  if (booking.status === "cancellation_requested") return "Cancellation Under Review"
-  if (booking.status === "modification_under_review") return "Modification Under Review"
-  if (booking.status === "reservation_secured") return "Slot Secured"
-  if (booking.status === "confirmed") return isOfficeBooking(booking as Booking) ? "Slot Secured" : "Confirmed"
-  if (booking.status === "contract_signing_required") return "Contract Signing Required"
-  if (booking.status === "active_rental") return "Active Rental"
-  if (booking.status === "rental_expired") return "Rental Expired"
+  const status = String(booking.status || "").trim().toLowerCase()
+  if (status === "completed") return "Completed"
+  if (status === "declined" || status === "rejected") return "Rejected"
+  if (status === "cancelled") return "Cancelled"
+  if (status === "cancellation_requested") return "Cancellation Under Review"
+  if (status === "modification_under_review") return "Modification Under Review"
+  if (status === "reservation_secured") return "Slot Secured"
+  if (status === "confirmed") return isOfficeBooking(booking as Booking) ? "Slot Secured" : "Confirmed"
+  if (status === "contract_signing_required") return "Contract Signing Required"
+  if (status === "active_rental") return "Active Rental"
+  if (status === "rental_expired") return "Rental Expired"
   return "Pending"
 }
 
@@ -1395,15 +1398,15 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     return updatedBooking
   }
 
-  const updateBookingStatus = async (id: string, status: BookingStatus): Promise<Booking | null> => {
-    if (!(status === "completed" || status === "confirmed" || status === "reservation_secured")) {
+  const updateBookingStatus = async (id: string, status: BookingStatus, reason = ""): Promise<Booking | null> => {
+    if (!(status === "completed" || status === "confirmed" || status === "reservation_secured" || status === "declined")) {
       throw new Error("This booking status must be updated through its dedicated workflow.")
     }
     try {
       return await callLifecycleApi(
         id,
         status === "completed" ? "complete" : "status",
-        status === "completed" ? {} : { status },
+        status === "completed" ? {} : { status, ...(reason.trim() ? { reason: reason.trim() } : {}) },
       )
     } catch (error) {
       toast({

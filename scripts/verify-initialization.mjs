@@ -21,7 +21,7 @@ const modules = {
   state: `
     import {useSyncExternalStore} from 'react';
     const params=new URLSearchParams(location.search), subscribers=new Set(), profilePending=[], streams=new Set(), retired=[];
-    const identity=uid=>({uid,email:uid.toLowerCase()+'@example.test',displayName:'Fixture '+uid,providerData:[],getIdToken:async()=>('fixture-token-'+uid)});
+    const identity=uid=>({uid,email:uid.toLowerCase()+'@example.test',displayName:'Fixture '+uid,emailVerified:true,providerData:[],getIdToken:async()=>('fixture-token-'+uid)});
     const initial=params.get('returning');
     export const auth={currentUser:initial?identity(initial):null,authStateReady:()=>Promise.resolve()};
     const profiles={A:{role:'client'},B:{role:'client'},Admin:{role:'admin'},Missing:null,Staff:{role:'staff',permissions:{dashboard:true,payments:true}}};
@@ -84,7 +84,7 @@ const modules = {
     };
   `,
   firebase: `export {auth,db} from 'virtual:init-state'`,
-  firebaseAuth: `export {onAuthStateChanged,signInWithEmailAndPassword,signOut,forbidden as createUserWithEmailAndPassword,forbidden as reauthenticateWithCredential,forbidden as reload,forbidden as updatePassword} from 'virtual:init-state';export const EmailAuthProvider={credential:()=>({})}`,
+  firebaseAuth: `export {onAuthStateChanged,signInWithEmailAndPassword,signOut,forbidden as createUserWithEmailAndPassword,forbidden as reauthenticateWithCredential,forbidden as reload,forbidden as sendEmailVerification,forbidden as updatePassword} from 'virtual:init-state';export const EmailAuthProvider={credential:()=>({})}`,
   firestore: `import {getProfile} from 'virtual:init-state';export {onSnapshot,getDocs,forbidden as setDoc,forbidden as updateDoc,forbidden as writeBatch,forbidden as runTransaction} from 'virtual:init-state';
     export const doc=(_,collection,id)=>({path:collection,id}),collection=(_,path)=>({path}),where=(...args)=>args,orderBy=()=>({}),limit=()=>({}),query=(ref,...filters)=>({...ref,filters:filters.filter(Array.isArray)}),
       getDoc=ref=>getProfile(ref,'cache-default'),getDocFromServer=ref=>getProfile(ref,'server');`,

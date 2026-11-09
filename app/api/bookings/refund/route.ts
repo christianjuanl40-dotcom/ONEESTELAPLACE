@@ -82,7 +82,7 @@ function errorResponse(error: unknown) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await requireAuthenticatedUser(request)
+    const user = await requireAuthenticatedUser(request, { requireVerifiedClient: true })
     const bodyText = await request.text()
     if (new TextEncoder().encode(bodyText).byteLength > 32 * 1024) {
       throw new ApiAuthError(413, "The refund request is too large.")

@@ -21,6 +21,8 @@ import {
   type CancellationRecord,
 } from "@/src/modules/shared/lib/cancellation"
 import { getRecordsForBooking, type PaymentRecordLike } from "@/src/modules/shared/lib/payment-calculations"
+import { enqueueEmailEvent } from "@/lib/email-outbox"
+import { buildBookingEmailPayload } from "@/lib/email-templates"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -157,7 +159,7 @@ function errorResponse(error: unknown, label: string) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await requireAuthenticatedUser(request)
+    const user = await requireAuthenticatedUser(request, { requireVerifiedClient: true })
     if (user.role !== "client") {
       throw new ApiAuthError(403, "Only client accounts can request cancellation.")
     }
@@ -284,10 +286,18 @@ export async function PATCH(request: NextRequest) {
           name: user.fullName || user.email || "Administrator",
         }
         const fields = buildAdminCancellationFields(booking, reason, reviewedAt, reviewer, paymentRecords)
+        const updatedBooking = getBookingResponse({ ...booking, ...fields }, bookingId)
+        await enqueueEmailEvent(transaction, firestore, {
+          eventType: "booking_cancelled",
+          eventId: `booking_cancelled_${bookingId}`,
+          bookingId,
+          recipientUid: String(booking.userId || booking.uid || ""),
+          payload: buildBookingEmailPayload(updatedBooking),
+        })
         transaction.update(bookingRef, fields as any)
         return {
           changed: true,
-          booking: getBookingResponse({ ...booking, ...fields }, bookingId),
+          booking: updatedBooking,
         }
       }
 
@@ -306,9 +316,20 @@ export async function PATCH(request: NextRequest) {
       const fields = action === "approve"
         ? buildCancellationApprovalFields(booking, reviewedAt, reviewer, paymentRecords)
         : buildCancellationDeclineFields(booking, reason, reviewedAt, reviewer)
+      const updatedBooking = getBookingResponse({ ...booking, ...fields }, bookingId)
+      if (action === "approve") {
+        await enqueueEmailEvent(transaction, firestore, {
+          eventType: "booking_cancelled",
+          eventId: `booking_cancelled_${bookingId}`,
+          bookingId,
+          recipientUid: String(booking.userId || booking.uid || ""),
+          payload: buildBookingEmailPayload(updatedBooking),
+        })
+      }
       transaction.update(bookingRef, fields as any)
       return {
-        booking: getBookingResponse({ ...booking, ...fields }, bookingId),
+        changed: true,
+        booking: updatedBooking,
       }
     })
 

@@ -33,7 +33,7 @@ function isCmsAsset(publicId: string): boolean {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await requireAuthenticatedUser(request);
+    const user = await requireAuthenticatedUser(request, { requireVerifiedClient: true });
     const contentLength = Number(request.headers.get("content-length") || 0);
     if (contentLength > MAX_REQUEST_BYTES) {
       return NextResponse.json({ error: "Request is too large." }, { status: 413 });

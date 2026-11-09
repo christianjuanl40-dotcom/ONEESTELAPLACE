@@ -26,6 +26,8 @@ import {
   automaticBookingExpiryFields,
 } from "@/src/modules/shared/lib/booking-lifecycle"
 import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-identity"
+import { enqueueEmailEvent } from "@/lib/email-outbox"
+import { buildBookingEmailPayload } from "@/lib/email-templates"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -77,6 +79,7 @@ function appendLog(booking: DataRecord, action: string, message: string, created
 function displayBookingStatus(status: string, booking: DataRecord): string {
   if (status === "completed") return "Completed"
   if (status === "cancelled") return "Cancelled"
+  if (status === "declined" || status === "rejected") return "Rejected"
   if (status === "active_rental") return "Active Rental"
   if (status === "reservation_secured") return "Slot Secured"
   if (status === "confirmed") return isOfficeBooking(booking) ? "Slot Secured" : "Confirmed"
@@ -228,13 +231,13 @@ export async function POST(request: NextRequest) {
     if (!BOOKING_ID_PATTERN.test(bookingId)) throw new ApiAuthError(400, "Invalid booking ID.")
 
     const user = action === "issue_receipt" || action === "expire"
-      ? await requireAuthenticatedUser(request)
+      ? await requireAuthenticatedUser(request, { requireVerifiedClient: true })
       : await requireBackofficeUser(request, { permission: "bookings" })
     const firestore = getAdminFirestore()
     const bookingRef = firestore.collection("bookings").doc(bookingId)
     const signedBy = readString(body, "signedBy", 160) || user.fullName || "Administrator"
     const requestedStatus = readString(body, "status", 40).toLowerCase()
-    if (action === "status" && !["confirmed", "reservation_secured"].includes(requestedStatus)) {
+    if (action === "status" && !["confirmed", "reservation_secured", "declined"].includes(requestedStatus)) {
       throw new ApiAuthError(400, "Invalid booking status.")
     }
 
@@ -370,6 +373,41 @@ export async function POST(request: NextRequest) {
         if (lifecycleRank(currentStatus) > lifecycleRank(requestedStatus)) {
           throw new ApiAuthError(409, "Booking lifecycle status cannot move backwards.")
         }
+
+        if (requestedStatus === "declined") {
+          if (!(["pending", "verifying"].includes(currentStatus)) || booking.isSlotSecured === true) {
+            throw new ApiAuthError(409, "Only an unsecured pending booking can be rejected.")
+          }
+          const rejectionBookingCode = String(booking.bookingCode || "").trim()
+          const rejectionRecords = await readPaymentRecords(transaction, firestore, bookingId, rejectionBookingCode)
+          const rejectionSummary = calculatePaymentSummary(booking, rejectionRecords)
+          if (rejectionSummary.moneyReceivedTotal > 0 || rejectionSummary.hasPendingSubmission) {
+            throw new ApiAuthError(409, "This booking has payment activity and cannot be rejected through the booking workflow.")
+          }
+          const fields = {
+            status: "declined",
+            bookingStatus: "Rejected",
+            isSlotSecured: false,
+            rejectedAt: now,
+            rejectedBy: user.uid,
+            rejectedByName: user.fullName || user.email || "Administrator",
+            rejectionReason: readString(body, "reason", 2000) || "The booking request was not accepted.",
+            lastActivityAt: now,
+            updatedAt: now,
+            adminLogs: appendLog(booking, "REJECT_BOOKING", "Administrator rejected the unsecured booking request.", now),
+          }
+          const updatedBooking = { ...booking, ...fields, id: bookingId }
+          await enqueueEmailEvent(transaction, firestore, {
+            eventType: "booking_rejected",
+            eventId: `booking_rejected_${bookingId}`,
+            bookingId,
+            recipientUid: String(booking.userId || booking.uid || ""),
+            payload: buildBookingEmailPayload(updatedBooking),
+          })
+          transaction.update(bookingRef, fields)
+          return { changed: true, booking: updatedBooking, userId: String(booking.userId || "") }
+        }
+
         const bookingCode = String(booking.bookingCode || "").trim()
         const records = await readPaymentRecords(transaction, firestore, bookingId, bookingCode)
         const matchingRecords = [
@@ -387,8 +425,18 @@ export async function POST(request: NextRequest) {
           updatedAt: now,
           adminLogs: appendLog(booking, "UPDATE_BOOKING_STATUS", `Admin updated the booking status to ${requestedStatus}.`, now),
         }
+        const updatedBooking = { ...booking, ...fields, id: bookingId }
+        if (requestedStatus === "confirmed" || requestedStatus === "reservation_secured") {
+          await enqueueEmailEvent(transaction, firestore, {
+            eventType: "booking_approved",
+            eventId: `booking_approved_${bookingId}`,
+            bookingId,
+            recipientUid: String(booking.userId || booking.uid || ""),
+            payload: buildBookingEmailPayload(updatedBooking),
+          })
+        }
         transaction.update(bookingRef, fields)
-        return { changed: true, booking: { ...booking, ...fields }, userId: String(booking.userId || "") }
+        return { changed: true, booking: updatedBooking, userId: String(booking.userId || "") }
       }
 
       if (action === "contract_signed") {
@@ -419,8 +467,16 @@ export async function POST(request: NextRequest) {
             ? `Admin marked office rental contract as signed. Rental is now active. Signed by: ${signedBy}.`
             : `Admin marked contract as signed at One Estela Place office. Signed by: ${signedBy}. Method: Face-to-face.`, now),
         }
+        const updatedBooking = { ...booking, ...fields, id: bookingId }
+        await enqueueEmailEvent(transaction, firestore, {
+          eventType: "booking_approved",
+          eventId: `booking_approved_${bookingId}`,
+          bookingId,
+          recipientUid: String(booking.userId || booking.uid || ""),
+          payload: buildBookingEmailPayload(updatedBooking),
+        })
         transaction.update(bookingRef, fields)
-        return { changed: true, booking: { ...booking, ...fields }, userId: String(booking.userId || "") }
+        return { changed: true, booking: updatedBooking, userId: String(booking.userId || "") }
       }
 
       if (booking.balanceReminderSent === true) {
@@ -444,19 +500,31 @@ export async function POST(request: NextRequest) {
         updatedAt: now,
         adminLogs: appendLog(booking, "BALANCE_REMINDER_SENT", "Admin sent a remaining balance reminder.", now),
       }
+      const updatedBooking = { ...booking, ...fields, id: bookingId }
+      await enqueueEmailEvent(transaction, firestore, {
+        eventType: "balance_reminder",
+        eventId: `balance_reminder_${bookingId}`,
+        bookingId,
+        recipientUid: String(booking.userId || booking.uid || ""),
+        payload: buildBookingEmailPayload(updatedBooking, { remainingBalance: summary.remainingBalance }),
+      })
       transaction.update(bookingRef, fields)
-      return { changed: true, booking: { ...booking, ...fields }, userId: String(booking.userId || "") }
+      return { changed: true, booking: updatedBooking, userId: String(booking.userId || "") }
     })
 
-    if (result.changed && result.userId && (action === "balance_reminder" || action === "contract_signed")) {
+    const rejectionNotification = action === "status" && requestedStatus === "declined"
+    if (result.changed && result.userId && (action === "balance_reminder" || action === "contract_signed" || rejectionNotification)) {
       try {
         const isReminder = action === "balance_reminder"
+        const isRejection = rejectionNotification
         await firestore.collection("notifications").add({
-          type: isReminder ? "balance_reminder" : "booking_approved",
-          title: isReminder ? "Remaining Balance Reminder" : "Contract Signed",
+          type: isReminder ? "balance_reminder" : isRejection ? "booking_rejected" : "booking_approved",
+          title: isReminder ? "Remaining Balance Reminder" : isRejection ? "Booking Rejected" : "Contract Signed",
           message: isReminder
             ? `Please settle the remaining balance for Booking ${bookingId}.`
-            : `Your contract for Booking ${bookingId} has been signed.`,
+            : isRejection
+              ? `Your booking request ${bookingId} was not accepted. Review the saved details in your Client Portal.`
+              : `Your contract for Booking ${bookingId} has been signed.`,
           bookingId,
           userId: result.userId,
           isRead: false,

@@ -1,5 +1,7 @@
 # Architecture Design
 
+**Email/verification follow-up (2026-11-09):** `AuthProvider` requests a server-verified six-digit OTP for new email/password signup, while `/verify-email` supports paste-safe code entry, resend cooldown, status refresh, sign-out, and an explicit Firebase link fallback flag. `lib/email-otp.ts` stores only HMAC digests in server-only challenge/rate-limit collections, binds challenges to UID/email, expires and locks them, claims verification atomically, prevents replay, and synchronizes Firebase Auth `emailVerified`. New browser-created Client profiles are required by Firestore rules to carry an immutable `emailVerificationRequired` onboarding marker; it is not proof of verification, and the OTP route is the only authenticated pre-verification exception. Protected Client mutations pass `requireVerifiedClient` to server authorization, so new marked signups are blocked until Firebase Auth is verified; the optional rollout boundary separately governs unmarked legacy password accounts. `lib/email-outbox.ts` records deterministic, sanitized jobs in the same Admin transaction as committed booking/payment/lifecycle transitions; `lib/email-worker.ts` claims jobs with leases, resolves recipient addresses from Firebase Auth, applies preview allowlists, retries transient SMTP errors, and records terminal failure/block states. The `emailOutbox`, OTP challenge, and OTP rate-limit collections are explicitly browser-denied. The guarded lifecycle API and Admin UI can reject only unsecured pending bookings without payment activity and enqueue the corresponding notification. `vercel.json` declares, but does not activate, a five-minute worker schedule. See [docs/EMAIL_SETUP.md](docs/EMAIL_SETUP.md); no scheduler deployment or email activation was performed.
+
 Source reviewed: **2026-10-19** baseline; resource identity, scheduling, maintenance, and CMS persistence rechecked **2026-10-25**; exclusive office occupancy and customer/admin Booking Details rechecked **2026-10-26**; payment verification/persistence/recovery rechecked **2026-10-27**; Phase 1 authorization, cent-level payment validation, refund ledger checks, lifecycle idempotency, and password reauthentication rechecked **2026-10-28**; compact booking/payment tables rechecked **2026-11-03**; protected portal/admin shell scrolling and F-01 booking-write authorization rechecked **2026-11-04**; CMS responsive/accessibility surfaces, Phase 2.1 table scrolling/admin booking ordering, and lifecycle/payment presentation rechecked **2026-11-05**; Phase 5 release-readiness validation, REF-01 refund authorization, CHAT-01 cursor pagination, baseline response hardening, client loading/New Booking recovery, and Defense Polish 2.2 accessibility/chat-read resilience rechecked **2026-11-06**; Admin Dashboard Payment Position removal, natural content-flow cleanup, Client Chat Firestore index hotfix, and Defense Polish 2.5 booking schedule controls/history rechecked **2026-11-07**. Start with [README.md](README.md) for setup and routes, and [DESIGN_PALETTE.md](DESIGN_PALETTE.md) for UI conventions.
 
 Defense Polish 2 direct administrative booking modification/cancellation workflows and their local browser/API regressions were rechecked **2026-11-06**. Direct cancellation is Admin-only and computes existing refund eligibility without processing a refund; staff with `bookings` permission retain direct modification access.
@@ -73,11 +75,16 @@ The server runs in the Next.js application; there is no separate backend service
 | `src/modules/shared/components/ui/` | Shared Radix/shadcn-style UI primitives |
 | `src/modules/shared/lib/` | Shared business calculations, availability, permissions-related helpers, uploads, formatting, and unit tests |
 | `lib/firebase.ts` | Browser Firebase app/auth/database initialization and IndexedDB cache |
-| `lib/firebase-admin.ts`, `lib/server-auth.ts` | Server-only Admin SDK and API authorization |
+| `lib/firebase-admin.ts`, `lib/server-auth.ts` | Server-only Admin SDK, API authorization, and verification rollout enforcement; staging requires a matching explicit Admin project identity |
+| `lib/email-config.ts`, `lib/email-transport.ts`, `lib/email-templates.ts` | Server-only Gmail/OTP configuration and transport plus sanitized branded notification rendering |
+| `lib/email-otp.ts` | Server-only OTP generation, HMAC challenge storage, cooldown/rate limits, atomic claims, delivery, and Firebase Auth synchronization |
+| `lib/email-outbox.ts`, `lib/email-worker.ts` | Transactional outbox jobs, idempotency, leases, retries, recipient resolution, and delivery state |
 | `firestore.rules`, `firestore.indexes.json` | Browser data-access policy and composite indexes |
 | `public/contracts/` | Static venue/office contract previews |
 
 Import aliases from `tsconfig.json`: `@/*` resolves from the repository root; `@admin/*`, `@client/*`, and `@shared/*` resolve into their feature modules. `components.json` retains older generator aliases, so use existing module imports as the reference when adding UI.
+
+`scripts/start-staging.mjs` is the isolated local staging entry point. It parses `.env.staging.local` directly, shadows all keys discovered in Next.js dotenv candidates before spawning Next.js, reapplies only the approved staging values, clears the dedicated `.next-staging` output, rejects the production Firebase project, and requires staging-only Admin credentials. If staging OTP sending is enabled, it additionally requires `EMAIL_OTP_STAGING_APPROVED=true`, one exact test-recipient allowlist address, a strong OTP secret, and complete staging Gmail settings while transactional email and verification enforcement remain disabled. `scripts/verify-staging-runtime.mjs` then probes the running browser bundle and server diagnostic without creating accounts or accessing data. It never loads `.env.local` as a Firebase source and does not deploy Firebase resources.
 
 ## Provider and state design
 
@@ -109,7 +116,7 @@ AuthProvider
 
 1. Browser sign-in uses Firebase Authentication email/password.
 2. `getAuthHeaders()` in `src/modules/shared/lib/auth-token.ts` waits for Firebase identity restoration, attaches its ID token, and rejects token results from an obsolete identity. Safe-read waits are bounded/cancellable; booking/payment writes are never automatically replayed by this helper.
-3. `requireAuthenticatedUser()` verifies the token, including revocation checks, and reads the current Firestore profile. Missing/invalid roles and inactive profiles are rejected.
+3. `requireAuthenticatedUser()` verifies the token, including revocation checks, and reads the current Firestore profile. Missing/invalid roles and inactive profiles are rejected. A Firestore-rule-required `emailVerificationRequired` marker blocks new unverified email/password Clients from protected mutations; only the OTP route opts out so those users can complete verification. Other protected Client callers can additionally require a current Firebase Auth email-verification check; the optional rollout boundary fails open when not configured, and legacy/federated accounts are not unexpectedly locked out.
 4. `requireBackofficeUser()` adds admin/staff restrictions, module-permission checks, or `adminOnly` access.
 5. Browser Firestore operations are independently enforced by `firestore.rules`. Firebase Admin bypasses those rules, so route handlers enforce authorization and ownership themselves.
 
@@ -137,6 +144,9 @@ Password changes stay client-side through `AuthProvider.updatePassword`: email/p
 | `eventAvailabilityLocks/{hash}` | Server-only resource revision locks: venue/date for events; `office:<parent ID>` / `all-dates` for every room in an office building |
 | `chatMessages/{id}` | Client-scoped support messages, sender metadata, attachments, and read flags |
 | `notifications/{id}` | Booking/payment updates; client UID or shared `"admin"` audience with permission-filtered staff access |
+| `emailOutbox/{jobId}` | Server-only sanitized transactional email job keyed by deterministic event ID; browser reads/writes are denied |
+| `emailOtpChallenges/{uid}` | Server-only active/expired/verified OTP challenge metadata and digests; browser reads/writes are denied |
+| `emailOtpRateLimits/{scope}` | Server-only account/email/IP OTP issuance counters; browser reads/writes are denied |
 | `reviews/{id}` | Authenticated reviews; creation requires ownership of a completed booking |
 | `officeRentals/{id}` | Legacy lease/check-payment records retained as availability inputs; browser writes are frozen |
 | `paymentProofs/{id}`, `contracts/{id}` | Supporting/older document paths retained by components and rules |
@@ -147,7 +157,7 @@ Uploaded asset URLs/public IDs are returned by Cloudinary. Some existing chat/pr
 
 ## API map
 
-All paths below map to `app/api/<path>/route.ts` and require a Firebase Bearer ID token. Admin access satisfies staff permission checks.
+All authenticated paths below map to `app/api/<path>/route.ts` and require a Firebase Bearer ID token; the internal worker instead uses `CRON_SECRET`. Admin access satisfies staff permission checks.
 
 | Endpoint | Methods | Responsibility / authorization |
 | --- | --- | --- |
@@ -155,6 +165,7 @@ All paths below map to `app/api/<path>/route.ts` and require a Firebase Bearer I
 | `/api/bookings` | POST | Client-only booking creation with catalog, date, capacity, room, price, and availability validation |
 | `/api/maintenance` | POST, DELETE | Bookings permission: atomically create scoped full-day blocks or delete explicit record IDs; creation rejects schedule conflicts |
 | `/api/bookings/lifecycle` | POST | `complete`, `status`, `contract_signed`, `balance_reminder`: bookings permission; `issue_receipt` and `expire`: owning client |
+| `/api/auth/email-otp` | POST | Authenticated Client OTP issue/resend/verify; UID and email come from the verified Firebase token, not the request body |
 | `/api/bookings/cancellation` | POST, PATCH | Owning client requests cancellation; bookings staff/admin approve or decline; `admin_cancel` is an Admin-only transactional direct cancellation using the existing secured/paid/lead-time eligibility policy |
 | `/api/bookings/modification` | POST | Owner request; bookings staff/admin review or perform `admin_update`. Client requests retain the broader existing allowlist, while direct Admin updates accept only `eventName`, `date`, `startTime`, and `endTime`; successful schedule changes transactionally preserve `originalSchedule` and append `scheduleHistory`, with availability checks, actor/value audit metadata, and client notification |
 | `/api/bookings/refund` | POST | Owner requests a refund; bookings staff/admin complete it; both steps validate the received-money ledger and are idempotent |
@@ -165,12 +176,20 @@ All paths below map to `app/api/<path>/route.ts` and require a Firebase Bearer I
 | `/api/staff` | GET, POST, PATCH, DELETE | Admin-only Firebase Auth/profile administration |
 | `/api/cloudinary/upload` | POST | Authenticated, folder-scoped upload with size/type/signature checks |
 | `/api/cloudinary/delete` | POST | Authenticated, folder-scoped asset deletion |
+| `/api/internal/email-worker` | GET, POST | `CRON_SECRET`-protected server-only Gmail outbox processing; deployment scheduler is owner-configured |
+| `/api/internal/staging-runtime` | GET | Local staging-only, token-gated diagnostic for client/Admin project IDs and disabled email controls; unavailable in production |
 | `/api/contracts` | GET | CMS permission: list static files under `public/contracts/venue` or `public/contracts/office` |
 | `/api/chat-suggestions/config` | GET, PATCH | CMS permission: read or transactionally save the protected predefined question configuration and published projection with revision conflict checks |
 | `/api/chat-suggestions/published` | GET | Client-only, server-filtered current status category/top-three question metadata; answers and other categories are never returned |
 | `/api/chat-suggestions/answer` | POST | Client-only, status/ownership-checked selected-question delivery; atomically records the customer question, optional trusted automated answer, and idempotency record |
 
 Contract listing is authenticated; the listed files themselves are public `/contracts/...` assets.
+
+### Email and verification data flow
+
+Firebase `emailVerified` is the authoritative verification state. Signup requests `/api/auth/email-otp` without accepting a browser-supplied recipient or redirect; the route derives UID/email from the authenticated token and is the only pre-verification authenticated exception. `/verify-email` reloads Firebase state before publishing a refreshed result, accepts a six-digit code or paste, and provides cooldown/rate-limit messaging, status refresh, and sign-out. `lib/email-otp.ts` never stores plaintext codes: it uses a per-challenge HMAC digest bound to UID, normalized email, code, and challenge ID; expiry, resend cooldown, account/email/IP issuance limits, five-attempt locking, atomic short claims, email-change invalidation, and digest clearing prevent reuse. Successful verification updates Firebase Auth through Admin SDK and rechecks the authoritative user record. The Firebase link path remains available only when `NEXT_PUBLIC_EMAIL_VERIFICATION_LINK_FALLBACK_ENABLED=true`. The Firestore-rule-required profile marker classifies new signup onboarding but is not proof of verification; protected enforcement uses Firebase Auth state, provider identity, and `EMAIL_VERIFICATION_ENFORCEMENT_START_AT` for the legacy rollout boundary.
+
+When `EMAIL_SENDING_ENABLED=true`, approved server transactions call `enqueueEmailEvent()` before their business writes are committed. The event ID is deterministic, so transaction retries and repeated lifecycle requests do not create duplicate jobs. The worker claims pending/retry jobs for five minutes, resolves `recipientUid` through Firebase Admin Auth, rejects invalid or non-allowlisted recipients, renders a versioned sanitized template, submits through Gmail SMTP, and updates `sent`, `retry`, `failed`, or `blocked` state. SMTP acceptance is not an inbox-delivery guarantee; an ambiguous timeout may be retried and can theoretically duplicate a message. Disabled environments create no jobs and do not replay historical transitions. OTP delivery is independent: `EMAIL_OTP_SENDING_ENABLED` plus `EMAIL_OTP_SECRET` controls it, and production additionally requires `EMAIL_OTP_PRODUCTION_APPROVED=true`; OTP messages are sent directly through the server-only Gmail transport and do not enter `emailOutbox`.
 
 ## Core data flows
 
@@ -294,7 +313,7 @@ Request and ledger safety (rechecked **2026-10-28**):
 `/api/bookings/lifecycle` keeps booking lifecycle separate from payment status and applies the following server-side guards transactionally:
 
 - `complete` is idempotent and requires an active, availability-blocking booking with no remaining credited balance; released bookings cannot be completed.
-- `status` is idempotent, allows only the supported secured states, rejects backward lifecycle movement and unresolved cancellation/modification workflows, and requires the payment threshold for the resource (downpayment for events, full payment for offices). `contract_signed` is also idempotent, requires a secured active booking, and moves an office to `active_rental`.
+- `status` is idempotent, allows secured states plus guarded `declined`, rejects backward lifecycle movement and unresolved cancellation/modification workflows, and requires the payment threshold for the resource (downpayment for events, full payment for offices). `declined` is limited to an unsecured `pending`/`verifying` booking with no received or pending payment activity; it releases availability, records an actor/reason audit field, creates `booking_rejected` notification/outbox records, and cannot be used to reject a paid or secured request. `contract_signed` is also idempotent, requires a secured active booking, and moves an office to `active_rental`.
 - `balance_reminder` records a one-time sent marker and requires a positive current balance. `issue_receipt` reuses an existing receipt, while client `expire` uses the same 24-hour/ledger hold predicate as availability and only releases an eligible pending hold. Notifications are emitted only after a transaction reports a real state change.
 
 ### CMS publication

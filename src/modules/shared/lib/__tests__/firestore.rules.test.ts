@@ -189,6 +189,19 @@ rulesSuite("Firestore security rules", () => {
     )
   })
 
+  it("denies browser access to server-only email outbox jobs", async () => {
+    await seedProfilesAndRecords()
+    const client = testEnv.authenticatedContext("client").firestore()
+    const admin = testEnv.authenticatedContext("admin").firestore()
+
+    await assertFails(client.collection("emailOutbox").doc("job-1").get())
+    await assertFails(client.collection("emailOutbox").doc("job-1").set({ status: "pending" }))
+    await assertFails(admin.collection("emailOutbox").get())
+    await assertFails(client.collection("emailOtpChallenges").doc("client").get())
+    await assertFails(client.collection("emailOtpChallenges").doc("client").set({ status: "active" }))
+    await assertFails(admin.collection("emailOtpRateLimits").get())
+  })
+
   describe.each(["admin", "booking-staff"])("server-authoritative reservations for %s", (uid) => {
     it("denies direct booking creation, including a valid office reservation", async () => {
       await seedProfilesAndRecords()
@@ -447,6 +460,23 @@ rulesSuite("Firestore security rules", () => {
       sender: "bot",
       isBot: false,
     }))
+  })
+
+  it("requires the verification onboarding marker on browser-created Client profiles", async () => {
+    const firestore = testEnv.authenticatedContext("new-client").firestore()
+    const profile = {
+      uid: "new-client",
+      role: "client",
+      status: "active",
+    }
+
+    await assertFails(firestore.collection("users").doc("new-client").set(profile))
+    await assertSucceeds(
+      firestore.collection("users").doc("new-client").set({
+        ...profile,
+        emailVerificationRequired: true,
+      }),
+    )
   })
 
   it("restricts Users-management staff to client metadata and blocks authorization escalation", async () => {

@@ -416,6 +416,9 @@ export default function AdminBookingsPage() {
   const [directCancellationTarget, setDirectCancellationTarget] = useState<Booking | null>(null)
   const [directCancellationReason, setDirectCancellationReason] = useState("")
   const [isDirectCancellationSubmitting, setIsDirectCancellationSubmitting] = useState(false)
+  const [rejectBookingTarget, setRejectBookingTarget] = useState<Booking | null>(null)
+  const [rejectBookingReason, setRejectBookingReason] = useState("")
+  const [isRejectingBooking, setIsRejectingBooking] = useState(false)
 
   useEffect(() => {
     if (!selectedBooking) return
@@ -717,6 +720,41 @@ export default function AdminBookingsPage() {
     }
   }
 
+  const handleRejectBooking = (id: string) => {
+    if (!canManageBookings || isEditingBooking || isRejectingBooking) return
+    const target = bookings.find((booking) => booking.id === id)
+    if (!target) return
+    setRejectBookingTarget(target)
+    setRejectBookingReason("")
+  }
+
+  const confirmRejectBooking = async () => {
+    const target = rejectBookingTarget
+    const reason = rejectBookingReason.trim()
+    if (!target || !reason || !canManageBookings || isRejectingBooking || !updateBookingStatus) return
+    setIsRejectingBooking(true)
+    try {
+      const updated = await updateBookingStatus(target.id, "declined", reason)
+      if (!updated) return
+      setRejectBookingTarget(null)
+      setRejectBookingReason("")
+      setSelectedBooking(updated)
+      toast({
+        title: "Booking Rejected",
+        description: `Booking ${target.id} was rejected and the client was notified.`,
+        className: "border-none bg-amber-500 text-white",
+      })
+    } catch (error) {
+      toast({
+        title: "Booking Rejection Failed",
+        description: error instanceof Error ? error.message : "Unable to reject the booking.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsRejectingBooking(false)
+    }
+  }
+
   const handleMarkCompleted = (id: string) => {
     setShowMarkCompletedTarget(id)
     setShowMarkCompletedConfirm(true)
@@ -852,7 +890,8 @@ export default function AdminBookingsPage() {
           }}
           onMarkAsRefunded={markAsRefunded}
           onDirectCancelBooking={canDirectCancel ? handleDirectCancellation : undefined}
-          actionPending={isEditingBooking || isDirectCancellationSubmitting}
+          onRejectBooking={canManageBookings ? handleRejectBooking : undefined}
+          actionPending={isEditingBooking || isDirectCancellationSubmitting || isRejectingBooking}
         />
 
         {editBookingTarget && (
@@ -892,6 +931,20 @@ export default function AdminBookingsPage() {
             setDirectCancellationReason("")
           }}
           onConfirm={confirmDirectCancellation}
+        />
+
+        <RejectBookingModal
+          open={!!rejectBookingTarget}
+          booking={rejectBookingTarget}
+          reason={rejectBookingReason}
+          onReasonChange={setRejectBookingReason}
+          isSubmitting={isRejectingBooking}
+          onCancel={() => {
+            if (isRejectingBooking) return
+            setRejectBookingTarget(null)
+            setRejectBookingReason("")
+          }}
+          onConfirm={confirmRejectBooking}
         />
 
         <ApproveCancellationConfirmModal
@@ -1361,6 +1414,7 @@ export function BookingDetailsModal({
   onDeclineModification,
   onMarkAsRefunded,
   onDirectCancelBooking,
+  onRejectBooking,
   paymentRecords,
   actionPending = false,
 }: {
@@ -1378,6 +1432,7 @@ export function BookingDetailsModal({
   onDeclineModification?: (id: string) => void
   onMarkAsRefunded?: (id: string) => void
   onDirectCancelBooking?: (id: string) => void
+  onRejectBooking?: (id: string) => void
   paymentRecords?: PaymentRecordLike[] | null
   actionPending?: boolean
 }) {
@@ -1506,6 +1561,13 @@ export function BookingDetailsModal({
     paymentStatus === "cash_pending" ||
     paymentStatus === "slot_pending" ||
     paymentStatus === "pending_verification"
+  const canRejectBooking = Boolean(onRejectBooking) &&
+    ["pending", "verifying"].includes(normalizedStatus) &&
+    !booking.isSlotSecured &&
+    amountPaid <= 0 &&
+    !hasCustomerSubmittedPayment &&
+    !isCancellationRequested &&
+    !isModificationUnderReview
   const secondaryActionClassName = bookingDetailsActionToneClassNames.slate
   const canEditBooking = Boolean(onEditBooking) && !isCancelled && !isCompleted && !isCancellationRequested && !isModificationUnderReview && !isPaymentUnderReview
   const directCancellationEligibility = evaluateCancellationEligibility(
@@ -1519,6 +1581,19 @@ export function BookingDetailsModal({
     !isCancelled && !isCompleted && !isCancellationRequested && !isModificationUnderReview &&
     !isPaymentUnderReview && !["rental_expired", "declined"].includes(normalizedStatus)
   const managementActions = (() => {
+    if (canRejectBooking) {
+      return (
+        <Button
+          type="button"
+          disabled={actionPending}
+          onClick={() => onRejectBooking?.(booking.id)}
+          variant="outline"
+          className={cn(bookingDetailsStackedActionClassName, bookingDetailsActionToneClassNames.destructive)}
+        >
+          <XCircle className="size-4" /> Reject Booking
+        </Button>
+      )
+    }
     if (isCancelled) return null
     const normStatus = normalizeStatus(booking.status)
     const isPencilBooking =
@@ -2820,6 +2895,98 @@ export function AdminCancelBookingConfirmModal({
                 className="h-11 w-full rounded-xl bg-rose-600 text-sm font-black text-white hover:bg-rose-700 sm:w-auto"
               >
                 {isSubmitting ? "Cancelling..." : "Confirm Cancellation"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function RejectBookingModal({
+  open,
+  booking,
+  reason,
+  onReasonChange,
+  onCancel,
+  onConfirm,
+  isSubmitting = false,
+}: {
+  open: boolean
+  booking: Booking | null
+  reason: string
+  onReasonChange: (value: string) => void
+  onCancel: () => void
+  onConfirm: () => void
+  isSubmitting?: boolean
+}) {
+  const [reasonError, setReasonError] = useState(false)
+
+  useEffect(() => {
+    if (open) setReasonError(false)
+  }, [booking?.id, open])
+
+  const handleConfirm = () => {
+    if (!reason.trim()) {
+      setReasonError(true)
+      return
+    }
+    setReasonError(false)
+    onConfirm()
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(value) => !value && !isSubmitting && onCancel()}>
+      <DialogContent aria-describedby={undefined} className="w-[95vw] sm:max-w-[560px] max-h-[90dvh] rounded-2xl border-0 bg-white p-0 shadow-2xl [&>button]:hidden">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 sm:px-7 sm:py-6">
+            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
+              <XCircle className="h-8 w-8" aria-hidden="true" />
+            </div>
+            <DialogTitle className="text-2xl font-black text-slate-950">Reject Booking?</DialogTitle>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              This rejects only an unsecured pending booking with no payment activity. The request will be released and the client will receive a notification.
+            </p>
+            {booking && (
+              <div className="mt-5 space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left">
+                <div className="flex justify-between gap-4 text-xs">
+                  <span className="font-semibold text-slate-400">Booking reference</span>
+                  <span className="text-right font-bold text-slate-900 [overflow-wrap:anywhere]">{booking.id}</span>
+                </div>
+                <div className="flex justify-between gap-4 text-xs">
+                  <span className="font-semibold text-slate-400">Client</span>
+                  <span className="text-right font-bold text-slate-900 [overflow-wrap:anywhere]">{booking.userInfo?.name || "Client not listed"}</span>
+                </div>
+                <div className="flex justify-between gap-4 text-xs">
+                  <span className="font-semibold text-slate-400">Booking</span>
+                  <span className="text-right font-bold text-slate-900 [overflow-wrap:anywhere]">{booking.eventName || booking.companyName || "Untitled booking"}</span>
+                </div>
+              </div>
+            )}
+            <div className="mt-5">
+              <Label htmlFor="admin-booking-rejection-reason" className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-900">Rejection reason *</Label>
+              <Textarea
+                id="admin-booking-rejection-reason"
+                value={reason}
+                required
+                aria-required="true"
+                aria-invalid={reasonError}
+                onChange={(event) => {
+                  onReasonChange(event.target.value)
+                  if (reasonError && event.target.value.trim()) setReasonError(false)
+                }}
+                placeholder="Explain why this booking request is not being accepted..."
+                className={cn("mt-1.5 min-h-[96px] resize-y rounded-xl border text-sm focus-visible:ring-amber-600", reasonError ? "border-rose-300" : "border-slate-200")}
+              />
+              {reasonError && <p className="mt-1 text-xs font-semibold text-rose-600" role="alert">Please provide a rejection reason.</p>}
+            </div>
+          </div>
+          <div className="shrink-0 border-t border-slate-100 bg-white px-6 py-5 sm:px-7">
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" disabled={isSubmitting} onClick={onCancel} className="h-11 w-full rounded-xl border-slate-200 text-sm font-black text-slate-700 sm:w-auto">Keep Booking</Button>
+              <Button type="button" disabled={isSubmitting} onClick={handleConfirm} className="h-11 w-full rounded-xl bg-amber-600 text-sm font-black text-white hover:bg-amber-700 sm:w-auto">
+                {isSubmitting ? "Rejecting..." : "Confirm Rejection"}
               </Button>
             </div>
           </div>

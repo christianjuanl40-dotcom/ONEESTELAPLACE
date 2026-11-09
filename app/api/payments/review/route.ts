@@ -26,9 +26,12 @@ import {
   isVerifiedPaymentRecord,
   isRejectedPaymentRecord,
   isIncompletePaymentRecord,
+  getReceiptPaymentMethodLabel,
   type PaymentRecordLike,
 } from "@/src/modules/shared/lib/payment-calculations"
 import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-identity"
+import { enqueueEmailEvent } from "@/lib/email-outbox"
+import { buildBookingEmailPayload } from "@/lib/email-templates"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -402,6 +405,28 @@ export async function POST(request: NextRequest) {
         ...transition.payment,
         receiptNumber: receiptResult.receipt.receiptNumber,
       }
+
+      const emailEventType = action === "verify"
+        ? "payment_verified" as const
+        : action === "reject"
+          ? "payment_rejected" as const
+          : "payment_incomplete" as const
+      await enqueueEmailEvent(transaction, firestore, {
+        eventType: emailEventType,
+        eventId: `${emailEventType}_${String(target.id)}`,
+        bookingId,
+        recipientUid: String(bookingData.userId || ""),
+        payload: buildBookingEmailPayload({ ...bookingWithReceipt, id: bookingId }, {
+          payment: {
+            method: getReceiptPaymentMethodLabel(paymentWithReceipt.paymentMethod || paymentWithReceipt.method || "Payment"),
+            amount: getPaymentRecordAmount(paymentWithReceipt),
+            status: String(paymentWithReceipt.status || paymentWithReceipt.verificationStatus || ""),
+            ...(paymentWithReceipt.referenceNo ? { reference: String(paymentWithReceipt.referenceNo) } : {}),
+            ...(paymentWithReceipt.paymentNumber !== undefined ? { paymentNumber: String(paymentWithReceipt.paymentNumber) } : {}),
+            ...(noteValue ? { note: noteValue } : {}),
+          },
+        }),
+      })
 
       // Replace changed top-level maps rather than recursively merging a previous
       // payment's latest-receipt snapshot into this selected payment's receipt.

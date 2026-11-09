@@ -99,6 +99,8 @@ export default function ClientLayout({
     if (role === "admin" || role === "staff") {
       console.log("[PortalLayout] Admin role detected, redirecting to /dashboard")
       router.push("/dashboard")
+    } else if (role === "client" && user.emailVerificationRequired && !user.emailVerified) {
+      router.replace("/verify-email")
     } else if (role !== "client") {
       console.log("[PortalLayout] Invalid/missing role:", role, "redirecting to /")
       router.push("/")
@@ -128,7 +130,7 @@ export default function ClientLayout({
   }
 
   if (isLoading || initializationError) return <SessionInitializationNotice />
-  if (!user || user.role !== "client") return null
+  if (!user || user.role !== "client" || (user.emailVerificationRequired && !user.emailVerified)) return null
 
   const profilePicture = user.profilePicture
 

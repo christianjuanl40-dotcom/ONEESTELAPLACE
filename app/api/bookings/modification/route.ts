@@ -27,6 +27,8 @@ import {
   buildBookingScheduleHistoryUpdate,
   getBookingScheduleSnapshot,
 } from "@/src/modules/shared/lib/booking-schedule-history"
+import { enqueueEmailEvent } from "@/lib/email-outbox"
+import { buildBookingEmailPayload } from "@/lib/email-templates"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -348,7 +350,7 @@ function errorResponse(error: unknown) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await requireAuthenticatedUser(request)
+    const user = await requireAuthenticatedUser(request, { requireVerifiedClient: true })
     const bodyText = await request.text()
     if (new TextEncoder().encode(bodyText).byteLength > 64 * 1024) {
       throw new ApiAuthError(413, "The modification request is too large.")
@@ -463,12 +465,29 @@ export async function POST(request: NextRequest) {
             },
           ),
         }
+        const updatedBooking = { ...booking, ...fields, id: bookingId }
+        if (schedulingChange) {
+          const historyFields = scheduleHistory as DataRecord
+          const historyEntries = Array.isArray(historyFields.scheduleHistory) ? historyFields.scheduleHistory : []
+          const revision = Number((historyEntries.at(-1) as DataRecord | undefined)?.revision || 1)
+          await enqueueEmailEvent(transaction, firestore, {
+            eventType: "booking_schedule_updated",
+            eventId: `booking_schedule_updated_${bookingId}_${revision}`,
+            bookingId,
+            recipientUid: String(booking.userId || booking.uid || ""),
+            payload: buildBookingEmailPayload(updatedBooking, {
+              originalSchedule: (historyFields.originalSchedule || booking.originalSchedule || null) as any,
+              previousSchedule: getBookingScheduleSnapshot(booking),
+              effectiveSchedule: getBookingScheduleSnapshot(candidate),
+            }),
+          })
+        }
         if (schedulingChange) {
           commitEventAvailabilityLock(transaction, eventLock)
           commitExpiredAvailabilityHolds(transaction, firestore, eventLock.expiredBookings)
         }
         transaction.update(bookingRef, fields as any)
-        return { changed: true, booking: { ...booking, ...fields, id: bookingId }, userId: String(booking.userId || "") }
+        return { changed: true, booking: updatedBooking, userId: String(booking.userId || "") }
       }
 
       if (String(booking.status || "").toLowerCase() !== "modification_under_review" || !booking.requestedChanges) {
@@ -504,10 +523,27 @@ export async function POST(request: NextRequest) {
           updatedAt: now,
           adminLogs: appendLog(booking, "APPROVE_MODIFICATION", "Admin approved the requested booking changes.", now),
         }
+        const updatedBooking = { ...booking, ...fields, id: bookingId }
+        if (schedulingChange) {
+          const historyFields = scheduleHistory as DataRecord
+          const historyEntries = Array.isArray(historyFields.scheduleHistory) ? historyFields.scheduleHistory : []
+          const revision = Number((historyEntries.at(-1) as DataRecord | undefined)?.revision || 1)
+          await enqueueEmailEvent(transaction, firestore, {
+            eventType: "booking_schedule_updated",
+            eventId: `booking_schedule_updated_${bookingId}_${revision}`,
+            bookingId,
+            recipientUid: String(booking.userId || booking.uid || ""),
+            payload: buildBookingEmailPayload(updatedBooking, {
+              originalSchedule: (historyFields.originalSchedule || booking.originalSchedule || null) as any,
+              previousSchedule: getBookingScheduleSnapshot(booking),
+              effectiveSchedule: getBookingScheduleSnapshot(candidate),
+            }),
+          })
+        }
         commitEventAvailabilityLock(transaction, eventLock)
         commitExpiredAvailabilityHolds(transaction, firestore, eventLock.expiredBookings)
         transaction.update(bookingRef, fields as any)
-        return { changed: true, booking: { ...booking, ...fields, id: bookingId }, userId: String(booking.userId || "") }
+        return { changed: true, booking: updatedBooking, userId: String(booking.userId || "") }
       }
 
       const fields: DataRecord = {

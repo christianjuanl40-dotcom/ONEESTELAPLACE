@@ -2,9 +2,13 @@ import { fileURLToPath } from "url"
 import path from "path"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const isStagingRuntime = process.env.ONEESTELA_ENV === "staging"
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Keep staging development bundles separate from the normal .next output,
+  // which may have been built with a production .env.local in another run.
+  distDir: isStagingRuntime ? ".next-staging" : ".next",
   poweredByHeader: false,
   turbopack: {
     root: __dirname,

@@ -169,6 +169,7 @@ service cloud.firestore {
     function isBookingNotification(data) {
       return data.get("type", "") in [
         "booking_submitted",
+        "booking_rejected",
         "cancellation_requested",
         "modification_requested"
       ];
@@ -227,6 +228,10 @@ service cloud.firestore {
         && request.resource.data.get("uid", "") == userId
         && request.resource.data.get("role", "") == "client"
         && request.resource.data.get("status", "") == "active"
+        // Every browser-created Client is a new signup and must enter the
+        // server-verified email onboarding flow. This marker is immutable to
+        // browser updates and is not used as proof of Firebase verification.
+        && request.resource.data.get("emailVerificationRequired", false) == true
         && !request.resource.data.keys().hasAny(["permissions"]);
 
       // Administrators manage roles, permissions, and account status through
@@ -452,6 +457,25 @@ service cloud.firestore {
       );
 
       allow delete: if false;
+    }
+
+    // Email delivery jobs are created and claimed only by trusted server
+    // processes using the Firebase Admin SDK. Browser reads/writes are denied
+    // explicitly so job payloads, recipient UIDs, and delivery state cannot be
+    // used as a client-controlled messaging channel.
+    match /emailOutbox/{jobId} {
+      allow read, write: if false;
+    }
+
+    // OTP challenges and their keyed rate-limit records are trusted-server
+    // state. The browser must never be able to read a digest, alter attempts,
+    // or replace the active challenge.
+    match /emailOtpChallenges/{challengeId} {
+      allow read, write: if false;
+    }
+
+    match /emailOtpRateLimits/{rateLimitId} {
+      allow read, write: if false;
     }
 
     match /{document=**} {

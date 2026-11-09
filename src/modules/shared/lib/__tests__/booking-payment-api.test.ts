@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { TransactionStore } from "./helpers/transaction-store"
 
@@ -59,6 +59,7 @@ beforeEach(() => {
     { id: "V2", name: "Venue Two", price: 10000, capacity: "100" },
   ] })
 })
+afterEach(() => vi.unstubAllEnvs())
 
 describe("server event scheduling commits", () => {
   it.each([
@@ -457,6 +458,54 @@ describe("finalized payment snapshot persistence", () => {
     expect(firstReminder.status).toBe(200)
     expect((await secondReminder.json()).changed).toBe(false)
     expect([...store.data.keys()].filter((path) => path.startsWith("notifications/")).length).toBe(1)
+  })
+
+  it("rejects only an unsecured unpaid pending booking and notifies the client", async () => {
+    vi.stubEnv("EMAIL_SENDING_ENABLED", "true")
+    store.seed("bookings/REJECT", existing({
+      status: "pending",
+      bookingStatus: "Pending",
+      isSlotSecured: false,
+      amountPaid: 0,
+      paymentStatus: "unpaid",
+    }))
+
+    const response = await lifecycle(post({
+      action: "status",
+      bookingId: "REJECT",
+      status: "declined",
+      reason: "The requested date is unavailable after final review.",
+    }, "admin"))
+    expect(response.status).toBe(200)
+    expect(store.data.get("bookings/REJECT")).toMatchObject({
+      status: "declined",
+      bookingStatus: "Rejected",
+      isSlotSecured: false,
+      rejectionReason: "The requested date is unavailable after final review.",
+      rejectedBy: "CLIENT",
+    })
+    expect([...store.data.values()].find((value) => value.type === "booking_rejected")).toMatchObject({
+      type: "booking_rejected",
+      userId: "CLIENT",
+      bookingId: "REJECT",
+    })
+    expect(store.data.get("emailOutbox/booking_rejected_REJECT")).toMatchObject({
+      eventType: "booking_rejected",
+      eventId: "booking_rejected_REJECT",
+      recipientUid: "CLIENT",
+      status: "pending",
+    })
+
+    store.seed("bookings/PAID-PENDING", existing({ status: "pending", bookingStatus: "Pending", isSlotSecured: false }))
+    store.seed("payments/PAID-PENDING-PROOF", {
+      bookingId: "PAID-PENDING",
+      status: "For Verification",
+      verificationStatus: "For Verification",
+      amount: 1000,
+    })
+    const blocked = await lifecycle(post({ action: "status", bookingId: "PAID-PENDING", status: "declined", reason: "Not accepted" }, "admin"))
+    expect(blocked.status).toBe(409)
+    expect(store.data.get("bookings/PAID-PENDING")?.status).toBe("pending")
   })
 
   it("creates an internal refund-request notification without changing the payment ledger", async () => {

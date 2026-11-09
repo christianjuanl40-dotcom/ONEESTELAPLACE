@@ -13,6 +13,8 @@ import {
 import { formatDisplayName } from "@/src/modules/shared/lib/name-utils"
 import { validatePaymentReference } from "@/src/modules/shared/lib/payment-reference"
 import { isOfficeResourceBooking } from "@/src/modules/shared/lib/resource-identity"
+import { enqueueEmailEvent } from "@/lib/email-outbox"
+import { buildBookingEmailPayload } from "@/lib/email-templates"
 import {
   calculatePaymentSummary,
   centsToPaymentAmount,
@@ -145,7 +147,7 @@ function errorResponse(error: unknown) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await requireAuthenticatedUser(request)
+    const user = await requireAuthenticatedUser(request, { requireVerifiedClient: true })
     if (user.role !== "client") {
       throw new ApiAuthError(403, "Only client accounts can submit payments.")
     }
@@ -388,6 +390,22 @@ export async function POST(request: NextRequest) {
             }
           : {}),
       }
+
+      await enqueueEmailEvent(transaction, firestore, {
+        eventType: "payment_submitted",
+        eventId: `payment_submitted_${paymentId}`,
+        bookingId,
+        recipientUid: user.uid,
+        payload: buildBookingEmailPayload({ ...booking, ...bookingUpdate, id: bookingId }, {
+          payment: {
+            method: paymentMethodLabel,
+            amount: requestedAmount,
+            status: paymentStatus,
+            ...(method === "bank" ? { reference: referenceNumber } : {}),
+            paymentNumber: String(paymentNumber),
+          },
+        }),
+      })
 
       transaction.update(bookingRef, bookingUpdate)
       transaction.create(firestore.collection("payments").doc(paymentId), paymentRecord)

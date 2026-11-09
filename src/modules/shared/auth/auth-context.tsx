@@ -16,6 +16,7 @@ import {
   EmailAuthProvider,
   reauthenticateWithCredential,
   reload,
+  sendEmailVerification,
   signOut,
   onAuthStateChanged,
   type User as FirebaseUser,
@@ -38,6 +39,8 @@ import { updateAuthenticatedPassword } from "@/src/modules/shared/lib/password-u
 import { safeRead } from "@/src/modules/shared/lib/safe-read"
 import { createSessionInitializer, type SessionState } from "@/src/modules/shared/lib/session-initialization"
 
+const VERIFICATION_LINK_FALLBACK_ENABLED = process.env.NEXT_PUBLIC_EMAIL_VERIFICATION_LINK_FALLBACK_ENABLED === "true"
+
 export interface AppUser {
   id: string
   fullName: string
@@ -46,6 +49,9 @@ export interface AppUser {
   middleName?: string
   lastName?: string
   email: string
+  emailVerified: boolean
+  /** New email/password signups remain verification-gated until Auth is verified. */
+  emailVerificationRequired?: boolean
   role: "admin" | "client" | "staff"
   profilePicture: string
   createdAt: string
@@ -81,9 +87,13 @@ export interface AuthContextValue {
   profileLoading: boolean
   initializationError: string | null
   isSigningIn: boolean
-  login: (email: string, password?: string) => Promise<{ success: boolean; message?: string; role?: string }>
-  signup: (input: SignupInput) => Promise<{ success: boolean; message?: string }>
-  logout: () => Promise<void>
+  login: (email: string, password?: string) => Promise<{ success: boolean; message?: string; role?: string; requiresVerification?: boolean }>
+  signup: (input: SignupInput) => Promise<{ success: boolean; message?: string; requiresVerification?: boolean }>
+  requestEmailVerificationCode: () => Promise<{ success: boolean; message?: string; retryAfterSeconds?: number }>
+  verifyEmailCode: (code: string) => Promise<{ success: boolean; message?: string; alreadyVerified?: boolean }>
+  sendVerificationEmail: () => Promise<{ success: boolean; message?: string }>
+  verificationLinkFallbackEnabled: boolean
+  logout: () => Promise<boolean>
   updateProfilePicture: (dataUrl: string) => Promise<void>
   removeProfilePicture: () => Promise<void>
   updateProfileDetails: (input: ProfileContactUpdateInput) => Promise<{ email: string; phone: string }>
@@ -110,6 +120,11 @@ function getFirebaseErrorMessage(error: any): string {
       return "Too many attempts. Please try again later."
     case "auth/network-request-failed":
       return "Network error. Please check your connection."
+    case "auth/expired-action-code":
+    case "auth/invalid-action-code":
+      return "That verification link is expired or invalid. Request a new verification email and try again."
+    case "auth/user-disabled":
+      return "This account is disabled. Please contact an administrator."
     case "unavailable":
     case "deadline-exceeded":
     case "read/timeout":
@@ -207,7 +222,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (typeof data.permissions[key] === "boolean") permissions[key] = data.permissions[key]
         }
       }
-      return { id: identity.uid, fullName, name: fullName, ...nameParts, email: identity.email || data.email || "",
+      return { id: identity.uid, fullName, name: fullName, ...nameParts, email: identity.email || data.email || "", emailVerified: identity.emailVerified,
+        emailVerificationRequired: data.emailVerificationRequired === true,
         role, profilePicture: data.profilePicture || "", createdAt: data.createdAt || "", status: "active",
         phone: data.phone || "", position: data.position || "", permissions }
     },
@@ -235,10 +251,97 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const credential = await signInWithEmailAndPassword(auth, email, password!)
       const profile = await initializer.load(credential.user)
-      return { success: true, role: profile.role }
+      return {
+        success: true,
+        role: profile.role,
+        requiresVerification: profile.role === "client"
+          && profile.emailVerificationRequired === true
+          && credential.user.emailVerified !== true,
+      }
     } catch (error: any) {
       return { success: false, message: getFirebaseErrorMessage(error) }
     } finally { signingIn.current = false; setIsSigningIn(false) }
+  }, [initializer])
+
+  const requestEmailVerificationCode = useCallback(async () => {
+    const currentUser = auth.currentUser
+    if (!currentUser) return { success: false, message: "Please sign in again before requesting a verification code." }
+    if (currentUser.emailVerified) return { success: true, message: "This email address is already verified." }
+
+    try {
+      const response = await fetch("/api/auth/email-otp", {
+        method: "POST",
+        headers: await getAuthHeaders(true),
+        body: JSON.stringify({ action: "issue" }),
+      })
+      const payload = await response.json().catch(() => null) as {
+        error?: unknown
+        status?: unknown
+        retryAfterSeconds?: unknown
+      } | null
+      const retryAfterSeconds = typeof payload?.retryAfterSeconds === "number" && Number.isFinite(payload.retryAfterSeconds)
+        ? Math.max(0, Math.ceil(payload.retryAfterSeconds))
+        : undefined
+      if (!response.ok) {
+        return {
+          success: false,
+          message: typeof payload?.error === "string" ? payload.error : "We could not send a verification code. Please try again later.",
+          retryAfterSeconds,
+        }
+      }
+      return {
+        success: true,
+        message: payload?.status === "already_verified"
+          ? "This email address is already verified."
+          : "Your 6-digit verification code was sent. Check your inbox and spam folder.",
+        retryAfterSeconds,
+      }
+    } catch {
+      return { success: false, message: "We could not send a verification code. Check your connection and try again." }
+    }
+  }, [])
+
+  const verifyEmailCode = useCallback(async (code: string) => {
+    const currentUser = auth.currentUser
+    if (!currentUser) return { success: false, message: "Please sign in again before verifying your email." }
+    const normalizedCode = code.trim()
+    if (!/^\d{6}$/.test(normalizedCode)) return { success: false, message: "Enter the 6-digit verification code." }
+
+    try {
+      const response = await fetch("/api/auth/email-otp", {
+        method: "POST",
+        headers: await getAuthHeaders(true),
+        body: JSON.stringify({ action: "verify", code: normalizedCode }),
+      })
+      const payload = await response.json().catch(() => null) as {
+        error?: unknown
+        alreadyVerified?: unknown
+      } | null
+      if (!response.ok) {
+        return {
+          success: false,
+          message: typeof payload?.error === "string" ? payload.error : "We could not verify that code. Please try again.",
+        }
+      }
+
+      try {
+        await reload(currentUser)
+        await currentUser.getIdToken(true)
+        await initializer.load(currentUser, true)
+      } catch {
+        return {
+          success: false,
+          message: "Your email was verified, but the local session could not be refreshed. Please refresh the page and try again.",
+        }
+      }
+      return {
+        success: true,
+        alreadyVerified: payload?.alreadyVerified === true,
+        message: "Your email has been verified successfully.",
+      }
+    } catch {
+      return { success: false, message: "We could not verify that code. Check your connection and try again." }
+    }
   }, [initializer])
 
   const signup = useCallback(async (input: SignupInput) => {
@@ -268,13 +371,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         profilePicture: "",
         status: "active",
         createdAt,
+        emailVerificationRequired: true,
       }
 
       await setDoc(userDocRef, userData)
 
+       let verificationMessage = "Your account was created. Request a verification code when email sending is enabled."
+       try {
+         const otpResult = await requestEmailVerificationCode()
+         if (otpResult.success) {
+           verificationMessage = otpResult.message || "Your 6-digit verification code was sent."
+         } else if (otpResult.message) {
+           verificationMessage = `Your account was created, but ${otpResult.message.charAt(0).toLowerCase()}${otpResult.message.slice(1)}`
+         }
+       } catch {
+         verificationMessage = "Your account was created, but the verification code could not be sent yet. Use Resend Code on the next screen."
+       }
+
       await initializer.load(credential.user, true)
 
-      return { success: true, message: "Registration successful." }
+      return { success: true, message: verificationMessage, requiresVerification: true }
     } catch (error: any) {
       const errorCode = error?.code || "unknown"
       const errorMessage = error?.message || String(error)
@@ -288,13 +404,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       return { success: false, message: `Signup failed (${errorCode}): ${errorMessage}` }
     }
-  }, [initializer])
+  }, [initializer, requestEmailVerificationCode])
+
+  const sendVerificationEmailForCurrentUser = useCallback(async () => {
+    const currentUser = auth.currentUser
+    if (!currentUser) return { success: false, message: "Please sign in again before requesting verification." }
+    if (currentUser.emailVerified) return { success: true, message: "This email address is already verified." }
+    if (!VERIFICATION_LINK_FALLBACK_ENABLED) {
+      return { success: false, message: "The verification-link fallback is disabled. Use the six-digit verification code." }
+    }
+    try {
+      await sendEmailVerification(currentUser)
+      return { success: true, message: "Verification email sent. Check your inbox and spam folder." }
+    } catch (error: any) {
+      return { success: false, message: getFirebaseErrorMessage(error) }
+    }
+  }, [])
 
   const logout = useCallback(async () => {
     initializer.clear()
-    try { await signOut(auth) }
+    try {
+      await signOut(auth)
+      return true
+    }
     catch {
       setSession({ user: null, phase: "error", error: "Sign-out could not be completed. Check your connection and try signing out again." })
+      return false
     }
   }, [initializer])
 
@@ -448,8 +583,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshUser = useCallback(async () => {
     try { await safeRead(() => auth.authStateReady(), { attempts: 1 }) }
     catch (error) { initializer.fail(error); return }
-    if (!auth.currentUser) { initializer.clear(); return }
-    await initializer.load(auth.currentUser, true).catch(() => {})
+    const identity = auth.currentUser
+    if (!identity) { initializer.clear(); return }
+    try {
+      await reload(identity)
+    } catch (error) {
+      console.warn("[AUTH] Unable to refresh Firebase verification state", {
+        code: error && typeof error === "object" && "code" in error ? String(error.code) : "unknown",
+      })
+    }
+    await initializer.load(identity, true).catch(() => {})
   }, [initializer])
 
   const value = useMemo<AuthContextValue>(
@@ -462,6 +605,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isSigningIn,
       login,
       signup,
+      requestEmailVerificationCode,
+      verifyEmailCode,
+      sendVerificationEmail: sendVerificationEmailForCurrentUser,
+      verificationLinkFallbackEnabled: VERIFICATION_LINK_FALLBACK_ENABLED,
       logout,
       updateProfilePicture,
       removeProfilePicture,
@@ -469,7 +616,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updatePassword,
       refreshUser,
     }),
-    [user, isLoading, session.phase, session.error, isSigningIn, login, signup, logout, updateProfilePicture, removeProfilePicture, updateProfileDetails, updatePassword, refreshUser]
+    [user, isLoading, session.phase, session.error, isSigningIn, login, signup, requestEmailVerificationCode, verifyEmailCode, sendVerificationEmailForCurrentUser, logout, updateProfilePicture, removeProfilePicture, updateProfileDetails, updatePassword, refreshUser]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

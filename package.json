@@ -7,6 +7,8 @@
   },
   "scripts": {
     "dev": "next dev",
+    "dev:staging": "node scripts/start-staging.mjs",
+    "verify:staging-runtime": "node scripts/verify-staging-runtime.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint ."
@@ -57,6 +59,7 @@
     "lucide-react": "^0.454.0",
     "next": "16.4.5",
     "next-themes": "^0.4.4",
+    "nodemailer": "^10.3.1",
     "playwright": "^1.61.0",
     "react": "^18.2.0",
     "react-day-picker": "9.8.0",
@@ -72,6 +75,7 @@
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",
     "@types/node": "^22",
+    "@types/nodemailer": "^8.0.2",
     "@types/react": "^18.3.29",
     "@types/react-dom": "^18.3.7",
     "eslint": "^9.39.5",

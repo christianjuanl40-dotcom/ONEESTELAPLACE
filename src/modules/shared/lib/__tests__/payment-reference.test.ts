@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { validatePaymentReference } from "../payment-reference"
 import { TransactionStore } from "./helpers/transaction-store"
@@ -43,6 +43,7 @@ const request = (reference: unknown, method: "bank" | "cash" = "bank", paymentPr
 )
 
 let store: TransactionStore
+afterEach(() => vi.unstubAllEnvs())
 beforeEach(() => {
   store = new TransactionStore()
   boundary.firestore = store
@@ -83,6 +84,22 @@ describe("bank reference validation shared by the client and server", () => {
       expect(result.booking.remainingBalance).toBe(10000)
       expect(result.payment.reviewSnapshot).toBeUndefined()
     }
+  })
+
+  it("queues the committed payment-submitted email in the same transaction", async () => {
+    vi.stubEnv("EMAIL_SENDING_ENABLED", "true")
+    vi.stubEnv("APP_BASE_URL", "https://one-estela.example")
+
+    const response = await submit(request("00999"))
+    expect(response.status).toBe(201)
+    const outbox = [...store.data.entries()].find(([path]) => path.startsWith("emailOutbox/"))?.[1]
+    expect(outbox).toMatchObject({
+      eventType: "payment_submitted",
+      bookingId: "BOOKING",
+      recipientUid: "CLIENT",
+      status: "pending",
+    })
+    expect((outbox?.payload as Record<string, unknown>)?.payment).toMatchObject({ status: "For Verification", reference: "00999" })
   })
 
   it("still requires bank proof and rejects duplicate submissions", async () => {

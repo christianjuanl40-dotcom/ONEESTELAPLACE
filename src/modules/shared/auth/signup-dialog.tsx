@@ -114,10 +114,10 @@ export function SignupDialog({ className, children }: SignupDialogProps) {
       if (result.success) {
         setOpen(false)
         toast({
-          title: "Account created",
-          description: "Welcome to One Estela Place! Taking you to your portal...",
+          title: "Verify your email",
+          description: result.message || "We've sent a 6-digit verification code to your registered email address.",
         })
-        window.location.replace("/portal")
+        window.location.replace("/verify-email")
       } else {
         setErrorMsg(result.message || "Email is already taken. Please use a different one.")
       }

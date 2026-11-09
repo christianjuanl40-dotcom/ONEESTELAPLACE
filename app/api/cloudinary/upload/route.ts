@@ -75,7 +75,7 @@ async function canUploadToFolder(
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await requireAuthenticatedUser(request);
+    const user = await requireAuthenticatedUser(request, { requireVerifiedClient: true });
     const contentLength = Number(request.headers.get("content-length") || 0);
     if (contentLength > MAX_UPLOAD_BYTES + 256 * 1024) {
       return NextResponse.json({ error: "File is too large." }, { status: 413 });

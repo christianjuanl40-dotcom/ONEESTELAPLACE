@@ -5,6 +5,7 @@ export default defineConfig([
   ...nextVitals,
   globalIgnores([
     ".next/**",
+    ".next-staging/**",
     "node_modules/**",
     "test-results/**",
     "server_error.txt",

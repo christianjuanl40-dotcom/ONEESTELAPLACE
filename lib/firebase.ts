@@ -7,6 +7,8 @@ import {
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
+const STAGING_PROJECT_ID = "one-estela-place-staging";
+
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -16,6 +18,16 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
+
+function assertClientProjectIdentity() {
+  const projectId = String(firebaseConfig.projectId || "").trim();
+  const runtime = String(process.env.NEXT_PUBLIC_ONEESTELA_ENV || "").trim().toLowerCase();
+  if (runtime === "staging" && projectId !== STAGING_PROJECT_ID) {
+    throw new Error("Staging Firebase client identity is invalid.");
+  }
+}
+
+assertClientProjectIdentity();
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 

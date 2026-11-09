@@ -79,6 +79,15 @@ export function LoginDialog({ className, children }: LoginDialogProps) {
 
       const role = result.role
 
+      if (role === "client" && result.requiresVerification) {
+        toast({
+          title: "Verify your email",
+          description: "Enter the 6-digit verification code before accessing the Client Portal.",
+        })
+        router.replace("/verify-email")
+        return
+      }
+
       if (!role) {
         console.error("[LoginDialog] No role returned from login")
         toast({ title: "Login Error", description: "No role assigned to your account.", variant: "destructive" })

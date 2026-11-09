@@ -1,5 +1,7 @@
 # One Estela Place
 
+**Email/verification follow-up (2026-11-09):** New email/password Clients use a server-verified, six-digit email OTP flow at `/verify-email` with digest-only Firestore challenges, expiry, cooldown/rate limits, attempt limits, atomic claims, replay protection, and Firebase Auth synchronization. New signup profiles carry an immutable Firestore-rule-required onboarding marker, and protected Client mutations keep those accounts out of the portal until Firebase Auth verification is complete; the OTP route is the only authenticated pre-verification exception. The older Firebase link remains an explicit compatibility fallback behind `NEXT_PUBLIC_EMAIL_VERIFICATION_LINK_FALLBACK_ENABLED`. An optional rollout boundary covers unmarked legacy password accounts without unexpectedly locking legacy or federated accounts. Gmail SMTP notifications use a server-only, disabled-by-default Firestore `emailOutbox`; deterministic jobs are created inside committed booking/payment/lifecycle transactions, and the protected worker uses Auth UID recipient resolution, allowlists, leases, bounded retries, and terminal states. A guarded Admin/staff rejection action covers only unsecured pending bookings with no payment activity. `vercel.json` declares a five-minute worker schedule, but no credentials, production records, sends, deployments, or scheduler activation are included in this worktree. See [docs/EMAIL_SETUP.md](docs/EMAIL_SETUP.md).
+
 Booking and rental management system for **One Estela Place**: event venue reservations, office room rentals, payment verification, customer support, and website content management.
 
 Source reviewed: **2026-10-19** baseline; resource identity, scheduling, maintenance, and CMS persistence rechecked **2026-10-25**; exclusive office occupancy and customer/admin Booking Details rechecked **2026-10-26**; session initialization, read recovery, and availability performance rechecked **2026-10-27**; compact booking/payment tables rechecked **2026-11-03**; protected portal/admin shell scrolling rechecked **2026-11-04**; CMS responsive/accessibility surfaces, Phase 2.1 table scrolling/admin booking ordering, and lifecycle/payment presentation rechecked **2026-11-05**; Phase 5 release-readiness validation, REF-01 refund authorization, CHAT-01 cursor pagination, baseline response hardening, client loading/New Booking recovery, and Defense Polish 2.2 accessibility/chat-read resilience rechecked **2026-11-06**; Admin Dashboard Payment Position removal, natural content-flow cleanup, Client Chat Firestore index hotfix, and Defense Polish 2.5 booking schedule controls/history rechecked **2026-11-07**. This documentation describes the checked-in implementation; live catalog values and provider configuration come from the connected services.
@@ -61,8 +63,9 @@ Versions below are declared in [package.json](package.json).
 | Runtime | Node.js **22+**, npm and `package-lock.json` |
 | Application | Next.js **16.4.5**, App Router, React **18**, TypeScript **5.7.3** |
 | UI | Tailwind CSS **3.4**, shadcn-style/Radix primitives, Lucide icons, Inter |
-| Identity | Firebase Authentication, email/password |
+| Identity | Firebase Authentication, email/password, server OTP email verification, optional Firebase link fallback |
 | Database | Cloud Firestore; realtime browser subscriptions and server-side Admin SDK transactions |
+| Transactional email | Server-only Nodemailer Gmail SMTP, Firestore outbox, protected Node worker |
 | Uploads | Cloudinary through authenticated Next.js API routes |
 | Reports / documents | Recharts, ExcelJS, DOCX preview, printable receipts/reports |
 | Tour | Pannellum **2.5.6**, loaded from jsDelivr by the tour component |
@@ -93,11 +96,23 @@ Copy-Item ".env.example" ".env.local"
 | `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Firebase browser authentication |
 | `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Browser Firebase and server Admin SDK project selection |
 | `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`, `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` | Firebase web configuration |
-| `FIREBASE_ADMIN_CLIENT_EMAIL`, `FIREBASE_ADMIN_PRIVATE_KEY` | Server-only Firebase Admin credentials |
+| `FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL`, `FIREBASE_ADMIN_PRIVATE_KEY` | Server-only Firebase Admin project identity and credentials |
 | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Server-only upload/delete credentials |
 | `NEXT_PUBLIC_PERF_TRACE` | Optional tracing: `1` enables performance logs, `0` disables them |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_APP_PASSWORD`, `EMAIL_FROM` | Server-only Gmail SMTP; sending remains disabled unless explicitly enabled |
+| `APP_BASE_URL`, `EMAIL_SENDING_ENABLED`, `EMAIL_TEST_RECIPIENT_ALLOWLIST`, `EMAIL_MAX_ATTEMPTS` | Server-only notification URL, gate, preview allowlist, and retry limit |
+| `EMAIL_OTP_SENDING_ENABLED`, `EMAIL_OTP_STAGING_APPROVED`, `EMAIL_OTP_SECRET`, `EMAIL_OTP_EXPIRY_SECONDS`, `EMAIL_OTP_RESEND_COOLDOWN_SECONDS`, `EMAIL_OTP_PRODUCTION_APPROVED` | Independent server-only OTP gate, staging-test approval, HMAC secret, expiry/cooldown controls, and explicit production approval guard |
+| `NEXT_PUBLIC_EMAIL_VERIFICATION_LINK_FALLBACK_ENABLED` | Explicit compatibility-only Firebase link fallback; OTP remains primary |
+| `EMAIL_VERIFICATION_ENFORCEMENT_ENABLED`, `EMAIL_VERIFICATION_ENFORCEMENT_START_AT` | Server-only verification rollout gate and legacy-client boundary |
+| `CRON_SECRET` | Server-only secret for `/api/internal/email-worker` |
 
 Use the same Firebase project for the browser configuration and Admin credentials. The private key supports escaped `\n` newlines. `.env.local` is ignored by Git; keep actual credential values out of documentation and client code.
+
+### Isolated local staging
+
+Use `npm run dev:staging` to load **only** `.env.staging.local` for Firebase identity and email controls before starting Next.js. Before Next.js performs its own dotenv loading, the launcher shadows every key found in its dotenv candidates with empty sentinels, reapplies the approved staging values, clears the dedicated `.next-staging` development output, and rejects the production project `oneestela-ae9b5`. Next may still report `.env.local` as a discovered file; that status does not mean its values won. The launcher requires `ONEESTELA_ENV=staging`, explicit staging Admin credentials, forbids production OTP approval, and when OTP is enabled requires `EMAIL_OTP_STAGING_APPROVED=true`, one valid `EMAIL_TEST_RECIPIENT_ALLOWLIST` address, a strong OTP secret, and complete staging Gmail SMTP settings. Run `npm run dev:staging -- --check` for a sanitized configuration check without starting the app; run `npm run verify:staging-runtime` to verify the live browser/Admin identities and disabled email controls without account or data access. Keep staging Admin credentials, SMTP credentials, and OTP secrets in the ignored `.env.staging.local` using staging-only services; never copy production credentials.
+
+Before staging can pass the guard, the owner must create/confirm the staging Firestore database, enable Firebase Authentication **Email/Password**, add the local/preview staging domains to Firebase Auth authorized domains, and create a staging-project service account with the minimum Admin SDK access required by the server. The reviewed `firestore.rules` and `firestore.indexes.json` also need a separately authorized deployment to `one-estela-place-staging`; this repository does not deploy them automatically. Do not seed production records or reuse production credentials.
 
 ### 3. Prepare Firebase and initial content
 
@@ -124,6 +139,7 @@ Next.js route-group names such as `(client)` and `(admin)` are filesystem organi
 | URL | Purpose / source |
 | --- | --- |
 | `/` | Public landing page: `app/(client)/page.tsx` |
+| `/verify-email` | Six-digit OTP verification, status refresh, resend cooldown, sign-out, and optional Firebase link fallback for signed-in Clients |
 | `/portal` | Client dashboard with authenticated New Booking/Book Now navigation into the My Bookings reservation flow |
 | `/portal/bookings` | Client booking list, responsive booking overview, and the existing reservation dialog; `newBooking=1` is a one-time UI auto-open intent |
 | `/portal/payments` | My Transactions, responsive financial summaries, payment submissions, and receipts |
@@ -134,6 +150,7 @@ Next.js route-group names such as `(client)` and `(admin)` are filesystem organi
 | `/dashboard/chat`, `/dashboard/reports` | Support and reporting |
 | `/dashboard/staff`, `/dashboard/cms` | Staff management and content settings |
 | `/users` | Users Information, inside the admin route group |
+| `/api/internal/email-worker` | `CRON_SECRET`-protected server-only email outbox worker; `vercel.json` declares a five-minute schedule without activating delivery |
 | `/api/*` | Authenticated server endpoints; see [the API map](ARCHITECTURE.md#api-map) |
 
 ### Booking and payment list convention
@@ -149,8 +166,10 @@ The four booking/payment list surfaces—Admin Booking Management, Admin Payment
 | `npm start` | Serve the production build |
 | `npm run lint` | ESLint, including existing warning-level rules |
 | `npm run lint -- --quiet` | ESLint errors only |
+| `npm run verify:staging-runtime` | Local runtime probe for staging-only browser/Admin Firebase identity and disabled email controls; no account or data access |
 | `npx tsc --noEmit` | Type check |
 | `npx vitest run` | Unit/API fixture tests; rules and real-Firestore availability suites skip without an emulator |
+| `node --test scripts/start-staging.test.mjs` | Windows-safe isolated staging launcher tests |
 | `node --experimental-strip-types scripts/verify-payment-flow.mts` | Canonical payment-flow regression harness |
 | `node scripts/verify-payment-review.mjs` | Local Chromium payment-history, nested Venue Reviews, and scheduling UI regressions with responsive screenshots |
 | `node scripts/verify-payment-review.mjs --payments-only` | Focused customer/admin historical-summary, method-filter, exact-receipt, selection, proof/note, and review-dialog regressions |
@@ -186,7 +205,7 @@ The office harness uses the real reservation component, availability hooks/clien
 
 The Booking Details harness renders the actual customer/admin bookings pages with local provider fixtures. It covers pending cancellation, approved cancellation with eligible/requested/completed refunds, ordinary office/event bookings, Manila-readable original/current schedule history, readable rental terms, long multiline/unbroken values, consolidated document rows and availability, client 44px responsive action rows with 12px gaps, admin 44px actions in a two-column grid from 640px (single-column below, 8px gaps), full-width contract signing, management-only footers (omitted without actions), admin Mark as Refunded, single close/scroll region, keyboard order, document/modify/payment handlers, and scroll-lock restoration including the existing receipt-to-details return behavior. On short phones the admin details/actions share one scroll region below the fixed header rather than reserving a tall sticky footer. It uses a local Arial font fallback and the same browser-channel override, loads no environment files, and blocks live service traffic. `--no-screenshots` skips image capture while retaining the DOM/layout/action checks and result report. It records existing shared React 18 ref-forwarding warnings separately from runtime errors; it does not validate deployed data or live refund processing.
 
-The admin booking-action harness renders the actual Admin Booking Management page with local provider/auth/catalog fixtures. It verifies the restricted four-field direct-update surface, disallowed-field absence, direct Admin-only cancellation with a required reason and Keep Booking/Confirm Cancellation, updated booking state, and staff/client action visibility. At 320, 375, 768, 1024, 1280, 1366, and 1440px it measures the crowded five-action state, full-width contract action, single-region scrolling, unified Modify context/calendar/status/time controls, footer reachability, keyboard focus, Cancel/Escape, and focus restoration. It blocks live traffic and performs no Firebase writes; API authorization, transaction, capacity, availability, schedule history, audit, notification, idempotency, and refund-separation coverage lives in `booking-payment-api.test.ts`. The booking-table harness additionally checks one primary badge per row and lifecycle-based filtering; the payment-review harness measures status alignment and unchanged financial values and exercises Review, View Details, Make Payment, and Settle Remaining Balance at the same five widths.
+The admin booking-action harness renders the actual Admin Booking Management page with local provider/auth/catalog fixtures. It verifies the restricted four-field direct-update surface, disallowed-field absence, direct Admin-only cancellation with a required reason and Keep Booking/Confirm Cancellation, updated booking state, and staff/client action visibility. The page also exposes the separate guarded unsecured-pending booking-rejection action. At 320, 375, 768, 1024, 1280, 1366, and 1440px it measures the crowded five-action state, full-width contract action, single-region scrolling, unified Modify context/calendar/status/time controls, footer reachability, keyboard focus, Cancel/Escape, and focus restoration. It blocks live traffic and performs no Firebase writes; API authorization, transaction, capacity, availability, schedule history, audit, rejection/payment notification, idempotency, and refund-separation coverage lives in `booking-payment-api.test.ts`. The booking-table harness additionally checks one primary badge per row and lifecycle-based filtering; the payment-review harness measures status alignment and unchanged financial values and exercises Review, View Details, Make Payment, and Settle Remaining Balance at the same five widths.
 
 The report-print harness renders the actual reports page with local booking/CMS fixtures, verifies compact summary/detail layout and responsive containment at 320/375/768/1024/1280/1366/1440px, verifies received/booking-value/net-cash values in the dashboard and print rows, downloads and inspects the generated Excel workbook's headers/totals/filter metadata, exercises the accessible print-options dialog (including chart-default, cancel, and deliberate chart-free selection), confirms both modes preserve filters, summaries, and the complete filtered dataset beyond dashboard pagination, switches Chromium to print media, checks print-only report typography and dashboard exclusion, and writes A4 landscape PDFs for both modes to a disposable temporary directory. It loads no `.env` files or live services; use the same Chromium installation/browser-channel override as the other browser harnesses.
 

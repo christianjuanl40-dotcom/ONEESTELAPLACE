@@ -223,6 +223,10 @@ export default function HomePage() {
     }
 
     if (user) {
+      if (user.role === "client" && user.emailVerificationRequired && !user.emailVerified) {
+        router.replace("/verify-email")
+        return
+      }
       redirectByRole(user.role)
       return
     }
