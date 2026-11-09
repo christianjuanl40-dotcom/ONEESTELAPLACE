@@ -458,7 +458,7 @@ function PaymentActionButtons({
           compact
             ? "oe-table-action h-9 px-4"
             : "oe-table-action h-9 px-4 shadow-sm",
-          "bg-emerald-600 text-white hover:bg-emerald-700 w-full whitespace-nowrap sm:w-auto"
+          "bg-emerald-600 text-white hover:bg-emerald-700 whitespace-nowrap"
         )}
       >
         Settle Remaining Balance
@@ -474,7 +474,7 @@ function PaymentActionButtons({
           compact
             ? "oe-table-action h-9 px-4"
             : "oe-table-action h-9 px-4 shadow-sm",
-          "bg-orange-600 text-white hover:bg-orange-700 w-full whitespace-nowrap sm:w-auto"
+          "bg-orange-600 text-white hover:bg-orange-700 whitespace-nowrap"
         )}
       >
         <CreditCard className="mr-1 h-3.5 w-3.5" />
@@ -491,7 +491,7 @@ function PaymentActionButtons({
           compact
             ? "oe-table-action h-9 px-4"
             : "oe-table-action h-9 px-4 shadow-sm",
-          "bg-orange-600 text-white hover:bg-orange-700 w-full whitespace-nowrap sm:w-auto"
+          "bg-orange-600 text-white hover:bg-orange-700 whitespace-nowrap"
         )}
       >
         <CreditCard className="mr-1 h-3.5 w-3.5" />
@@ -585,8 +585,8 @@ function TransactionTable({
             <col style={{ width: "12%" }} />
             <col style={{ width: "13%" }} />
             <col style={{ width: "20%" }} />
-            <col style={{ width: "17%" }} />
-            <col style={{ width: "23%" }} />
+            <col style={{ width: "19%" }} />
+            <col style={{ width: "21%" }} />
           </colgroup>
           <TableHeader className="bg-slate-50/80">
             <tr>

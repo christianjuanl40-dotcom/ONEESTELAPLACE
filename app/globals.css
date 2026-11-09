@@ -439,18 +439,20 @@
 .oe-transaction-actions {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
+  align-items: flex-end;
   gap: 0.5rem;
   min-width: 0;
   width: 100%;
 }
 
 .oe-transaction-actions button {
-  width: 100%;
+  width: fit-content;
+  max-width: 100%;
   min-height: 2.75rem;
   margin: 0;
   justify-content: center;
-  white-space: normal;
+  padding-inline: 1rem;
+  white-space: nowrap;
 }
 
 .oe-transaction-actions svg {
@@ -459,7 +461,7 @@
 
 .oe-transactions-table .oe-transaction-actions button {
   height: 2.75rem;
-  padding-inline: 0.5rem;
+  padding-inline: 1rem;
   white-space: nowrap;
 }
 
