@@ -384,6 +384,56 @@ describe("finalized payment snapshot persistence", () => {
     expect(first.payment.reviewSnapshot.summary.remainingBookingBalance).toBe(7500)
   })
 
+  it("uses a legacy uid recipient and the calculated balance for reviewed payment email jobs", async () => {
+    vi.stubEnv("EMAIL_SENDING_ENABLED", "true")
+    store.seed("bookings/LEGACY-EMAIL", existing({ userId: undefined, uid: "LEGACY-CLIENT" }))
+    store.seed("payments/LEGACY-PAY", {
+      bookingId: "LEGACY-EMAIL",
+      status: "For Verification",
+      verificationStatus: "For Verification",
+      paymentMethod: "bank",
+      amount: 5000,
+      term: "Down Payment",
+    })
+
+    const response = await review(post({
+      bookingId: "LEGACY-EMAIL",
+      paymentRecordId: "LEGACY-PAY",
+      action: "verify",
+      verifiedAmount: 5000,
+    }, "admin"))
+
+    expect(response.status).toBe(200)
+    expect(store.data.get("emailOutbox/payment_verified_LEGACY-PAY")).toMatchObject({
+      recipientUid: "LEGACY-CLIENT",
+      payload: {
+        payment: { method: "Bank Transfer", amount: 5000, status: "Verified" },
+        remainingBalance: 5000,
+      },
+    })
+  })
+
+  it("uses a legacy uid recipient and the calculated balance for onsite payment email jobs", async () => {
+    vi.stubEnv("EMAIL_SENDING_ENABLED", "true")
+    store.seed("bookings/LEGACY-ONSITE", existing({ userId: undefined, uid: "LEGACY-ONSITE-CLIENT" }))
+
+    const response = await onsite(post({
+      bookingId: "LEGACY-ONSITE",
+      paymentType: "downpayment",
+      amountReceived: 2500,
+    }, "admin"))
+
+    expect(response.status).toBe(201)
+    const result = await response.json()
+    expect(store.data.get(`emailOutbox/payment_verified_${result.payment.id}`)).toMatchObject({
+      recipientUid: "LEGACY-ONSITE-CLIENT",
+      payload: {
+        payment: { method: "Pay at the Office", amount: 2500, status: "Verified" },
+        remainingBalance: 7500,
+      },
+    })
+  })
+
   it("makes a keyed onsite retry return the original payment instead of charging twice", async () => {
     store.seed("bookings/BOOKING", existing())
     const body = { bookingId: "BOOKING", paymentType: "downpayment", amountReceived: 2500,

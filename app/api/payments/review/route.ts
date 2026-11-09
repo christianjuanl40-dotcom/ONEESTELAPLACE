@@ -415,8 +415,9 @@ export async function POST(request: NextRequest) {
         eventType: emailEventType,
         eventId: `${emailEventType}_${String(target.id)}`,
         bookingId,
-        recipientUid: String(bookingData.userId || ""),
+        recipientUid: String(bookingData.userId || bookingData.uid || ""),
         payload: buildBookingEmailPayload({ ...bookingWithReceipt, id: bookingId }, {
+          remainingBalance: transition.summary.remainingBalance,
           payment: {
             method: getReceiptPaymentMethodLabel(paymentWithReceipt.paymentMethod || paymentWithReceipt.method || "Payment"),
             amount: getPaymentRecordAmount(paymentWithReceipt),
@@ -446,7 +447,7 @@ export async function POST(request: NextRequest) {
         summary: transition.summary,
         alreadyVerified: transition.alreadyVerified,
         action,
-        userId: String(bookingData.userId || ""),
+        userId: String(bookingData.userId || bookingData.uid || ""),
         customerName: String(
           (isRecord(bookingData.userInfo) && bookingData.userInfo.name) || target.customerName || "Client",
         ),

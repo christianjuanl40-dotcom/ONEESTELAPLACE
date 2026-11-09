@@ -338,8 +338,9 @@ export async function POST(request: NextRequest) {
         eventType: "payment_verified",
         eventId: `payment_verified_${paymentId}`,
         bookingId,
-        recipientUid: String(booking.userId || ""),
+        recipientUid: String(booking.userId || booking.uid || ""),
         payload: buildBookingEmailPayload(bookingWithReceipt, {
+          remainingBalance: transition.summary.remainingBalance,
           payment: {
             method: "Pay at the Office",
             amount: amountReceived,
@@ -378,7 +379,7 @@ export async function POST(request: NextRequest) {
       return {
         booking: bookingWithReceipt,
         payment: { ...transition.payment, id: paymentId, receiptNumber },
-        userId: String(booking.userId || ""),
+        userId: String(booking.userId || booking.uid || ""),
         alreadyProcessed: false,
       }
     })

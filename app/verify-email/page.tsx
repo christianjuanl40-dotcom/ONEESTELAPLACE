@@ -1,11 +1,9 @@
 "use client"
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { CheckCircle2, Eye, EyeOff, Loader2, MailCheck, RefreshCw, ShieldAlert, LogOut } from "lucide-react"
+import { CheckCircle2, Loader2, MailCheck, RefreshCw, ShieldAlert, LogOut } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/src/modules/shared/components/ui/button"
-import { Input } from "@/src/modules/shared/components/ui/input"
-import { Label } from "@/src/modules/shared/components/ui/label"
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 
 const CODE_LENGTH = 6
@@ -42,11 +40,10 @@ function VerifyEmailContent() {
   const [error, setError] = useState("")
   const [verificationSuccess, setVerificationSuccess] = useState(false)
   const [isCompletingVerification, setIsCompletingVerification] = useState(false)
-  const [pendingPassword, setPendingPassword] = useState("")
-  const [pendingPasswordConfirmation, setPendingPasswordConfirmation] = useState("")
-  const [showPendingPassword, setShowPendingPassword] = useState(false)
-  const [showPendingPasswordConfirmation, setShowPendingPasswordConfirmation] = useState(false)
+  const [finalizationNeedsRestart, setFinalizationNeedsRestart] = useState(false)
+  const [finalizationComplete, setFinalizationComplete] = useState(false)
   const handoffStartedRef = useRef(false)
+  const pendingFinalizationStartedRef = useRef(false)
   const registrationQuery = searchParams.get("registration")?.trim() || ""
   const pendingMode = Boolean(registrationQuery || pendingRegistration)
   const pendingEmail = pendingRegistration?.email || ""
@@ -69,21 +66,51 @@ function VerifyEmailContent() {
     setError("Your email was verified, but sign out could not be completed. Please try again before continuing.")
   }, [logout, router])
 
+  const finalizeVerifiedSignup = useCallback(async () => {
+    if (pendingFinalizationStartedRef.current) return
+    pendingFinalizationStartedRef.current = true
+    setIsFinalizing(true)
+    setError("")
+    setFinalizationNeedsRestart(false)
+    setFinalizationComplete(false)
+    setMessage("Email verified. Creating your account automatically…")
+    const result = await finalizePendingRegistration()
+    if (result.success) {
+      setMessage(result.message || "Account created successfully. Please log in manually to continue.")
+      setFinalizationComplete(true)
+      pendingFinalizationStartedRef.current = false
+      setIsFinalizing(false)
+      window.setTimeout(() => router.replace("/?auth=login"), 800)
+      return
+    }
+    const message = result.message || "Your account could not be finalized. Please try again or restart signup."
+    setError(message)
+    setFinalizationNeedsRestart(message.includes("no longer has the signup password"))
+    setMessage("Email verified, but the account could not be finalized yet. No account was created by this step.")
+    pendingFinalizationStartedRef.current = false
+    setIsFinalizing(false)
+  }, [finalizePendingRegistration, router])
+
   useEffect(() => {
-    if (!registrationQuery || pendingRegistration?.registrationId === registrationQuery) return
+    if (!registrationQuery || verificationSuccess || pendingRegistration?.registrationId === registrationQuery) return
     setIsRestoring(true)
     setError("")
     void restorePendingRegistration(registrationQuery).then((result) => {
       if (!result.success) setError(result.message || "This signup session has expired. Start signup again.")
       else if (result.status === "verified") {
         setVerificationSuccess(true)
-        setMessage("Email verified. Re-enter your password to create your account.")
+        setMessage("Email verified. Finalizing your account automatically…")
       } else if (result.status === "finalized") {
         setMessage("")
         setError("This signup session has already been completed. Please log in instead.")
       }
     }).finally(() => setIsRestoring(false))
-  }, [pendingRegistration?.registrationId, registrationQuery, restorePendingRegistration])
+  }, [pendingRegistration?.registrationId, registrationQuery, restorePendingRegistration, verificationSuccess])
+
+  useEffect(() => {
+    if (!pendingMode || !verificationSuccess || !pendingRegistration) return
+    void finalizeVerifiedSignup()
+  }, [finalizeVerifiedSignup, pendingMode, pendingRegistration, verificationSuccess])
 
   useEffect(() => {
     if (pendingMode) return
@@ -141,7 +168,7 @@ function VerifyEmailContent() {
       setCode("")
       if (pendingMode) {
         setVerificationSuccess(true)
-        setMessage("Email verified. Re-enter your password to create your account.")
+        setMessage("Email verified. Finalizing your account automatically…")
       } else {
         await completeVerificationHandoff()
       }
@@ -181,30 +208,6 @@ function VerifyEmailContent() {
     setIsResending(false)
   }
 
-  const handleFinalizePendingRegistration = async () => {
-    if (isFinalizing) return
-    if (pendingPassword.length < 6) {
-      setError("Password must be at least 6 characters long.")
-      return
-    }
-    if (pendingPassword !== pendingPasswordConfirmation) {
-      setError("Passwords do not match.")
-      return
-    }
-    setIsFinalizing(true)
-    setError("")
-    const result = await finalizePendingRegistration(pendingPassword)
-    if (result.success) {
-      setMessage(result.message || "Account created successfully. Please log in manually to continue.")
-      setPendingPassword("")
-      setPendingPasswordConfirmation("")
-      router.replace("/?auth=login")
-    } else {
-      setError(result.message || "Your account could not be finalized. Keep this page open and try again.")
-    }
-    setIsFinalizing(false)
-  }
-
   const handleSignOut = async () => {
     clearPendingRegistration()
     await logout()
@@ -239,7 +242,15 @@ function VerifyEmailContent() {
         <h1 id="verify-email-title" className="mt-6 text-center text-2xl font-black tracking-tight text-slate-950">{pendingMode ? (verified ? "Email verified" : "Verify Your Email") : (verified ? "Email verified" : "Verify Your Email")}</h1>
         <p className="mx-auto mt-3 max-w-md text-center text-sm leading-6 text-slate-600">
           {pendingMode
-            ? (verified ? "Your email is verified. Re-enter your password to create your Firebase account." : "Enter the 6-digit code sent before your Firebase account is created.")
+            ? (verified
+              ? isFinalizing
+                ? "Your email is verified. Your Firebase account and Client profile are being created automatically."
+                : finalizationComplete
+                  ? "Your account was created successfully. Redirecting you to Login for manual sign-in."
+                  : finalizationNeedsRestart
+                    ? "This browser lost the temporary signup password. Cancel signup and start again to create your account."
+                    : "Your email is verified. Your account will be finalized automatically."
+              : "Enter the 6-digit code sent before your Firebase account is created.")
             : (verified ? "Your Firebase Authentication email status is verified. Continue when you are ready." : "Enter the 6-digit verification code sent to your registered email address.")}
         </p>
         <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-center">
@@ -270,26 +281,22 @@ function VerifyEmailContent() {
         {pendingMode && verified && (
           <div className="mt-6 space-y-4 rounded-2xl border border-orange-100 bg-orange-50/60 p-4">
             <div>
-              <h2 className="text-sm font-black text-slate-900">Create your password</h2>
-              <p className="mt-1 text-xs leading-5 text-slate-600">This password is sent directly to Firebase Authentication and is never stored in the pending verification record.</p>
+              <h2 className="text-sm font-black text-slate-900">{isFinalizing ? "Finishing your account" : finalizationComplete ? "Account created" : "Account finalization"}</h2>
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                {isFinalizing
+                  ? "Your original signup password is being sent directly to Firebase Authentication."
+                  : finalizationComplete
+                    ? "You must sign in manually with the password you entered during signup."
+                    : finalizationNeedsRestart
+                      ? "For your security, the original password was not retained after this browser session ended."
+                      : "Your original signup password is used only from temporary browser memory; it is never stored in the verification record."}
+              </p>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="pending-password">Password</Label>
-              <div className="relative">
-                <Input id="pending-password" type={showPendingPassword ? "text" : "password"} value={pendingPassword} onChange={(event) => setPendingPassword(event.target.value)} autoComplete="new-password" className="h-11 pr-11" />
-                <Button type="button" variant="ghost" size="sm" aria-label={showPendingPassword ? "Hide password" : "Show password"} className="absolute right-0 top-0 h-full px-3 text-slate-400 hover:bg-transparent" onClick={() => setShowPendingPassword((value) => !value)}>{showPendingPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</Button>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="pending-password-confirmation">Confirm password</Label>
-              <div className="relative">
-                <Input id="pending-password-confirmation" type={showPendingPasswordConfirmation ? "text" : "password"} value={pendingPasswordConfirmation} onChange={(event) => setPendingPasswordConfirmation(event.target.value)} autoComplete="new-password" className="h-11 pr-11" />
-                <Button type="button" variant="ghost" size="sm" aria-label={showPendingPasswordConfirmation ? "Hide confirmation password" : "Show confirmation password"} className="absolute right-0 top-0 h-full px-3 text-slate-400 hover:bg-transparent" onClick={() => setShowPendingPasswordConfirmation((value) => !value)}>{showPendingPasswordConfirmation ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</Button>
-              </div>
-            </div>
-            <Button type="button" variant="brand" className="h-11 w-full" disabled={isFinalizing} onClick={() => void handleFinalizePendingRegistration()}>
-              {isFinalizing ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Creating account…</> : <><CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Create Account</>}
-            </Button>
+            {finalizationComplete
+              ? <div className="flex items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800" role="status"><CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Account created successfully.</div>
+              : isFinalizing
+                ? <Loader2 className="mx-auto h-5 w-5 animate-spin text-orange-600" aria-label="Creating account" />
+                : !finalizationNeedsRestart && <Button type="button" variant="brand" className="h-11 w-full" onClick={() => void finalizeVerifiedSignup()}><CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Retry Account Creation</Button>}
           </div>
         )}
 
@@ -308,7 +315,7 @@ function VerifyEmailContent() {
         {!pendingMode && verificationLinkFallbackEnabled && !verified && <Button type="button" variant="ghost" className="mt-3 h-10 w-full text-slate-600" onClick={async () => { setError(""); const result = await sendVerificationEmail(); if (result.success) setMessage(result.message || "Verification link sent. Check your inbox and spam folder."); else setError(result.message || "We could not send a verification link.") }}>Use verification link instead</Button>}
         {!pendingMode && verified && user?.emailVerificationRequired ? <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-center text-sm font-semibold text-emerald-800" role="status">Email Verified Successfully! Please log in to continue.</div> : !pendingMode && verified ? <Button type="button" className="mt-3 h-11 w-full bg-slate-950 text-white hover:bg-slate-800" onClick={() => router.replace("/portal")}><CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Continue to Client Portal</Button> : null}
         <Button type="button" variant="ghost" className="mt-4 h-10 w-full text-slate-600" onClick={() => void handleSignOut()}><LogOut className="h-4 w-4" aria-hidden="true" /> {pendingMode ? "Cancel Signup" : "Sign Out"}</Button>
-        <p className="mt-5 text-center text-xs leading-5 text-slate-500">{pendingMode ? "Your Firebase account and Client profile are created only after the email code is accepted." : "If the code is invalid or expired, request a new code. Firebase Authentication remains the authoritative verification record."}</p>
+        <p className="mt-5 text-center text-xs leading-5 text-slate-500">{pendingMode ? "Your Firebase account and Client profile are created only after the email code is accepted. Refreshing before finalization requires restarting signup." : "If the code is invalid or expired, request a new code. Firebase Authentication remains the authoritative verification record."}</p>
       </section>
     </main>
   )

@@ -44,6 +44,12 @@ function number(value: unknown, fallback = 0): number {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
+function optionalNumber(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined
+  const parsed = typeof value === "number" ? value : Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
 function htmlEscape(value: unknown): string {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -137,18 +143,30 @@ function paymentRows(payment: EmailPaymentSnapshot | undefined): { text: string[
   return { text: textLines, html: htmlRows }
 }
 
+function includesRemainingBalance(eventType: EmailEventType, payload: BookingEmailPayload): boolean {
+  return payload.remainingBalance !== undefined
+    && (eventType === "balance_reminder"
+      || eventType === "booking_approved"
+      || eventType === "payment_submitted"
+      || eventType === "payment_verified"
+      || eventType === "payment_rejected"
+      || eventType === "payment_incomplete")
+}
+
 /** Builds a small, sanitized snapshot; proof images and internal audit fields are excluded. */
 export function buildBookingEmailPayload(booking: DataRecord, additions: Partial<BookingEmailPayload> = {}): BookingEmailPayload {
   const userInfo = booking.userInfo && typeof booking.userInfo === "object" && !Array.isArray(booking.userInfo)
     ? booking.userInfo as DataRecord
     : {}
   const schedule = getBookingScheduleSnapshot(booking)
+  const remainingBalance = optionalNumber(booking.remainingBalance)
   return {
     bookingReference: text(booking.id || booking.bookingId || booking.bookingCode, "Booking"),
     eventName: text(booking.eventName, "Booking"),
     venue: text(booking.venue, "Reserved space"),
     customerName: text(userInfo.name || booking.customerName, "Client"),
     schedule,
+    ...(remainingBalance !== undefined ? { remainingBalance } : {}),
     ...(text(booking.rejectionReason) ? { decisionReason: text(booking.rejectionReason, "") } : {}),
     ...additions,
   }
@@ -180,7 +198,7 @@ export function renderEmailTemplate(eventType: EmailEventType, payload: BookingE
     textLines.push("", `Reason: ${payload.decisionReason}`)
   }
   if (payment.text.length) textLines.push("", ...payment.text)
-  if (eventType === "balance_reminder") textLines.push("", `Remaining Balance: ${formatMoney(payload.remainingBalance)}`)
+  if (includesRemainingBalance(eventType, payload)) textLines.push("", `Remaining Balance: ${formatMoney(payload.remainingBalance)}`)
   textLines.push("", `View details: ${link}`, "", "One Estela Place", "Please do not reply with passwords or payment proof attachments.")
 
   const extraRows = eventType === "booking_schedule_updated"
@@ -189,7 +207,7 @@ export function renderEmailTemplate(eventType: EmailEventType, payload: BookingE
   const reasonRow = eventType === "booking_rejected" && payload.decisionReason
     ? `<tr><td style="padding:8px 0;color:#64748b;font-size:13px;width:38%;vertical-align:top;">Reason</td><td style="padding:8px 0;color:#0f172a;font-size:14px;font-weight:700;vertical-align:top;">${htmlEscape(payload.decisionReason)}</td></tr>`
     : ""
-  const balanceRows = eventType === "balance_reminder"
+  const balanceRows = includesRemainingBalance(eventType, payload)
     ? `<tr><td style="padding:8px 0;color:#64748b;font-size:13px;width:38%;vertical-align:top;">Remaining Balance</td><td style="padding:8px 0;color:#ea580c;font-size:16px;font-weight:800;vertical-align:top;">${htmlEscape(formatMoney(payload.remainingBalance))}</td></tr>`
     : ""
   const greeting = `Hello ${htmlEscape(payload.customerName || "Client")},`

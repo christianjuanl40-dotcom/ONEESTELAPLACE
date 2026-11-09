@@ -74,6 +74,11 @@ export interface SignupInput {
   profilePicture?: string
 }
 
+type PendingRegistrationPassword = {
+  registrationId: string
+  value: string
+}
+
 export interface ProfileContactUpdateInput {
   email: string
   phone: string
@@ -93,7 +98,7 @@ export interface AuthContextValue {
   restorePendingRegistration: (registrationId: string) => Promise<{ success: boolean; message?: string; email?: string; status?: string }>
   verifyPendingRegistrationCode: (code: string) => Promise<{ success: boolean; message?: string; email?: string }>
   resendPendingRegistrationCode: () => Promise<{ success: boolean; message?: string; retryAfterSeconds?: number }>
-  finalizePendingRegistration: (password: string) => Promise<{ success: boolean; message?: string }>
+  finalizePendingRegistration: () => Promise<{ success: boolean; message?: string }>
   clearPendingRegistration: () => void
   requestEmailVerificationCode: () => Promise<{ success: boolean; message?: string; retryAfterSeconds?: number }>
   verifyEmailCode: (code: string) => Promise<{ success: boolean; message?: string; alreadyVerified?: boolean }>
@@ -194,6 +199,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<SessionState<AppUser>>({ user: null, phase: "auth", error: null })
   const [isSigningIn, setIsSigningIn] = useState(false)
   const [pendingRegistration, setPendingRegistration] = useState<{ registrationId: string; email: string } | null>(null)
+  // Deliberately not state, persistence, or a cookie: this is the only place
+  // the original signup password survives the OTP route transition. The
+  // provider is mounted above the app routes, so client-side navigation keeps
+  // it available without putting plaintext credentials in storage or APIs.
+  const pendingRegistrationPassword = useRef<PendingRegistrationPassword | null>(null)
   const signingIn = useRef(false)
   const pendingFinalization = useRef(false)
   const user = session.user?.id === auth.currentUser?.uid ? session.user : null
@@ -359,10 +369,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [initializer])
 
   const signup = useCallback(async (input: SignupInput) => {
+    pendingRegistrationPassword.current = null
     try {
-      // Password is deliberately not included in this request. It remains in
-      // the signup form only until this call returns, then the verification
-      // screen asks for it again in memory after OTP success.
+      // Password is deliberately not included in this request. It remains only
+      // in the provider's temporary in-memory handoff until OTP succeeds.
       const response = await fetch("/api/auth/register/otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -389,10 +399,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const registrationId = typeof payload?.registrationId === "string" ? payload.registrationId : ""
       const email = typeof payload?.email === "string" ? payload.email : input.email.trim().toLowerCase()
       if (!registrationId || !email) return { success: false, message: "Signup could not be started. Please try again later." }
+      pendingRegistrationPassword.current = { registrationId, value: input.password }
       setPendingRegistration({ registrationId, email })
       return {
         success: true,
-        message: "Your verification code was sent. Enter it before creating your account.",
+        message: "Your verification code was sent. Your account will be finalized after the code is accepted.",
         requiresVerification: true,
         registrationId,
       }
@@ -404,6 +415,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const restorePendingRegistration = useCallback(async (registrationId: string) => {
     const normalizedId = registrationId.trim()
     if (!normalizedId) return { success: false, message: "This signup session is missing. Start signup again." }
+    if (pendingRegistrationPassword.current?.registrationId !== normalizedId) {
+      pendingRegistrationPassword.current = null
+    }
     try {
       const response = await fetch("/api/auth/register/otp", {
         method: "POST",
@@ -442,7 +456,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       const email = typeof payload?.email === "string" ? payload.email : pending.email
       setPendingRegistration({ ...pending, email })
-      return { success: true, email, message: "Email verified. Re-enter your password to create your account." }
+      return { success: true, email, message: "Email verified. Finalizing your account automatically." }
     } catch {
       return { success: false, message: "We could not verify that code. Check your connection and try again." }
     }
@@ -475,9 +489,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [pendingRegistration])
 
-  const finalizePendingRegistration = useCallback(async (password: string) => {
+  const finalizePendingRegistration = useCallback(async () => {
     const pending = pendingRegistration
     if (!pending) return { success: false, message: "This signup session is missing. Start signup again." }
+    const passwordHandoff = pendingRegistrationPassword.current
+    if (passwordHandoff?.registrationId !== pending.registrationId || passwordHandoff.value.length < 6) {
+      return {
+        success: false,
+        message: "For your security, this browser no longer has the signup password. Cancel signup and start again.",
+      }
+    }
     const normalizedEmail = pending.email.trim().toLowerCase()
     let currentUser = auth.currentUser
     if (currentUser && (currentUser.email || "").trim().toLowerCase() !== normalizedEmail) {
@@ -485,10 +506,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     pendingFinalization.current = true
+    let createdAuthIdentity = false
     try {
       if (!currentUser) {
-        const credential = await createUserWithEmailAndPassword(auth, normalizedEmail, password)
+        const credential = await createUserWithEmailAndPassword(auth, normalizedEmail, passwordHandoff.value)
         currentUser = credential.user
+        createdAuthIdentity = true
       }
       const response = await fetch("/api/auth/register/finalize", {
         method: "POST",
@@ -497,27 +520,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       const payload = await response.json().catch(() => null) as { error?: unknown } | null
       if (!response.ok) {
-        pendingFinalization.current = false
+        // Keep the newly-created Auth identity out of normal profile loading
+        // while this still-retryable handoff remains on the verification page.
+        pendingFinalization.current = createdAuthIdentity
         return { success: false, message: typeof payload?.error === "string" ? payload.error : "Your account could not be finalized. Keep this page open and try again." }
       }
 
+      pendingRegistrationPassword.current = null
+      setPendingRegistration(null)
       initializer.clear()
       try {
         await signOut(auth)
       } catch {
-        pendingFinalization.current = false
         return { success: false, message: "Your account was created, but sign out could not be completed. Please sign out before logging in." }
       }
       pendingFinalization.current = false
-      setPendingRegistration(null)
       return { success: true, message: "Account created successfully. Please log in manually to continue." }
     } catch (error: any) {
-      pendingFinalization.current = false
+      pendingFinalization.current = createdAuthIdentity
       return { success: false, message: getFirebaseErrorMessage(error) }
     }
   }, [initializer, pendingRegistration])
 
   const clearPendingRegistration = useCallback(() => {
+    pendingFinalization.current = false
+    pendingRegistrationPassword.current = null
     setPendingRegistration(null)
   }, [])
 
@@ -538,6 +565,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     initializer.clear()
+    pendingRegistrationPassword.current = null
     setPendingRegistration(null)
     try {
       await signOut(auth)

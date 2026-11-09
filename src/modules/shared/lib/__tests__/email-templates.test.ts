@@ -54,6 +54,13 @@ describe("branded transactional email templates", () => {
     expect(payment.text).toContain("Reference: 00123")
     expect(payment.text).toContain("₱12,500.00")
 
+    const verified = renderEmailTemplate("payment_verified", payload)
+    expect(verified.text).toContain("Remaining Balance: ₱87,500.00")
+    expect(verified.html).toContain("Remaining Balance")
+
+    const approved = renderEmailTemplate("booking_approved", payload)
+    expect(approved.text).toContain("Remaining Balance: ₱87,500.00")
+
     const reminder = renderEmailTemplate("balance_reminder", payload)
     expect(reminder.text).toContain("Remaining Balance: ₱87,500.00")
     expect(reminder.html).not.toContain("data:image/png")

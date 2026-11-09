@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { useAuth } from "@/src/modules/shared/auth/auth-context"
 import { Button } from "@/src/modules/shared/components/ui/button"
 import {
@@ -38,6 +39,7 @@ export function SignupDialog({ className, children }: SignupDialogProps) {
 
   const { signup, isLoading } = useAuth()
   const { toast } = useToast()
+  const router = useRouter()
 
   useEffect(() => {
     const handleOpen = () => setOpen(true)
@@ -115,10 +117,10 @@ export function SignupDialog({ className, children }: SignupDialogProps) {
         setOpen(false)
         toast({
           title: "Verify your email",
-          description: result.message || "We've sent a 6-digit verification code. Verify it before creating your account.",
+          description: result.message || "We've sent a 6-digit verification code. Your account will be finalized after verification.",
         })
         const registrationQuery = result.registrationId ? `?registration=${encodeURIComponent(result.registrationId)}` : ""
-        window.location.replace(`/verify-email${registrationQuery}`)
+        router.replace(`/verify-email${registrationQuery}`)
       } else {
         setErrorMsg(result.message || "Email is already taken. Please use a different one.")
       }
@@ -211,7 +213,7 @@ export function SignupDialog({ className, children }: SignupDialogProps) {
             </div>
 
             <p className="rounded-lg border border-orange-100 bg-orange-50 px-3 py-2 text-xs leading-5 text-orange-800">
-              You will re-enter your password after the email code is verified. Passwords are never stored in the verification record.
+              After the email code is verified, your account is finalized automatically. Your password stays only in temporary browser memory and is never stored in the verification record.
             </p>
 
             <Button
