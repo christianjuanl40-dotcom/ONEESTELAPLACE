@@ -348,6 +348,165 @@ type ReportSortKey =
 
 type ReportPrintMode = "with-charts" | "without-charts"
 
+type ReportPrintPage =
+  | { kind: "intro" }
+  | { kind: "monthly-performance" }
+  | { kind: "payments-and-status" }
+  | { kind: "event-types" }
+  | { kind: "booking-records"; rows: ReportRow[] }
+
+const REPORT_PRINT_TABLE_ROWS_PER_PAGE = 8
+
+function getReportPreparedBy(user: { role?: string; fullName?: string; name?: string } | null | undefined) {
+  if (user?.role === "admin") return "Admin"
+
+  if (user?.role === "staff") {
+    const fullName = String(user.fullName || user.name || "").trim()
+    return fullName || "Staff (name unavailable)"
+  }
+
+  return "Not available"
+}
+
+function chunkReportRows(rows: ReportRow[], size: number) {
+  const chunks: ReportRow[][] = []
+
+  for (let index = 0; index < rows.length; index += size) {
+    chunks.push(rows.slice(index, index + size))
+  }
+
+  return chunks
+}
+
+function buildReportPrintPages(rows: ReportRow[], mode: ReportPrintMode, isOfficeOnlyReport: boolean): ReportPrintPage[] {
+  const pages: ReportPrintPage[] = [{ kind: "intro" }]
+
+  if (mode === "with-charts") {
+    pages.push({ kind: "monthly-performance" })
+    pages.push({ kind: "payments-and-status" })
+    if (!isOfficeOnlyReport) pages.push({ kind: "event-types" })
+  }
+
+  const tablePages = chunkReportRows(rows, REPORT_PRINT_TABLE_ROWS_PER_PAGE)
+  pages.push(...(
+    tablePages.length > 0
+      ? tablePages.map((tableRows) => ({ kind: "booking-records", rows: tableRows } as const))
+      : [{ kind: "booking-records" as const, rows: [] as ReportRow[] }]
+  ))
+
+  return pages
+}
+
+type ReportPrintPageProps = {
+  pageNumber: number
+  totalPages: number
+  reportPeriod: string
+  reportCategoryLabel: string
+  reportResourceLabel: string
+  preparedBy: string
+  generatedAt: Date
+  children: React.ReactNode
+}
+
+function ReportPrintPage({
+  pageNumber,
+  totalPages,
+  reportPeriod,
+  reportCategoryLabel,
+  reportResourceLabel,
+  preparedBy,
+  generatedAt,
+  children,
+}: ReportPrintPageProps) {
+  return (
+    <article
+      data-report-print-page={pageNumber}
+      data-report-print-page-last={pageNumber === totalPages ? "true" : undefined}
+    >
+      <header data-report-print-banner>
+        <h1>ONE ESTELA PLACE</h1>
+        <p>Event Management System</p>
+        <h2>Venue Booking Financial Report</h2>
+        <div data-report-print-header-context>
+          <span>Reporting Period: {reportPeriod}</span>
+          <span>Booking Category: {reportCategoryLabel}</span>
+          <span>Venue / Office: {reportResourceLabel}</span>
+        </div>
+      </header>
+
+      <div data-report-print-page-body>{children}</div>
+
+      <footer data-report-print-footer>
+        <div data-report-print-footer-details>
+          <span>Prepared By: {preparedBy}</span>
+          <span>Generated: {formatGeneratedDate(generatedAt)} | {formatGeneratedTime(generatedAt)}</span>
+        </div>
+        <span data-report-print-page-number>Page {pageNumber} of {totalPages}</span>
+      </footer>
+    </article>
+  )
+}
+
+function ReportPrintTable({ rows, continued = false }: { rows: ReportRow[]; continued?: boolean }) {
+  return (
+    <section data-report-print-table aria-label="Booking records table">
+      <h3 data-report-print-table-heading>BOOKING RECORDS{continued ? " (CONTINUED)" : ""}</h3>
+      <table>
+        <colgroup>
+          <col style={{ width: "6%" }} />
+          <col style={{ width: "9%" }} />
+          <col style={{ width: "8%" }} />
+          <col style={{ width: "6%" }} />
+          <col style={{ width: "7%" }} />
+          <col style={{ width: "7%" }} />
+          <col style={{ width: "7%" }} />
+          <col style={{ width: "7%" }} />
+          <col style={{ width: "7%" }} />
+          <col style={{ width: "6%" }} />
+          <col style={{ width: "7%" }} />
+          <col style={{ width: "7%" }} />
+          <col style={{ width: "7%" }} />
+          <col style={{ width: "9%" }} />
+        </colgroup>
+        <thead>
+          <tr>
+            {EXCEL_HEADERS.map((header) => (
+              <th key={header}>{header}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={`${row.bookingId}-${index}`}>
+              <td>{row.bookingId}</td>
+              <td>{row.eventName}</td>
+              <td>{row.client}</td>
+              <td className="report-print-center">{formatReportDate(row.date)}</td>
+              <td>{row.venue}</td>
+              <td className="report-print-center">{row.bookingStatus}</td>
+              <td className="report-print-center">{row.paymentStatus}</td>
+              <td className="report-print-money">{formatReportMoney(row.totalBookingValue)}</td>
+              <td className="report-print-money">{formatReportMoney(row.receivedPayments)}</td>
+              <td className="report-print-money">{formatReportMoney(row.verifiedPayments)}</td>
+              <td className="report-print-money">{formatReportMoney(row.outstandingBalance)}</td>
+              <td className="report-print-center">{row.refundStatus}</td>
+              <td className="report-print-money">{formatReportMoney(row.processedRefundAmount)}</td>
+              <td className="report-print-money">{formatReportMoney(row.netReceivedAmount)}</td>
+            </tr>
+          ))}
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={EXCEL_HEADERS.length} className="report-print-empty">
+                No booking records found for the selected filters.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
 function getReportLifecycleLabel(booking: BookingRecord) {
   return getCanonicalBookingLifecycleLabel(booking as ReportBookingLike)
 }
@@ -417,6 +576,7 @@ function formatReportDate(value: Date | string) {
 
 function formatGeneratedDate(date: Date) {
   return new Intl.DateTimeFormat("en-PH", {
+    timeZone: "Asia/Manila",
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -425,9 +585,9 @@ function formatGeneratedDate(date: Date) {
 
 function formatGeneratedTime(date: Date) {
   return new Intl.DateTimeFormat("en-PH", {
+    timeZone: "Asia/Manila",
     hour: "numeric",
     minute: "2-digit",
-    second: "2-digit",
   }).format(date)
 }
 
@@ -1095,6 +1255,7 @@ export default function ReportsPage() {
   const [printDialogOpen, setPrintDialogOpen] = useState(false)
   const [dialogPrintMode, setDialogPrintMode] = useState<ReportPrintMode>("with-charts")
   const isPrinting = printDate !== null
+  const preparedBy = getReportPreparedBy(user)
   const generatedBy = user?.fullName || user?.name || user?.email || "System User"
   const reportPageKey = `${filterYear}|${filterMonth}|${filterStatus}|${filterCategory}|${filterResource}|${filterRoom}|${searchTerm}|${rowsPerPage}|${reportSortKey}|${reportSortDirection}`
   const currentPage = currentPageState.key === reportPageKey ? currentPageState.page : 1
@@ -1113,7 +1274,9 @@ export default function ReportsPage() {
       // A direct Ctrl/Cmd+P should use the current mode and never leave the
       // options dialog mounted behind the browser's print preview.
       setPrintDialogOpen(false)
-      setPrintDate(new Date())
+      // beforeprint and the print media-query change can both fire for one
+      // browser print operation. Keep the first timestamp for that session.
+      setPrintDate((current) => current ?? new Date())
     })
     const afterPrint = () => setPrintDate(null)
     const printMedia = window.matchMedia("print")
@@ -1508,6 +1671,10 @@ export default function ReportsPage() {
   const reportStart = filteredData.length > 0 ? reportPagination.startIndex + 1 : 0
   const reportEnd = reportPagination.endIndex
   const reportGeneratedAt = printDate ?? new Date()
+  const reportPrintPages = useMemo(
+    () => buildReportPrintPages(reportRows, printMode, isOfficeOnlyReport),
+    [isOfficeOnlyReport, printMode, reportRows],
+  )
   const reportSummaryItems: { label: string; value: string }[] = [
     { label: "Total Bookings", value: String(reportSummary.totalBookings) },
     { label: "Confirmed", value: String(reportSummary.confirmed) },
@@ -1534,7 +1701,7 @@ export default function ReportsPage() {
     flushSync(() => {
       setPrintMode(dialogPrintMode)
       setPrintDialogOpen(false)
-      setPrintDate(new Date())
+      setPrintDate(() => new Date())
     })
     window.print()
   }
@@ -1813,6 +1980,150 @@ export default function ReportsPage() {
         className: "bg-slate-900 text-white",
       })
     }
+  }
+
+  const renderReportPrintPage = (page: ReportPrintPage, pageIndex: number) => {
+    const pageNumber = pageIndex + 1
+    const isFirstAnalyticsPage = !reportPrintPages.slice(0, pageIndex).some((candidate) => (
+      candidate.kind === "monthly-performance"
+      || candidate.kind === "payments-and-status"
+      || candidate.kind === "event-types"
+    ))
+    const hasPreviousTablePage = reportPrintPages.slice(0, pageIndex).some((candidate) => candidate.kind === "booking-records")
+
+    let content: React.ReactNode
+
+    if (page.kind === "intro") {
+      content = (
+        <>
+          <div data-report-print-title>
+            <p>Reporting Period: {reportPeriod}</p>
+            <p>Applied Filters: {activeReportFilters.length > 0 ? activeReportFilters.join(" | ") : "None"}</p>
+            <p data-report-print-mode-label>Print Layout: {printMode === "with-charts" ? "With Charts" : "Without Charts"}</p>
+          </div>
+
+          <div data-report-print-selection>
+            <span>
+              <strong>Booking Category:</strong> {reportCategoryLabel}
+            </span>
+            <span>
+              <strong>Venue / Office:</strong> {reportResourceLabel}
+            </span>
+            <span>
+              <strong>Office Room:</strong> {reportRoomLabel}
+            </span>
+            <span>
+              <strong>Records Included:</strong> {filteredData.length}
+            </span>
+          </div>
+
+          <section data-report-print-summary>
+            <h3>REPORT SUMMARY</h3>
+            <div data-report-print-summary-grid>
+              {reportSummaryItems.map((item) => (
+                <div key={item.label} data-report-print-summary-row>
+                  <span>{item.label}</span>
+                  <span>{item.value}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        </>
+      )
+    } else if (page.kind === "monthly-performance") {
+      content = (
+        <section data-report-print-analytics-page aria-label="Monthly performance analytics">
+          <h3 data-report-print-analytics-heading>{isFirstAnalyticsPage ? "VISUAL ANALYTICS" : "VISUAL ANALYTICS (CONTINUED)"}</h3>
+          <article data-report-print-chart-card data-report-print-chart-card-wide>
+            <h4>Monthly Performance</h4>
+            <p>Booking volume and received payments per month.</p>
+            <div data-report-print-chart-canvas>
+              {filteredData.length > 0 ? (
+                <ReportMonthlyPerformanceChart data={monthlyPerformance} isPrinting={isPrinting} printOnly />
+              ) : (
+                <div data-report-print-chart-empty>No booking data available for the selected filters.</div>
+              )}
+            </div>
+          </article>
+        </section>
+      )
+    } else if (page.kind === "payments-and-status") {
+      content = (
+        <section data-report-print-analytics-page aria-label="Payment and booking status analytics">
+          <h3 data-report-print-analytics-heading>VISUAL ANALYTICS (CONTINUED)</h3>
+          <div data-report-print-chart-grid>
+            <article data-report-print-chart-card>
+              <h4>Received Payments per Venue</h4>
+              <p>Based on the canonical received-payment ledger.</p>
+              <div data-report-print-chart-canvas data-report-print-chart-canvas-compact>
+                {receivedPaymentsByVenue.length > 0 ? (
+                  <ReportReceivedPaymentsByVenueChart data={receivedPaymentsByVenue} isPrinting={isPrinting} printOnly />
+                ) : (
+                  <div data-report-print-chart-empty>No received-payment data yet.</div>
+                )}
+              </div>
+            </article>
+
+            <article data-report-print-chart-card>
+              <h4>Booking Status Distribution</h4>
+              <p>Status breakdown for the selected records.</p>
+              {statusCounts.length > 0 ? (
+                <div data-report-print-status-layout>
+                  <div data-report-print-status-chart data-report-print-chart-canvas>
+                    <ReportStatusPieChart data={statusCounts} isPrinting={isPrinting} printOnly />
+                  </div>
+                  <div data-report-print-status-legend>
+                    {statusCounts.map((entry) => (
+                      <div key={entry.name}>
+                        <i aria-hidden="true" style={{ backgroundColor: getStatusGroupColor(entry.name) }} />
+                        <span>{entry.name}</span>
+                        <span>{entry.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div data-report-print-chart-empty>No status data.</div>
+              )}
+            </article>
+          </div>
+        </section>
+      )
+    } else if (page.kind === "event-types") {
+      content = (
+        <section data-report-print-analytics-page aria-label="Event type analytics">
+          <h3 data-report-print-analytics-heading>VISUAL ANALYTICS (CONTINUED)</h3>
+          <article data-report-print-chart-card data-report-print-chart-card-wide>
+            <h4>Top Event Types</h4>
+            <p>Shows which event categories are most booked.</p>
+            <div data-report-print-chart-canvas>
+              {eventTypeCounts.length > 0 ? (
+                <ReportEventTypeChart data={eventTypeCounts} isPrinting={isPrinting} printOnly />
+              ) : (
+                <div data-report-print-chart-empty>No event type data.</div>
+              )}
+            </div>
+          </article>
+        </section>
+      )
+    } else {
+      content = <ReportPrintTable rows={page.rows} continued={hasPreviousTablePage} />
+    }
+
+    return (
+      <ReportPrintPage
+        key={`${page.kind}-${pageNumber}`}
+        pageNumber={pageNumber}
+        totalPages={reportPrintPages.length}
+        reportPeriod={reportPeriod}
+        reportCategoryLabel={reportCategoryLabel}
+        reportResourceLabel={reportResourceLabel}
+        preparedBy={preparedBy}
+        generatedAt={reportGeneratedAt}
+      >
+        {content}
+      </ReportPrintPage>
+    )
   }
 
   if (dataError) {
@@ -2160,9 +2471,117 @@ export default function ReportsPage() {
           font-weight: 400;
           text-align: center;
         }
-      `}</style>
+       `}</style>
 
-      <Dialog open={printDialogOpen} onOpenChange={setPrintDialogOpen}>
+       <style media="print">{`
+         /*
+          * Chromium does not expose a reliable total-pages counter in the
+          * browser print DOM. The report therefore owns its A4 landscape page
+          * shells and renders the actual page count from reportPrintPages.
+          * Each shell is exactly the printable area inside the @page margins.
+          */
+         [data-report-print-page] {
+           display: flex !important;
+           flex-direction: column;
+           width: 100% !important;
+           height: 190mm !important;
+           min-height: 190mm !important;
+           max-height: 190mm !important;
+           overflow: hidden !important;
+           break-after: page;
+           page-break-after: always;
+           break-inside: avoid;
+           page-break-inside: avoid;
+         }
+         [data-report-print-page][data-report-print-page-last="true"] {
+           break-after: auto;
+           page-break-after: auto;
+         }
+         [data-report-print-page-body] {
+           display: block;
+           min-height: 0;
+           flex: 1 1 auto;
+           overflow: hidden;
+         }
+         [data-report-print-banner] {
+           flex: 0 0 auto;
+           padding: 3.5mm 6mm 2.5mm;
+           border-bottom-width: 1mm;
+         }
+         [data-report-print-banner] h2 {
+           margin: 2mm 0 0;
+           color: #fff;
+           font-size: 11pt;
+           font-weight: 700;
+         }
+         [data-report-print-header-context] {
+           display: grid;
+           grid-template-columns: repeat(3, minmax(0, 1fr));
+           gap: 1mm 4mm;
+           margin-top: 2mm;
+           color: #fff;
+           font-size: 7pt;
+           font-weight: 400;
+           line-height: 1.25;
+           text-align: left;
+         }
+         [data-report-print-header-context] span {
+           min-width: 0;
+           overflow-wrap: anywhere;
+         }
+         [data-report-print-header-context] span:not(:first-child) { text-align: center; }
+         [data-report-print-header-context] span:last-child { text-align: right; }
+         [data-report-print-footer] {
+           display: flex;
+           flex: 0 0 10mm;
+           align-items: flex-end;
+           justify-content: space-between;
+           gap: 8mm;
+           padding: 2mm 0 0;
+           border-top: 0.3mm solid #cbd5e1;
+           color: #64748b;
+           font-size: 7.5pt;
+           font-weight: 400;
+           line-height: 1.35;
+         }
+         [data-report-print-footer-details] {
+           display: flex;
+           flex-wrap: wrap;
+           gap: 1mm 6mm;
+           min-width: 0;
+         }
+         [data-report-print-footer-details] span,
+         [data-report-print-page-number] {
+           overflow-wrap: anywhere;
+         }
+         [data-report-print-page-number] {
+           flex: 0 0 auto;
+           color: #475569;
+           font-weight: 700;
+           white-space: nowrap;
+         }
+         [data-report-print-analytics] {
+           display: contents;
+           margin: 0;
+         }
+         [data-report-print-analytics-page] {
+           display: block;
+           height: 100%;
+           break-inside: avoid;
+           page-break-inside: avoid;
+         }
+         [data-report-print-analytics-page] [data-report-print-analytics-heading] {
+           margin-top: 0;
+         }
+         [data-report-print-table] {
+           margin-top: 2mm;
+         }
+         [data-report-print-table-heading] {
+           margin-top: 0;
+         }
+       `}</style>
+
+       <Dialog open={printDialogOpen} onOpenChange={setPrintDialogOpen}>
         <DialogContent
           data-report-print-options-dialog
           aria-describedby="report-print-options-description"
@@ -2249,183 +2668,27 @@ export default function ReportsPage() {
       <section
         data-report-print-report
         data-report-print-mode={printMode}
+        data-report-print-page-count={reportPrintPages.length}
         className="hidden"
         aria-label={`Printable booking records report ${printMode === "with-charts" ? "with charts" : "without charts"}`}
       >
-        <header data-report-print-banner>
-          <h1>ONE ESTELA PLACE</h1>
-          <p>Event Management System</p>
-        </header>
-
-        <div data-report-print-title>
-          <h2>Venue Booking Financial Report</h2>
-          <p>Reporting Period: {reportPeriod}</p>
-          <p>Applied Filters: {activeReportFilters.length > 0 ? activeReportFilters.join(" | ") : "None"}</p>
-          <p data-report-print-mode-label>Print Layout: {printMode === "with-charts" ? "With Charts" : "Without Charts"}</p>
-        </div>
-
-        <div data-report-print-selection>
-          <span>
-            <strong>Booking Category:</strong> {reportCategoryLabel}
-          </span>
-          <span>
-            <strong>Venue / Office:</strong> {reportResourceLabel}
-          </span>
-          <span>
-            <strong>Office Room:</strong> {reportRoomLabel}
-          </span>
-          <span>
-            <strong>Records Included:</strong> {filteredData.length}
-          </span>
-        </div>
-
-        <div data-report-print-meta>
-          <span>
-            <strong>Generated Date:</strong> {formatGeneratedDate(reportGeneratedAt)}
-          </span>
-          <span>
-            <strong>Generated Time:</strong> {formatGeneratedTime(reportGeneratedAt)}
-          </span>
-          <span>
-            <strong>Generated By:</strong> {generatedBy}
-          </span>
-        </div>
-
-        <section data-report-print-summary>
-          <h3>REPORT SUMMARY</h3>
-          <div data-report-print-summary-grid>
-            {reportSummaryItems.map((item) => (
-              <div key={item.label} data-report-print-summary-row>
-                <span>{item.label}</span>
-                <span>{item.value}</span>
-              </div>
-            ))}
-          </div>
-        </section>
+        {renderReportPrintPage(reportPrintPages[0], 0)}
 
         {printMode === "with-charts" && (
-          <section data-report-print-analytics aria-label="Visual analytics">
-          <h3 data-report-print-analytics-heading>VISUAL ANALYTICS</h3>
-          <div data-report-print-chart-grid>
-            <article data-report-print-chart-card data-report-print-chart-card-wide>
-              <h4>Monthly Performance</h4>
-              <p>Booking volume and received payments per month.</p>
-              <div data-report-print-chart-canvas>
-                {filteredData.length > 0 ? (
-                  <ReportMonthlyPerformanceChart data={monthlyPerformance} isPrinting={isPrinting} printOnly />
-                ) : (
-                  <div data-report-print-chart-empty>No booking data available for the selected filters.</div>
-                )}
-              </div>
-            </article>
-
-            <article data-report-print-chart-card>
-              <h4>Received Payments per Venue</h4>
-              <p>Based on the canonical received-payment ledger.</p>
-              <div data-report-print-chart-canvas data-report-print-chart-canvas-compact>
-                {receivedPaymentsByVenue.length > 0 ? (
-                  <ReportReceivedPaymentsByVenueChart data={receivedPaymentsByVenue} isPrinting={isPrinting} printOnly />
-                ) : (
-                  <div data-report-print-chart-empty>No received-payment data yet.</div>
-                )}
-              </div>
-            </article>
-
-            <article data-report-print-chart-card>
-              <h4>Booking Status Distribution</h4>
-              <p>Status breakdown for the selected records.</p>
-              {statusCounts.length > 0 ? (
-                <div data-report-print-status-layout>
-                  <div data-report-print-status-chart data-report-print-chart-canvas>
-                    <ReportStatusPieChart data={statusCounts} isPrinting={isPrinting} printOnly />
-                  </div>
-                  <div data-report-print-status-legend>
-                    {statusCounts.map((entry) => (
-                      <div key={entry.name}>
-                        <i aria-hidden="true" style={{ backgroundColor: getStatusGroupColor(entry.name) }} />
-                        <span>{entry.name}</span>
-                        <span>{entry.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div data-report-print-chart-empty>No status data.</div>
-              )}
-            </article>
-
-            {!isOfficeOnlyReport && (
-              <article data-report-print-chart-card data-report-print-chart-card-wide>
-                <h4>Top Event Types</h4>
-                <p>Shows which event categories are most booked.</p>
-                <div data-report-print-chart-canvas>
-                  {eventTypeCounts.length > 0 ? (
-                    <ReportEventTypeChart data={eventTypeCounts} isPrinting={isPrinting} printOnly />
-                  ) : (
-                    <div data-report-print-chart-empty>No event type data.</div>
-                  )}
-                </div>
-              </article>
-            )}
+          <div data-report-print-analytics aria-label="Visual analytics">
+            {reportPrintPages.map((page, pageIndex) => (
+              page.kind === "monthly-performance"
+              || page.kind === "payments-and-status"
+              || page.kind === "event-types"
+                ? renderReportPrintPage(page, pageIndex)
+                : null
+            ))}
           </div>
-          </section>
         )}
 
-        <section data-report-print-table aria-label="Booking records table">
-          <h3 data-report-print-table-heading>BOOKING RECORDS</h3>
-          <table>
-            <colgroup>
-              <col style={{ width: "6%" }} />
-              <col style={{ width: "9%" }} />
-              <col style={{ width: "8%" }} />
-              <col style={{ width: "6%" }} />
-              <col style={{ width: "7%" }} />
-              <col style={{ width: "7%" }} />
-              <col style={{ width: "7%" }} />
-              <col style={{ width: "7%" }} />
-              <col style={{ width: "7%" }} />
-              <col style={{ width: "6%" }} />
-              <col style={{ width: "7%" }} />
-              <col style={{ width: "7%" }} />
-              <col style={{ width: "7%" }} />
-              <col style={{ width: "9%" }} />
-            </colgroup>
-            <thead>
-              <tr>
-                {EXCEL_HEADERS.map((header) => (
-                  <th key={header}>{header}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {reportRows.map((row, index) => (
-                <tr key={`${row.bookingId}-${index}`}>
-                  <td>{row.bookingId}</td>
-                  <td>{row.eventName}</td>
-                  <td>{row.client}</td>
-                  <td className="report-print-center">{formatReportDate(row.date)}</td>
-                  <td>{row.venue}</td>
-                  <td className="report-print-center">{row.bookingStatus}</td>
-                  <td className="report-print-center">{row.paymentStatus}</td>
-                  <td className="report-print-money">{formatReportMoney(row.totalBookingValue)}</td>
-                  <td className="report-print-money">{formatReportMoney(row.receivedPayments)}</td>
-                  <td className="report-print-money">{formatReportMoney(row.verifiedPayments)}</td>
-                  <td className="report-print-money">{formatReportMoney(row.outstandingBalance)}</td>
-                  <td className="report-print-center">{row.refundStatus}</td>
-                  <td className="report-print-money">{formatReportMoney(row.processedRefundAmount)}</td>
-                  <td className="report-print-money">{formatReportMoney(row.netReceivedAmount)}</td>
-                </tr>
-              ))}
-              {reportRows.length === 0 && (
-                <tr>
-                  <td colSpan={EXCEL_HEADERS.length} className="report-print-empty">
-                    No booking records found for the selected filters.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </section>
+        {reportPrintPages.map((page, pageIndex) => (
+          page.kind === "booking-records" ? renderReportPrintPage(page, pageIndex) : null
+        ))}
       </section>
 
       <div data-report-dashboard>

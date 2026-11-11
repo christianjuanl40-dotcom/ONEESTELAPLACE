@@ -11,12 +11,12 @@ import { chromium } from "playwright"
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const output = await mkdtemp(join(tmpdir(), "one-estela-report-print-"))
 const fixtureModules = {
-  auth: `export const useAuth=()=>({user:{role:'admin',fullName:'Print Fixture Admin'}})`,
+  auth: `const defaultUser={role:'admin',fullName:'Print Fixture Admin',name:'Print Fixture Admin'};export const useAuth=()=>({user:JSON.parse(window.localStorage.getItem('__reportPrintFixtureUser')||JSON.stringify(defaultUser))})`,
   booking: `export const useBookingData=()=>({bookings:[
      {id:'BK-PRINT-1',bookingCategory:'venue',venueId:'venue-1',spaceId:'venue-1',venue:'Main Hall',eventName:'Fixture Conference',eventType:'Conference',date:'2026-10-01',status:'confirmed',totalPrice:10000,totalAmount:10000,amountPaid:5000,paymentStatus:'partial',refundStatus:'refunded',refundAmount:2000,refundedAmount:2000,userInfo:{name:'Fixture Client'}},
      {id:'BK-PRINT-2',bookingCategory:'venue',venueId:'venue-1',spaceId:'venue-1',venue:'Main Hall',eventName:'Fixture Workshop',eventType:'Workshop',date:'2026-10-15',status:'pending',totalPrice:7500,totalAmount:7500,amountPaid:0,paymentStatus:'unpaid',userInfo:{name:'Another Client'}},
-     ...Array.from({length:12},(_,index)=>({id:'BK-TABLE-' + (index + 1),bookingCategory:'venue',venueId:'venue-1',spaceId:'venue-1',venue:'Main Hall',eventName:'Table Fixture ' + (index + 1),eventType:'Workshop',date:'2026-09-01',status:index % 2 === 0 ? 'confirmed' : 'pending',totalPrice:100,totalAmount:100,amountPaid:0,paymentStatus:'unpaid',userInfo:{name:'Table Client ' + (index + 1)}}))
-  ],paymentRecords:[],isLoading:false})`,
+      ...Array.from({length:18},(_,index)=>({id:'BK-TABLE-' + (index + 1),bookingCategory:'venue',venueId:'venue-1',spaceId:'venue-1',venue:'Main Hall',eventName:'Table Fixture ' + (index + 1) + (index === 11 ? ' — Annual Stakeholder and Financial Planning Conference with Extended Programme' : ''),eventType:'Workshop',date:'2026-09-01',status:index % 2 === 0 ? 'confirmed' : 'pending',totalPrice:100,totalAmount:100,amountPaid:0,paymentStatus:'unpaid',userInfo:{name:'Table Client ' + (index + 1) + (index === 11 ? ' — Alexandra Benjamin de la Cruz and Partners' : '')}}))
+   ],paymentRecords:[],isLoading:false})`,
   cms: `export const useCMS=()=>({cmsData:{venues:[{id:'venue-1',name:'Main Hall',isArchived:false,isHidden:false,isBookable:true}],offices:[]}})`,
   toast: `export const useToast=()=>({toast:()=>{}})`,
   navigation: `export const useRouter=()=>({replace:()=>{}})`,
@@ -70,6 +70,88 @@ const server = await createServer({
     },
   }],
 })
+
+function getPdfPageCount(pdf) {
+  return (pdf.toString("latin1").match(/\/Type\s*\/Page\b/g) || []).length
+}
+
+async function assertPrintDocumentLayout(page, expectedPreparedBy) {
+  const report = page.locator('[data-report-print-report]')
+  const pages = report.locator('[data-report-print-page]')
+  const pageCount = await pages.count()
+  assert.ok(pageCount > 0, "print output should contain at least one controlled page")
+  assert.equal(Number(await report.getAttribute("data-report-print-page-count")), pageCount)
+  assert.equal(await report.locator('[data-report-print-summary]').count(), 1, "summary should be rendered once")
+  assert.equal(await report.locator('[data-report-print-meta]').count(), 0, "generation metadata should not remain in the top section")
+
+  const details = await pages.evaluateAll((nodes) => nodes.map((node) => {
+    const header = node.querySelector('[data-report-print-banner]')
+    const body = node.querySelector('[data-report-print-page-body]')
+    const footer = node.querySelector('[data-report-print-footer]')
+    const pageNumber = node.querySelector('[data-report-print-page-number]')
+    const pageRect = node.getBoundingClientRect()
+    const headerRect = header?.getBoundingClientRect()
+    const bodyRect = body?.getBoundingClientRect()
+    const footerRect = footer?.getBoundingClientRect()
+    const contentBottom = body
+      ? Math.max(body.getBoundingClientRect().top, ...Array.from(body.querySelectorAll("*"), (child) => child.getBoundingClientRect().bottom))
+      : 0
+
+    return {
+      heading: header?.querySelector("h1")?.textContent?.trim(),
+      reportTitle: header?.querySelector("h2")?.textContent?.trim(),
+      footer: footer?.textContent?.trim(),
+      pageNumber: pageNumber?.textContent?.trim(),
+      bodyText: body?.textContent?.trim(),
+      headerBottom: headerRect?.bottom ?? 0,
+      bodyTop: bodyRect?.top ?? 0,
+      contentBottom,
+      footerTop: footerRect?.top ?? 0,
+      footerBottom: footerRect?.bottom ?? 0,
+      pageBottom: pageRect.bottom,
+      bodyScrollHeight: body?.scrollHeight ?? 0,
+      bodyClientHeight: body?.clientHeight ?? 0,
+      tableHeadings: node.querySelectorAll('[data-report-print-table] thead th').length,
+      tableRows: node.querySelectorAll('[data-report-print-table] tbody tr').length,
+      charts: Array.from(node.querySelectorAll('[data-report-print-chart-canvas]'), (chart) => {
+        const rect = chart.getBoundingClientRect()
+        return { width: rect.width, height: rect.height }
+      }),
+    }
+  }))
+
+  assert.equal(details.length, pageCount)
+  const summaryPageNumber = await report.locator('[data-report-print-summary]').evaluate((summary) => (
+    summary.closest('[data-report-print-page]')?.getAttribute("data-report-print-page")
+  ))
+  assert.equal(summaryPageNumber, "1", "Report Summary should remain on the first page")
+  const generatedValues = new Set()
+  details.forEach((detail, index) => {
+    assert.equal(detail.heading, "ONE ESTELA PLACE", `page ${index + 1} should repeat the brand heading`)
+    assert.equal(detail.reportTitle, "Venue Booking Financial Report", `page ${index + 1} should repeat the report title`)
+    assert.match(detail.footer, new RegExp(`Prepared By: ${expectedPreparedBy.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`))
+    assert.match(detail.footer, /Generated: [^|]+ \| [0-9]+:[0-9]{2} (AM|PM)/)
+    assert.equal(detail.pageNumber, `Page ${index + 1} of ${pageCount}`)
+    generatedValues.add(detail.footer.match(/Generated: ([^]+?)\s+Page /)?.[1] || "")
+    assert.ok(detail.bodyText, `page ${index + 1} should not be blank`)
+    assert.ok(detail.headerBottom <= detail.bodyTop + 1, `page ${index + 1} header should not overlap the body`)
+    assert.ok(detail.contentBottom <= detail.footerTop + 1, `page ${index + 1} content should not overlap the footer`)
+    assert.ok(detail.footerBottom <= detail.pageBottom + 1, `page ${index + 1} footer should fit the page shell`)
+    assert.ok(detail.bodyScrollHeight <= detail.bodyClientHeight + 1, `page ${index + 1} content should not be clipped`)
+    detail.charts.forEach((chart) => {
+      assert.ok(chart.width > 0 && chart.height > 0, `page ${index + 1} charts should remain readable`)
+    })
+  })
+  assert.equal(generatedValues.size, 1, "all pages should reuse one generated timestamp")
+
+  const tablePages = details.filter((detail) => detail.tableHeadings > 0)
+  tablePages.forEach((detail, index) => {
+    assert.equal(detail.tableHeadings, 14, `booking table page ${index + 1} should repeat all column headings`)
+    assert.ok(detail.tableRows > 0, `booking table page ${index + 1} should contain records or the empty-state row`)
+  })
+
+  return { pageCount, details }
+}
 
 let browser
 try {
@@ -278,6 +360,9 @@ try {
     printBackground: true,
   })
   assert.ok(withoutChartsPdf.length > 10_000, "chart-free print preview should produce a non-empty PDF")
+  const withoutChartsLayout = await assertPrintDocumentLayout(page, "Admin")
+  assert.equal(getPdfPageCount(withoutChartsPdf), withoutChartsLayout.pageCount, "chart-free PDF pages should match the controlled page count")
+  assert.equal(withoutChartsLayout.pageCount, 2, "the filtered chart-free fixture should use two pages")
 
   await page.evaluate(() => window.dispatchEvent(new Event("afterprint")))
   await page.emulateMedia({ media: "screen" })
@@ -314,21 +399,42 @@ try {
     printBackground: true,
   })
   assert.ok(withChartsPdf.length > 10_000, "chart-inclusive print preview should produce a non-empty PDF")
+  const withChartsLayout = await assertPrintDocumentLayout(page, "Admin")
+  assert.equal(getPdfPageCount(withChartsPdf), withChartsLayout.pageCount, "chart-inclusive PDF pages should match the controlled page count")
+  assert.equal(withChartsLayout.pageCount, 5, "the filtered chart-inclusive fixture should use five pages")
 
   await page.evaluate(() => window.dispatchEvent(new Event("afterprint")))
   await page.emulateMedia({ media: "screen" })
   await page.getByRole("button", { name: "Reset Filters", exact: true }).click()
   await page.getByRole("button", { name: "Print Report", exact: true }).click()
   await printDialog.waitFor({ state: "visible" })
-  await printDialog.locator('[data-report-print-option="without-charts"] [data-slot="radio-group-item"]').click()
+  await printDialog.locator('[data-report-print-option="with-charts"] [data-slot="radio-group-item"]').click()
   await printDialog.getByRole("button", { name: "Print Report", exact: true }).click()
   await printDialog.waitFor({ state: "hidden" })
   await page.emulateMedia({ media: "print" })
   await page.evaluate(() => window.dispatchEvent(new Event("beforeprint")))
   await page.locator('[data-report-print-report]').waitFor({ state: "visible" })
   const unpaginatedRows = await page.locator('[data-report-print-report] [data-report-print-table] tbody tr').allInnerTexts()
-  assert.equal(unpaginatedRows.length, 14, "printing should use the full filtered dataset rather than the visible page")
+  assert.equal(unpaginatedRows.length, 20, "printing should use the full filtered dataset rather than the visible page")
   assert.match(unpaginatedRows.join("\n"), /BK-TABLE-12/)
+  assert.match(unpaginatedRows.join("\n"), /Annual Stakeholder and Financial Planning Conference/)
+  assert.match(unpaginatedRows.join("\n"), /Alexandra Benjamin de la Cruz and Partners/)
+
+  const fullWithChartsPdf = await page.pdf({
+    path: join(output, "report-full-with-charts.pdf"),
+    format: "A4",
+    landscape: true,
+    printBackground: true,
+  })
+  assert.ok(fullWithChartsPdf.length > 10_000, "the multi-page chart-inclusive PDF should be non-empty")
+  const fullLayout = await assertPrintDocumentLayout(page, "Admin")
+  assert.equal(getPdfPageCount(fullWithChartsPdf), fullLayout.pageCount, "full PDF pages should match the controlled page count")
+  assert.equal(fullLayout.pageCount, 7, "the large fixture should reproduce an approximately seven-page report")
+  assert.deepEqual(
+    fullLayout.details.filter((detail) => detail.tableHeadings > 0).map((detail) => detail.tableRows),
+    [8, 8, 4],
+    "controlled pagination should keep complete rows on each table page",
+  )
 
   const typography = await page.evaluate(() => {
     const read = selector => {
@@ -356,7 +462,35 @@ try {
   assert.equal(typography.tableValue.color, "rgb(0, 0, 0)")
   assert.equal(typography.dashboardDisplay, "none")
   assert.equal(await page.evaluate(() => window.__reportPrintCalls), 3, "each confirmed print option should invoke browser printing once")
-  console.log(`Report print checks passed. PDF bytes: with charts ${withChartsPdf.length}, without charts ${withoutChartsPdf.length}. Artifacts: ${output}`)
+
+  const inspectPreparedBy = async (fixtureUser, expectedPreparedBy) => {
+    await page.emulateMedia({ media: "screen" })
+    await page.evaluate((user) => localStorage.setItem("__reportPrintFixtureUser", JSON.stringify(user)), fixtureUser)
+    await page.reload()
+    await page.locator('[data-report-dashboard]').waitFor({ state: "attached" })
+    await page.getByRole("button", { name: "Print Report", exact: true }).click()
+    const currentPrintDialog = page.locator("[data-report-print-options-dialog]")
+    await currentPrintDialog.waitFor({ state: "visible" })
+    await currentPrintDialog.getByRole("button", { name: "Print Report", exact: true }).click()
+    await currentPrintDialog.waitFor({ state: "hidden" })
+    await page.emulateMedia({ media: "print" })
+    await page.evaluate(() => window.dispatchEvent(new Event("beforeprint")))
+    await page.locator('[data-report-print-report]').waitFor({ state: "visible" })
+    await assertPrintDocumentLayout(page, expectedPreparedBy)
+    const footerText = await page.locator('[data-report-print-footer]').allTextContents()
+    footerText.forEach((text) => {
+      assert.match(text, new RegExp(`Prepared By: ${expectedPreparedBy.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`))
+      assert.doesNotMatch(text, /Generated By:/)
+      assert.doesNotMatch(text, /Fixture Client/)
+    })
+    await page.evaluate(() => window.dispatchEvent(new Event("afterprint")))
+    await page.emulateMedia({ media: "screen" })
+  }
+
+  await inspectPreparedBy({ role: "staff", fullName: "Juan Dela Cruz", name: "Juan Dela Cruz", email: "staff@example.com", permissions: { reports: true } }, "Juan Dela Cruz")
+  await inspectPreparedBy({ role: "staff", fullName: "", name: "", email: "staff@example.com", permissions: { reports: true } }, "Staff (name unavailable)")
+
+  console.log(`Report print checks passed. PDF bytes: full charts ${fullWithChartsPdf.length}, filtered charts ${withChartsPdf.length}, without charts ${withoutChartsPdf.length}. Artifacts: ${output}`)
 } finally {
   await browser?.close()
   await server.close()
