@@ -268,6 +268,8 @@ try {
         if (element.hasAttribute('data-report-reset-filter')) return 'reset'
         return 'unknown'
       })
+      const primaryChildren = Array.from(primary?.children || [], readRect)
+      const contextualChildren = Array.from(contextual?.children || [], readRect)
       return {
         card: readRect(card),
         title: readRect(card?.querySelector('h3')),
@@ -278,9 +280,11 @@ try {
         helper: readRect(card?.querySelector('[data-report-period-helper]')),
         helperText: card?.querySelector('[data-report-period-helper]')?.textContent?.trim() || "",
         helperClass: card?.querySelector('[data-report-period-helper]')?.className || "",
+        viewportWidth: window.innerWidth,
         primaryOrder,
-        primaryChildren: Array.from(primary?.children || [], readRect),
-        contextualChildren: Array.from(contextual?.children || [], readRect),
+        primaryChildren,
+        primaryRight: Math.max(...primaryChildren.filter(Boolean).map((child) => child.right), 0),
+        contextualChildren,
       }
    })
    const assertPerformanceLayout = async (label) => {
@@ -289,6 +293,9 @@ try {
       assert.ok(layout.title.width > 0, `${label} performance title should retain usable width`)
       assert.ok(layout.title.bottom <= layout.toolbar.top + 1, `${label} controls should remain below the performance title`)
       assert.ok(layout.toolbar.right <= layout.card.right + 1, `${label} performance controls should stay inside the card`)
+      if (layout.viewportWidth >= 1024) {
+        assert.ok(layout.primaryRight >= layout.primary.right - 1, `${label} filter group should reach the card's right content edge`)
+      }
       assert.equal(layout.primaryOrder[0], "period", `${label} should place Report Period first`)
       assert.equal(layout.primaryOrder.includes("unknown"), false, `${label} filter order should use known controls`)
       for (const children of [layout.primaryChildren, layout.contextualChildren]) {

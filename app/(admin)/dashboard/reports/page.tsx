@@ -3096,7 +3096,7 @@ export default function ReportsPage() {
           </div>
 
           <div data-report-performance-toolbar data-report-print-hidden className="mt-5 space-y-3 print:hidden">
-           <div data-report-primary-filters className="grid min-w-0 grid-cols-1 items-center gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap lg:justify-end">
+           <div data-report-primary-filters className="grid w-full max-w-full min-w-0 grid-cols-1 items-center gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap lg:justify-end">
                <Select value={reportPeriod} onValueChange={handleReportPeriodChange}>
                  <SelectTrigger
                    data-report-period-filter
