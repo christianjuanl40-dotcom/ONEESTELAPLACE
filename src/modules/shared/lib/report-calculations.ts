@@ -89,6 +89,17 @@ export function getReportProcessedRefundAmount(booking: ReportBookingLike) {
     : 0
 }
 
+/** Apply the reporting contract once to aggregate received cash and refunds. */
+export function calculateReportNetReceivedCash(
+  receivedPayments: unknown,
+  processedRefunds: unknown,
+) {
+  return centsToPaymentAmount(Math.max(
+    toPaymentCents(receivedPayments) - toPaymentCents(processedRefunds),
+    0,
+  ))
+}
+
 export function calculateReportBookingFinancials(
   booking: ReportBookingLike,
   paymentRecords: ReadonlyArray<PaymentRecordLike> | null | undefined,
@@ -101,10 +112,7 @@ export function calculateReportBookingFinancials(
   const outstandingBalance = summary.remainingBalance
   const refundStatus = String(booking.refundStatus || "N/A")
   const processedRefundAmount = getReportProcessedRefundAmount(booking)
-  const netReceivedAmount = centsToPaymentAmount(Math.max(
-    toPaymentCents(receivedPayments) - toPaymentCents(processedRefundAmount),
-    0,
-  ))
+  const netReceivedAmount = calculateReportNetReceivedCash(receivedPayments, processedRefundAmount)
 
   return {
     summary,
@@ -137,7 +145,6 @@ export function buildReportSummary(entries: ReadonlyArray<ReportSummaryEntry>): 
       summary.receivedPaymentsCents += toPaymentCents(entry.financials.receivedPayments)
       summary.verifiedPaymentsCents += toPaymentCents(entry.financials.verifiedPayments)
       summary.processedRefundsCents += toPaymentCents(entry.financials.processedRefundAmount)
-      summary.netReceivedAmountCents += toPaymentCents(entry.financials.netReceivedAmount)
       summary.outstandingBalanceCents += toPaymentCents(entry.financials.outstandingBalance)
 
       return summary
@@ -152,7 +159,6 @@ export function buildReportSummary(entries: ReadonlyArray<ReportSummaryEntry>): 
       receivedPaymentsCents: 0,
       verifiedPaymentsCents: 0,
       processedRefundsCents: 0,
-      netReceivedAmountCents: 0,
       outstandingBalanceCents: 0,
     },
   )
@@ -161,7 +167,7 @@ export function buildReportSummary(entries: ReadonlyArray<ReportSummaryEntry>): 
   const receivedPayments = centsToPaymentAmount(totals.receivedPaymentsCents)
   const verifiedPayments = centsToPaymentAmount(totals.verifiedPaymentsCents)
   const processedRefunds = centsToPaymentAmount(totals.processedRefundsCents)
-  const netReceivedAmount = centsToPaymentAmount(totals.netReceivedAmountCents)
+  const netReceivedAmount = calculateReportNetReceivedCash(receivedPayments, processedRefunds)
   const outstandingBalance = centsToPaymentAmount(totals.outstandingBalanceCents)
 
   return {

@@ -173,6 +173,32 @@ describe("report financial calculations", () => {
     expect(summary.totalRefunds).toBe(summary.processedRefunds)
   })
 
+  it("subtracts aggregate processed refunds once instead of summing clamped booking nets", () => {
+    const overRefundedLegacyBooking = makeBooking({
+      id: "BK-LEGACY-OVER-REFUND",
+      bookingCode: "BK-LEGACY-OVER-REFUND",
+      amountPaid: 1000,
+      refundStatus: "refunded",
+      refundedAmount: 5000,
+    })
+    const receivedBooking = makeBooking({
+      id: "BK-RECEIVED",
+      bookingCode: "BK-RECEIVED",
+      amountPaid: 10000,
+    })
+    const entries = [
+      makeSummaryEntry(overRefundedLegacyBooking, []),
+      makeSummaryEntry(receivedBooking, []),
+    ]
+
+    expect(entries[0].financials.netReceivedAmount).toBe(0)
+    expect(buildReportSummary(entries)).toMatchObject({
+      receivedPayments: 11000,
+      processedRefunds: 5000,
+      netReceivedAmount: 6000,
+    })
+  })
+
   it("does not reduce net received cash for a pending refund request", () => {
     const booking = makeBooking({
       refundStatus: "requested",

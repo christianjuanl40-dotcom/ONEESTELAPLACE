@@ -18,7 +18,7 @@ Defense Polish 2.2.2 (**2026-11-07**) keeps the dark Take a Tour panel and orang
 
 The Admin Dashboard uses natural content height: its stat cards flow directly into the Recent Bookings and right-side action/Total Records cards without an empty toolbar spacer or the removed Payment Position mini-card group. Keep the shared admin shell's viewport-bounded layout unchanged for other protected routes.
 
-**Follow-up (2026-11-07):** Notification titles wrap with timestamps beneath them, long messages use an accessible disclosure, and missing timestamps display `Date not recorded`. Client/admin payment surfaces use compact labeled records below `xl`; wide tables use flexible widths, centered uniform status badges, and active-only sort direction icons. Reports place controls and financial summary metrics in separate responsive cards.
+**Follow-up (2026-11-07):** Notification titles wrap with timestamps beneath them, long messages use an accessible disclosure, and missing timestamps display `Date not recorded`. Client/admin payment surfaces use compact labeled records below `xl`; wide tables use flexible widths, centered uniform status badges, and active-only sort direction icons. Reports place controls and Payments & Refunds Summary metrics in separate responsive cards.
 
 **Defense Polish 2.4 follow-up (2026-11-07):** Reports use a restrained summary hierarchy: nine readable wide-desktop columns with right-aligned tabular money, a `View Details` disclosure for secondary financial/lifecycle fields, and compact labeled records below `xl`. Payment review method filters use the existing orange selected state and remain adjacent to the Payment History heading; empty method results replace, rather than overlay, receipt content.
 

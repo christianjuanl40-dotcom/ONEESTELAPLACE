@@ -586,7 +586,7 @@ function TransactionTable({
               <TableHead className="oe-table-head px-2.5">Booking</TableHead>
               <TableHead className="oe-table-head px-2.5">Reserved Space</TableHead>
               <TableHead className="oe-table-head px-2.5">Schedule</TableHead>
-              <TableHead className="oe-table-head px-2.5">Financial Summary</TableHead>
+              <TableHead className="oe-table-head px-2.5">Payments &amp; Refunds Summary</TableHead>
               <TableHead className="oe-table-head px-2.5 text-center">Payment Status</TableHead>
               <TableHead className="oe-table-head px-2.5 text-right">Actions</TableHead>
             </tr>

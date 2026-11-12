@@ -83,6 +83,9 @@ async function assertPrintDocumentLayout(page, expectedPreparedBy) {
   assert.equal(Number(await report.getAttribute("data-report-print-page-count")), pageCount)
   assert.equal(await report.locator('[data-report-print-summary]').count(), 1, "summary should be rendered once")
   assert.equal(await report.locator('[data-report-print-meta]').count(), 0, "generation metadata should not remain in the top section")
+  assert.equal(await report.locator('[data-report-print-title]').count(), 0, "metadata title block should not be duplicated below the header")
+  assert.equal(await report.locator('[data-report-print-selection]').count(), 0, "selection metadata should not be duplicated below the header")
+  assert.equal(await report.locator('[data-report-print-summary-section]').count(), 2, "summary should have booking and payment/refund sections")
 
   const details = await pages.evaluateAll((nodes) => nodes.map((node) => {
     const header = node.querySelector('[data-report-print-banner]')
@@ -100,6 +103,7 @@ async function assertPrintDocumentLayout(page, expectedPreparedBy) {
     return {
       heading: header?.querySelector("h1")?.textContent?.trim(),
       reportTitle: header?.querySelector("h2")?.textContent?.trim(),
+      headerMetadata: header?.querySelector('[data-report-print-header-context]')?.textContent?.trim(),
       footer: footer?.textContent?.trim(),
       pageNumber: pageNumber?.textContent?.trim(),
       bodyText: body?.textContent?.trim(),
@@ -128,7 +132,9 @@ async function assertPrintDocumentLayout(page, expectedPreparedBy) {
   const generatedValues = new Set()
   details.forEach((detail, index) => {
     assert.equal(detail.heading, "ONE ESTELA PLACE", `page ${index + 1} should repeat the brand heading`)
-    assert.equal(detail.reportTitle, "Venue Booking Financial Report", `page ${index + 1} should repeat the report title`)
+    assert.equal(detail.reportTitle, "Venue Booking Report", `page ${index + 1} should repeat the report title`)
+    assert.match(detail.headerMetadata, /Reporting Period:/, `page ${index + 1} should repeat report metadata in the header`)
+    assert.doesNotMatch(detail.bodyText, /Financial Report/i, `page ${index + 1} should not use the old report title`)
     assert.match(detail.footer, new RegExp(`Prepared By: ${expectedPreparedBy.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`))
     assert.match(detail.footer, /Generated: [^|]+ \| [0-9]+:[0-9]{2} (AM|PM)/)
     assert.equal(detail.pageNumber, `Page ${index + 1} of ${pageCount}`)
@@ -143,6 +149,11 @@ async function assertPrintDocumentLayout(page, expectedPreparedBy) {
     })
   })
   assert.equal(generatedValues.size, 1, "all pages should reuse one generated timestamp")
+  const summaryText = await report.locator('[data-report-print-summary]').innerText()
+  assert.match(summaryText, /BOOKING SUMMARY/)
+  assert.match(summaryText, /PAYMENTS & REFUNDS SUMMARY/)
+  assert.match(summaryText, /TOTAL BOOKINGS:/)
+  assert.match(summaryText, /NET RECEIVED CASH:/)
 
   const tablePages = details.filter((detail) => detail.tableHeadings > 0)
   tablePages.forEach((detail, index) => {
@@ -170,11 +181,13 @@ try {
   assert.equal(await page.locator('[data-report-print-report]').evaluate(element => getComputedStyle(element).display), "none")
 
   const dashboardText = await page.locator('[data-report-dashboard]').innerText()
-   assert.match(dashboardText, /Received Payments/)
-   assert.match(dashboardText, /Net Received Cash/)
-   assert.match(dashboardText, /Total Booking Value/i)
-   assert.equal(await page.locator('[data-report-controls]').count(), 1)
-   assert.equal(await page.locator('[data-report-summary]').count(), 1)
+  assert.match(dashboardText, /Received Payments/)
+  assert.match(dashboardText, /NET RECEIVED CASH/)
+  assert.match(dashboardText, /Total Booking Value/i)
+  assert.match(dashboardText, /Booking Summary/)
+  assert.match(dashboardText, /Payments & Refunds Summary/)
+  assert.equal(await page.locator('[data-report-controls]').count(), 1)
+  assert.equal(await page.locator('[data-report-summary]').count(), 1)
   assert.match(dashboardText, /₱10,000\.00/)
   assert.match(dashboardText, /₱5,000\.00/)
   assert.match(dashboardText, /₱2,000\.00/)
@@ -239,7 +252,7 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.locator('#report-rows-per-page').selectOption('10')
 
-   await page.locator('[aria-label="Year"]').click()
+  await page.locator('[aria-label="Year"]').click()
   await page.getByRole("option", { name: "2026", exact: true }).click()
   await page.locator('[aria-label="Month"]').click()
   await page.getByRole("option", { name: "Oct", exact: true }).click()
@@ -255,10 +268,13 @@ try {
   await workbook.xlsx.load(await readFile(excelPath))
   const worksheet = workbook.getWorksheet("Booking Records")
   assert.ok(worksheet, "Excel export should contain the Booking Records sheet")
-  assert.equal(worksheet.getCell("A4").value, "Report Period: Oct 2026")
-  assert.equal(worksheet.getCell("A6").value, "Filters Applied: Year: 2026 | Month: Oct")
+  assert.equal(worksheet.getCell("A3").value, "Venue Booking Report")
+  assert.equal(worksheet.getCell("A4").value, "Reporting Period: Oct 2026")
+  assert.equal(worksheet.getCell("A6").value, "Active Filters: Year: 2026 | Month: Oct")
+  assert.equal(worksheet.getCell("A9").value, "BOOKING SUMMARY")
+  assert.equal(worksheet.getCell("A15").value, "PAYMENTS & REFUNDS SUMMARY")
   assert.deepEqual(
-    worksheet.getRow(20).values.slice(1),
+    worksheet.getRow(23).values.slice(1),
     [
       "Booking ID", "Event Name", "Client", "Date", "Venue", "Booking Status", "Payment Status",
       "Total Booking Value", "Received Payments", "Verified Payments", "Outstanding Balance",
@@ -266,15 +282,16 @@ try {
     ],
   )
   const excelSummary = new Map()
-  for (let rowNumber = 9; rowNumber < 20; rowNumber++) {
+  for (let rowNumber = 9; rowNumber < 23; rowNumber++) {
     excelSummary.set(worksheet.getCell(rowNumber, 1).value, worksheet.getCell(rowNumber, 9).value)
   }
+  assert.equal(excelSummary.get("TOTAL BOOKINGS"), 2)
   assert.equal(excelSummary.get("Total Booking Value"), 17500)
   assert.equal(excelSummary.get("Received Payments"), 5000)
   assert.equal(excelSummary.get("Processed Refunds"), 2000)
-  assert.equal(excelSummary.get("Net Received Cash"), 3000)
+  assert.equal(excelSummary.get("NET RECEIVED CASH"), 3000)
   const excelRows = new Map()
-  for (let rowNumber = 21; rowNumber <= worksheet.rowCount; rowNumber++) {
+  for (let rowNumber = 24; rowNumber <= worksheet.rowCount; rowNumber++) {
     excelRows.set(worksheet.getCell(rowNumber, 1).value, worksheet.getRow(rowNumber).values.slice(1))
   }
   assert.equal(excelRows.get("BK-PRINT-1")[7], 10000)
@@ -336,14 +353,14 @@ try {
   const withoutChartsReport = page.locator('[data-report-print-report]')
   const withoutChartsText = await withoutChartsReport.innerText()
   const withoutChartsSummary = await page.locator('[data-report-print-summary]').innerText()
-  const withoutChartsSelection = await page.locator('[data-report-print-selection]').innerText()
+  const withoutChartsSelection = await withoutChartsReport.locator('[data-report-print-page="1"] [data-report-print-header-context]').innerText()
   const withoutChartsRows = await withoutChartsReport.locator('[data-report-print-table] tbody tr').allInnerTexts()
   assert.equal(await withoutChartsReport.getAttribute("data-report-print-mode"), "without-charts")
   assert.equal(await page.locator('[data-report-print-analytics]').count(), 0, "chart-free output should omit analytics")
   assert.equal(await withoutChartsReport.locator('[data-report-print-chart-card]').count(), 0, "chart-free output should not leave chart cards")
   assert.equal(withoutChartsRows.length, 2, "chart-free output should include every filtered record")
   assert.match(withoutChartsText, /Reporting Period: Oct 2026/)
-  assert.match(withoutChartsText, /Applied Filters: Year: 2026 \| Month: Oct/)
+  assert.doesNotMatch(withoutChartsText, /Applied Filters:|Filters Applied:|Office Room: Not applicable/i)
   assert.match(withoutChartsText, /Print Layout: Without Charts/)
   assert.match(withoutChartsText, /Total Booking Value/i)
   assert.match(withoutChartsText, /Received Payments/i)
@@ -378,7 +395,7 @@ try {
   const withChartsReport = page.locator('[data-report-print-report]')
   const withChartsText = await withChartsReport.innerText()
   const withChartsSummary = await page.locator('[data-report-print-summary]').innerText()
-  const withChartsSelection = await page.locator('[data-report-print-selection]').innerText()
+  const withChartsSelection = await withChartsReport.locator('[data-report-print-page="1"] [data-report-print-header-context]').innerText()
   const withChartsRows = await withChartsReport.locator('[data-report-print-table] tbody tr').allInnerTexts()
   assert.equal(await withChartsReport.getAttribute("data-report-print-mode"), "with-charts")
   assert.equal(await page.locator('[data-report-print-analytics]').count(), 1, "chart-inclusive output should include analytics")
@@ -386,11 +403,15 @@ try {
   assert.equal(withChartsRows.length, withoutChartsRows.length, "both modes should include the same filtered row count")
   assert.deepEqual(withChartsRows, withoutChartsRows, "both modes should include the same filtered table rows")
   assert.equal(withChartsSummary, withoutChartsSummary, "both modes should preserve identical financial summaries")
-  assert.equal(withChartsSelection, withoutChartsSelection, "both modes should preserve identical report selection metadata")
+   assert.equal(
+     withChartsSelection.replace(/\nPrint Layout: (?:With|Without) Charts$/, ""),
+     withoutChartsSelection.replace(/\nPrint Layout: (?:With|Without) Charts$/, ""),
+     "both modes should preserve identical report selection metadata",
+   )
   assert.match(withChartsText, /Print Layout: With Charts/)
   assert.match(withChartsText, /VISUAL ANALYTICS/)
   assert.match(withChartsText, /Reporting Period: Oct 2026/)
-  assert.match(withChartsText, /Applied Filters: Year: 2026 \| Month: Oct/)
+  assert.doesNotMatch(withChartsText, /Financial Report/i)
 
   const withChartsPdf = await page.pdf({
     path: join(output, "report-with-charts.pdf"),
@@ -446,7 +467,7 @@ try {
     return {
       report: read('[data-report-print-report]'),
       bannerHeading: read('[data-report-print-banner] h1'),
-      titleDescription: read('[data-report-print-title] p'),
+      summaryHeading: read('[data-report-print-summary-section] h4'),
       tableHeading: read('[data-report-print-table] th'),
       tableValue: read('[data-report-print-table] td'),
       dashboardDisplay: getComputedStyle(document.querySelector('[data-report-dashboard]')).display,
@@ -455,8 +476,8 @@ try {
   assert.equal(typography.report.color, "rgb(0, 0, 0)")
   assert.match(typography.report.family, /^Inter/)
   assert.equal(typography.bannerHeading.weight, "700")
-  assert.equal(typography.titleDescription.weight, "400")
-  assert.equal(typography.titleDescription.color, "rgb(0, 0, 0)")
+   assert.equal(typography.summaryHeading.weight, "700")
+   assert.equal(typography.summaryHeading.color, "rgb(15, 23, 42)")
   assert.equal(typography.tableHeading.weight, "700")
   assert.equal(typography.tableValue.weight, "400")
   assert.equal(typography.tableValue.color, "rgb(0, 0, 0)")

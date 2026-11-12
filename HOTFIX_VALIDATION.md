@@ -4,6 +4,12 @@
 
 Client predefined questions now remain visible after client selections and automated answers, including after refresh/navigation, and hide only when the loaded conversation contains a non-automated admin/staff reply. Client transaction settlement actions are rendered in a compact bottom area outside the receipt scroll region, while Payment Status badges are content-width and centered. This follow-up was not re-run through the browser harness or full regression suite per the release request; source-level scope and `git diff --check` are the applicable checks.
 
+## Follow-up — 2026-11-12
+
+The client transaction table's user-facing `Payments & Refunds Summary` heading and the Admin `Venue Booking Report` terminology now match the refined report language. The booking report's aggregate Net Received Cash calculation and print metadata/summary layout are covered by the current report-calculation and report-print regressions; the historical hotfix findings above remain unchanged.
+
+Verification for this follow-up: `npx tsc --noEmit` passed; `npx vitest run` passed with 53 files and 863 tests passed (1 file and 130 tests skipped); `npm run lint` completed with 0 errors and 161 warnings; `node scripts/verify-report-print.mjs` passed the filtered two-page, chart-inclusive five-page, full seven-page, Excel, responsive, and Admin/staff identity checks; and `git diff --check` reported no whitespace errors. `npm run build` compiled and completed using process-only non-secret Firebase client placeholders for static prerendering; no production credentials or data were used.
+
 ## 1. Issues investigated
 
 Balance-reminder action → lifecycle transaction → booking marker/email outbox → notification persistence → scoped realtime inbox → client rendering; active support-chat initialization, predefined-question cooldown, page/widget navigation; booking footers/tables; client transaction actions/history; payment-method views and unified financial reporting; deployed email-dispatch provenance/runtime readiness; office Name of Business terminology and compatibility.

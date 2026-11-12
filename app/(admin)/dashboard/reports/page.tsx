@@ -127,6 +127,7 @@ type BookingRecord = {
   amount?: number | string
 }
 
+const REPORT_TITLE = "Venue Booking Report"
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 const STATUS_GROUPS = [
@@ -348,6 +349,18 @@ type ReportSortKey =
 
 type ReportPrintMode = "with-charts" | "without-charts"
 
+type ReportPrintMetadata = {
+  label: string
+  value: string
+}
+
+type ReportSummaryDisplayItem = {
+  label: string
+  value: number
+  money?: boolean
+  emphasized?: boolean
+}
+
 type ReportPrintPage =
   | { kind: "intro" }
   | { kind: "monthly-performance" }
@@ -400,9 +413,7 @@ function buildReportPrintPages(rows: ReportRow[], mode: ReportPrintMode, isOffic
 type ReportPrintPageProps = {
   pageNumber: number
   totalPages: number
-  reportPeriod: string
-  reportCategoryLabel: string
-  reportResourceLabel: string
+  headerMetadata: ReportPrintMetadata[]
   preparedBy: string
   generatedAt: Date
   children: React.ReactNode
@@ -411,9 +422,7 @@ type ReportPrintPageProps = {
 function ReportPrintPage({
   pageNumber,
   totalPages,
-  reportPeriod,
-  reportCategoryLabel,
-  reportResourceLabel,
+  headerMetadata,
   preparedBy,
   generatedAt,
   children,
@@ -426,11 +435,13 @@ function ReportPrintPage({
       <header data-report-print-banner>
         <h1>ONE ESTELA PLACE</h1>
         <p>Event Management System</p>
-        <h2>Venue Booking Financial Report</h2>
+        <h2>{REPORT_TITLE}</h2>
         <div data-report-print-header-context>
-          <span>Reporting Period: {reportPeriod}</span>
-          <span>Booking Category: {reportCategoryLabel}</span>
-          <span>Venue / Office: {reportResourceLabel}</span>
+          {headerMetadata.map((item) => (
+            <span key={item.label}>
+              <strong>{item.label}:</strong> {item.value}
+            </span>
+          ))}
         </div>
       </header>
 
@@ -1256,7 +1267,6 @@ export default function ReportsPage() {
   const [dialogPrintMode, setDialogPrintMode] = useState<ReportPrintMode>("with-charts")
   const isPrinting = printDate !== null
   const preparedBy = getReportPreparedBy(user)
-  const generatedBy = user?.fullName || user?.name || user?.email || "System User"
   const reportPageKey = `${filterYear}|${filterMonth}|${filterStatus}|${filterCategory}|${filterResource}|${filterRoom}|${searchTerm}|${rowsPerPage}|${reportSortKey}|${reportSortDirection}`
   const currentPage = currentPageState.key === reportPageKey ? currentPageState.page : 1
   const setCurrentPage = (next: number | ((page: number) => number)) => {
@@ -1612,11 +1622,6 @@ export default function ReportsPage() {
       : filterCategory === "office"
         ? "All Offices"
         : "All Venues / Offices")
-  const reportRoomLabel = selectedResourceOption?.category === "office"
-    ? effectiveFilterRoom === "all"
-      ? "All Rooms"
-      : roomOptions.find((room) => room.id === effectiveFilterRoom)?.name || effectiveFilterRoom
-    : "Not applicable"
   const isOfficeOnlyReport = filterCategory === "office"
     || selectedResourceOption?.category === "office"
     || (enrichedData.length > 0 && enrichedData.every((booking) => booking._category === "office"))
@@ -1671,22 +1676,45 @@ export default function ReportsPage() {
   const reportStart = filteredData.length > 0 ? reportPagination.startIndex + 1 : 0
   const reportEnd = reportPagination.endIndex
   const reportGeneratedAt = printDate ?? new Date()
+  const reportHeaderMetadata: ReportPrintMetadata[] = [
+    { label: "Reporting Period", value: reportPeriod },
+    { label: "Booking Category", value: reportCategoryLabel },
+    { label: "Venue / Office", value: reportResourceLabel },
+    ...(filterStatus !== "all"
+      ? [{ label: "Booking Status", value: prettifyStatus(filterStatus) }]
+      : []),
+    ...(selectedResourceOption?.category === "office" && effectiveFilterRoom !== "all"
+      ? [{
+        label: "Office Room",
+        value: roomOptions.find((room) => room.id === effectiveFilterRoom)?.name || effectiveFilterRoom,
+      }]
+      : []),
+    ...(searchTerm.trim()
+      ? [{ label: "Search", value: searchTerm.trim() }]
+      : []),
+    {
+      label: "Print Layout",
+      value: printMode === "with-charts" ? "With Charts" : "Without Charts",
+    },
+  ]
   const reportPrintPages = useMemo(
     () => buildReportPrintPages(reportRows, printMode, isOfficeOnlyReport),
     [isOfficeOnlyReport, printMode, reportRows],
   )
-  const reportSummaryItems: { label: string; value: string }[] = [
-    { label: "Total Bookings", value: String(reportSummary.totalBookings) },
-    { label: "Confirmed", value: String(reportSummary.confirmed) },
-    { label: "Pending", value: String(reportSummary.pending) },
-    { label: "Completed", value: String(reportSummary.completed) },
-    { label: "Cancelled", value: String(reportSummary.cancelled) },
-    { label: "Total Booking Value", value: formatReportMoney(reportSummary.totalBookingValue) },
-    { label: "Received Payments", value: formatReportMoney(reportSummary.receivedPayments) },
-    { label: "Verified Payments", value: formatReportMoney(reportSummary.verifiedPayments) },
-    { label: "Processed Refunds", value: formatReportMoney(reportSummary.processedRefunds) },
-    { label: "Net Received Cash", value: formatReportMoney(reportSummary.netReceivedAmount) },
-    { label: "Outstanding Balance", value: formatReportMoney(reportSummary.outstandingBalance) },
+  const reportBookingSummaryItems: ReportSummaryDisplayItem[] = [
+    { label: "Confirmed", value: reportSummary.confirmed },
+    { label: "Pending", value: reportSummary.pending },
+    { label: "Completed", value: reportSummary.completed },
+    { label: "Cancelled", value: reportSummary.cancelled },
+    { label: "TOTAL BOOKINGS", value: reportSummary.totalBookings, emphasized: true },
+  ]
+  const reportPaymentSummaryItems: ReportSummaryDisplayItem[] = [
+    { label: "Total Booking Value", value: reportSummary.totalBookingValue, money: true },
+    { label: "Received Payments", value: reportSummary.receivedPayments, money: true },
+    { label: "Verified Payments", value: reportSummary.verifiedPayments, money: true },
+    { label: "Processed Refunds", value: reportSummary.processedRefunds, money: true },
+    { label: "Outstanding Balance", value: reportSummary.outstandingBalance, money: true },
+    { label: "NET RECEIVED CASH", value: reportSummary.netReceivedAmount, money: true, emphasized: true },
   ]
 
   const openPrintOptions = () => {
@@ -1725,10 +1753,14 @@ export default function ReportsPage() {
       const generatedTime = formatGeneratedTime(now)
       const generatedOn = `${generatedDate}, ${generatedTime}`
 
-      workbook.creator = generatedBy
+      workbook.creator = preparedBy
       workbook.created = new Date()
       workbook.company = "One Estela Place"
-      const headerRow = 20
+      const summaryStartRow = 9
+      const headerRow = summaryStartRow
+        + 1 + reportBookingSummaryItems.length
+        + 1 + reportPaymentSummaryItems.length
+        + 1
 
       const worksheet = workbook.addWorksheet("Booking Records", {
         views: [{ state: "frozen", ySplit: headerRow }],
@@ -1772,32 +1804,34 @@ export default function ReportsPage() {
       worksheet.getRow(2).height = 16
 
       const titleCell = worksheet.getCell("A3")
-      titleCell.value = "Booking Records Report"
+      titleCell.value = REPORT_TITLE
       titleCell.font = { name: "Calibri", size: 14, bold: true, color: { argb: "FF0F172A" } }
       titleCell.alignment = { vertical: "middle", horizontal: "center" }
       worksheet.mergeCells(3, 1, 3, EXCEL_HEADERS.length)
       worksheet.getRow(3).height = 24
 
       const periodCell = worksheet.getCell("A4")
-      periodCell.value = `Report Period: ${reportPeriod}`
+      periodCell.value = `Reporting Period: ${reportPeriod}`
       periodCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF000000" } }
       periodCell.alignment = { vertical: "middle", horizontal: "center" }
       worksheet.mergeCells(4, 1, 4, EXCEL_HEADERS.length)
       worksheet.getRow(4).height = 18
 
       const metaCell = worksheet.getCell("A5")
-      metaCell.value = `Generated Date: ${generatedDate}    •    Generated Time: ${generatedTime}    •    Generated By: ${generatedBy}`
+      metaCell.value = `Generated Date: ${generatedDate}    •    Generated Time: ${generatedTime}    •    Prepared By: ${preparedBy}`
       metaCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF000000" } }
       metaCell.alignment = { vertical: "middle", horizontal: "center" }
       worksheet.mergeCells(5, 1, 5, EXCEL_HEADERS.length)
       worksheet.getRow(5).height = 18
 
       const filtersCell = worksheet.getCell("A6")
-      filtersCell.value = `Filters Applied: ${activeReportFilters.length > 0 ? activeReportFilters.join(" | ") : "None"}`
+      filtersCell.value = activeReportFilters.length > 0
+        ? `Active Filters: ${activeReportFilters.join(" | ")}`
+        : ""
       filtersCell.font = { name: "Calibri", size: 9, bold: true, color: { argb: "FF000000" } }
       filtersCell.alignment = { vertical: "middle", horizontal: "center", wrapText: true }
       worksheet.mergeCells(6, 1, 6, EXCEL_HEADERS.length)
-      worksheet.getRow(6).height = 24
+      worksheet.getRow(6).height = activeReportFilters.length > 0 ? 24 : 4
 
       const accentRow = worksheet.getRow(7)
       accentRow.height = 4
@@ -1833,46 +1867,65 @@ export default function ReportsPage() {
       worksheet.mergeCells(8, 1, 8, EXCEL_HEADERS.length)
       worksheet.getRow(8).height = 20
 
-      const summaryItems: { label: string; value: number; money?: boolean }[] = [
-        { label: "Total Bookings", value: reportSummary.totalBookings },
-        { label: "Confirmed", value: reportSummary.confirmed },
-        { label: "Pending", value: reportSummary.pending },
-        { label: "Completed", value: reportSummary.completed },
-        { label: "Cancelled", value: reportSummary.cancelled },
-        { label: "Total Booking Value", value: reportSummary.totalBookingValue, money: true },
-        { label: "Received Payments", value: reportSummary.receivedPayments, money: true },
-        { label: "Verified Payments", value: reportSummary.verifiedPayments, money: true },
-        { label: "Processed Refunds", value: reportSummary.processedRefunds, money: true },
-        { label: "Net Received Cash", value: reportSummary.netReceivedAmount, money: true },
-        { label: "Outstanding Balance", value: reportSummary.outstandingBalance, money: true },
+      const summarySections = [
+        { label: "BOOKING SUMMARY", items: reportBookingSummaryItems },
+        { label: "PAYMENTS & REFUNDS SUMMARY", items: reportPaymentSummaryItems },
       ]
+      let summaryRowNumber = summaryStartRow
 
-      summaryItems.forEach((item, index) => {
-        const rowNumber = 9 + index
-        const rowFill = {
-          type: "pattern" as const,
-          pattern: "solid" as const,
-          fgColor: { argb: index % 2 === 1 ? "FFF8FAFC" : "FFFFFFFF" },
+      summarySections.forEach((section) => {
+        const sectionRow = worksheet.getRow(summaryRowNumber)
+        sectionRow.height = 18
+        for (let columnIndex = 1; columnIndex <= EXCEL_HEADERS.length; columnIndex++) {
+          const cell = sectionRow.getCell(columnIndex)
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE2E8F0" } }
+          cell.border = EXCEL_THIN_BORDER
         }
+        const sectionCell = worksheet.getCell(summaryRowNumber, 1)
+        sectionCell.value = section.label
+        sectionCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF0F172A" } }
+        sectionCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 }
+        worksheet.mergeCells(summaryRowNumber, 1, summaryRowNumber, EXCEL_HEADERS.length)
+        summaryRowNumber += 1
 
-        const labelCell = worksheet.getCell(rowNumber, 1)
-        labelCell.value = item.label
-        labelCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF000000" } }
-        labelCell.fill = rowFill
-        labelCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 }
-        labelCell.border = EXCEL_THIN_BORDER
-        worksheet.mergeCells(rowNumber, 1, rowNumber, 8)
+        section.items.forEach((item, itemIndex) => {
+          const rowNumber = summaryRowNumber
+          const rowFill = {
+            type: "pattern" as const,
+            pattern: "solid" as const,
+            fgColor: { argb: itemIndex % 2 === 1 ? "FFF8FAFC" : "FFFFFFFF" },
+          }
 
-        const valueCell = worksheet.getCell(rowNumber, 9)
-        valueCell.value = item.value
-        valueCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF0F172A" } }
-        valueCell.fill = rowFill
-        valueCell.alignment = { vertical: "middle", horizontal: "right" }
-        valueCell.border = EXCEL_THIN_BORDER
-        if (item.money) valueCell.numFmt = PESO_NUMBER_FORMAT
-        worksheet.mergeCells(rowNumber, 9, rowNumber, EXCEL_HEADERS.length)
+          const labelCell = worksheet.getCell(rowNumber, 1)
+          labelCell.value = item.label
+          labelCell.font = {
+            name: "Calibri",
+            size: item.emphasized ? 11 : 10,
+            bold: true,
+            color: { argb: item.emphasized ? "FFC2410C" : "FF000000" },
+          }
+          labelCell.fill = rowFill
+          labelCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 }
+          labelCell.border = EXCEL_THIN_BORDER
+          worksheet.mergeCells(rowNumber, 1, rowNumber, 8)
 
-        worksheet.getRow(rowNumber).height = 16
+          const valueCell = worksheet.getCell(rowNumber, 9)
+          valueCell.value = item.value
+          valueCell.font = {
+            name: "Calibri",
+            size: item.emphasized ? 11 : 10,
+            bold: true,
+            color: { argb: item.emphasized ? "FF047857" : "FF0F172A" },
+          }
+          valueCell.fill = rowFill
+          valueCell.alignment = { vertical: "middle", horizontal: "right" }
+          valueCell.border = EXCEL_THIN_BORDER
+          if (item.money) valueCell.numFmt = PESO_NUMBER_FORMAT
+          worksheet.mergeCells(rowNumber, 9, rowNumber, EXCEL_HEADERS.length)
+
+          worksheet.getRow(rowNumber).height = item.emphasized ? 20 : 16
+          summaryRowNumber += 1
+        })
       })
 
       const headerCells = worksheet.getRow(headerRow)
@@ -1949,7 +2002,7 @@ export default function ReportsPage() {
       worksheet.headerFooter.oddHeader = ""
       worksheet.headerFooter.oddFooter =
         '&L&"Calibri"&8One Estela Place Event Management System  |  This report is system-generated.' +
-        `&C&"Calibri"&8Generated: ${generatedOn} by ${generatedBy}` +
+        `&C&"Calibri"&8Generated: ${generatedOn} | Prepared By: ${preparedBy}` +
         '&R&"Calibri,Bold"&8Page &P of &N'
 
       const buffer = await workbook.xlsx.writeBuffer()
@@ -1957,7 +2010,7 @@ export default function ReportsPage() {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       })
       const periodKey = `${filterYear === "all" ? "all-years" : filterYear}-${filterMonth === "all" ? "all-months" : MONTHS[Number(filterMonth)].toLowerCase()}`
-      const fileName = `one-estela-reports-${periodKey}.xlsx`
+      const fileName = `one-estela-venue-booking-report-${periodKey}.xlsx`
 
       const url = URL.createObjectURL(blob)
 
@@ -1995,40 +2048,42 @@ export default function ReportsPage() {
 
     if (page.kind === "intro") {
       content = (
-        <>
-          <div data-report-print-title>
-            <p>Reporting Period: {reportPeriod}</p>
-            <p>Applied Filters: {activeReportFilters.length > 0 ? activeReportFilters.join(" | ") : "None"}</p>
-            <p data-report-print-mode-label>Print Layout: {printMode === "with-charts" ? "With Charts" : "Without Charts"}</p>
-          </div>
+        <section data-report-print-summary>
+          <h3>REPORT SUMMARY</h3>
+          <div data-report-print-summary-sections>
+            <section data-report-print-summary-section="booking">
+              <h4>BOOKING SUMMARY</h4>
+              <div data-report-print-summary-grid>
+                {reportBookingSummaryItems.map((item) => (
+                  <div
+                    key={item.label}
+                    data-report-print-summary-row
+                    data-report-print-summary-total={item.emphasized ? "true" : undefined}
+                  >
+                    <span>{item.label}:</span>
+                    <span>{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
 
-          <div data-report-print-selection>
-            <span>
-              <strong>Booking Category:</strong> {reportCategoryLabel}
-            </span>
-            <span>
-              <strong>Venue / Office:</strong> {reportResourceLabel}
-            </span>
-            <span>
-              <strong>Office Room:</strong> {reportRoomLabel}
-            </span>
-            <span>
-              <strong>Records Included:</strong> {filteredData.length}
-            </span>
+            <section data-report-print-summary-section="payments">
+              <h4>PAYMENTS &amp; REFUNDS SUMMARY</h4>
+              <div data-report-print-summary-grid>
+                {reportPaymentSummaryItems.map((item) => (
+                  <div
+                    key={item.label}
+                    data-report-print-summary-row
+                    data-report-print-summary-total={item.emphasized ? "true" : undefined}
+                  >
+                    <span>{item.label}:</span>
+                    <span>{item.money ? formatReportMoney(item.value) : item.value}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
           </div>
-
-          <section data-report-print-summary>
-            <h3>REPORT SUMMARY</h3>
-            <div data-report-print-summary-grid>
-              {reportSummaryItems.map((item) => (
-                <div key={item.label} data-report-print-summary-row>
-                  <span>{item.label}</span>
-                  <span>{item.value}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-        </>
+        </section>
       )
     } else if (page.kind === "monthly-performance") {
       content = (
@@ -2115,9 +2170,7 @@ export default function ReportsPage() {
         key={`${page.kind}-${pageNumber}`}
         pageNumber={pageNumber}
         totalPages={reportPrintPages.length}
-        reportPeriod={reportPeriod}
-        reportCategoryLabel={reportCategoryLabel}
-        reportResourceLabel={reportResourceLabel}
+        headerMetadata={reportHeaderMetadata}
         preparedBy={preparedBy}
         generatedAt={reportGeneratedAt}
       >
@@ -2222,51 +2275,24 @@ export default function ReportsPage() {
           font-size: 9pt;
           font-weight: 700;
         }
-        [data-report-print-title] {
-          padding: 4mm 0 2mm;
-          text-align: center;
-          break-after: avoid;
-          page-break-after: avoid;
-        }
-        [data-report-print-title] h2 {
-          margin: 0;
-          color: #000;
-          font-size: 14pt;
-          font-weight: 700;
-        }
-        [data-report-print-title] p {
-          margin: 1.5mm 0 0;
-          color: #000;
-          font-size: 9pt;
-          font-weight: 400;
-        }
-        [data-report-print-meta] {
+        [data-report-print-header-context] {
           display: grid;
           grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 2mm 5mm;
-          padding: 2mm 0 3mm;
-          border-bottom: 0.3mm solid #cbd5e1;
-          color: #000;
-          font-size: 8pt;
+          gap: 1.5mm 4mm;
+          margin-top: 2mm;
+          color: #fff;
+          font-size: 7.5pt;
           font-weight: 400;
+          line-height: 1.25;
+          text-align: left;
           break-inside: avoid;
           page-break-inside: avoid;
         }
-        [data-report-print-meta] span { min-width: 0; }
-        [data-report-print-meta] strong { color: #000; font-weight: 700; }
-        [data-report-print-selection] {
-          display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 2mm 5mm;
-          padding: 3mm 0 0;
-          color: #000;
-          font-size: 8pt;
-          font-weight: 400;
-          break-inside: avoid;
-          page-break-inside: avoid;
+        [data-report-print-header-context] span {
+          min-width: 0;
+          overflow-wrap: anywhere;
         }
-        [data-report-print-selection] span { min-width: 0; }
-        [data-report-print-selection] strong { color: #000; font-weight: 700; }
+        [data-report-print-header-context] strong { color: #fff; font-weight: 700; }
         [data-report-print-summary] {
           margin-top: 4mm;
           break-inside: avoid;
@@ -2281,9 +2307,28 @@ export default function ReportsPage() {
           font-weight: 700;
           letter-spacing: 0.08em;
         }
-        [data-report-print-summary-grid] {
+        [data-report-print-summary-sections] {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+          gap: 3mm;
+        }
+        [data-report-print-summary-section] {
+          min-width: 0;
           border: 0.3mm solid #cbd5e1;
-          border-top: 0;
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+        [data-report-print-summary-section] h4 {
+          margin: 0;
+          padding: 2mm 3mm;
+          color: #0f172a;
+          background: #f1f5f9;
+          font-size: 8pt;
+          font-weight: 700;
+          letter-spacing: 0.05em;
+        }
+        [data-report-print-summary-grid] {
+          border-top: 0.3mm solid #cbd5e1;
         }
         [data-report-print-summary-row] {
           display: flex;
@@ -2304,6 +2349,19 @@ export default function ReportsPage() {
           font-weight: 400;
           text-align: right;
           font-variant-numeric: tabular-nums;
+        }
+        [data-report-print-summary-row][data-report-print-summary-total] {
+          border-top: 0.5mm solid #0f172a;
+          background: #fff7ed;
+          font-size: 9pt;
+          font-weight: 700;
+        }
+        [data-report-print-summary-row][data-report-print-summary-total] span:first-child,
+        [data-report-print-summary-row][data-report-print-summary-total] span:last-child {
+          font-weight: 700;
+        }
+        [data-report-print-summary-section="payments"] [data-report-print-summary-total] span:last-child {
+          color: #047857;
         }
         [data-report-print-analytics] {
           margin-top: 5mm;
@@ -2590,7 +2648,7 @@ export default function ReportsPage() {
           <DialogHeader className="border-b border-slate-100 px-5 pb-4 pt-5 pr-12 text-left">
             <DialogTitle className="text-lg font-black text-slate-950">Print Options</DialogTitle>
             <DialogDescription id="report-print-options-description" className="text-xs font-medium leading-5 text-slate-500">
-              Choose whether the printable report should include its visual charts. Financial summaries and all filtered records remain unchanged.
+              Choose whether the printable report should include its visual charts. Payment and refund summaries and all filtered records remain unchanged.
             </DialogDescription>
           </DialogHeader>
 
@@ -2670,7 +2728,7 @@ export default function ReportsPage() {
         data-report-print-mode={printMode}
         data-report-print-page-count={reportPrintPages.length}
         className="hidden"
-        aria-label={`Printable booking records report ${printMode === "with-charts" ? "with charts" : "without charts"}`}
+        aria-label={`Printable ${REPORT_TITLE} ${printMode === "with-charts" ? "with charts" : "without charts"}`}
       >
         {renderReportPrintPage(reportPrintPages[0], 0)}
 
@@ -2768,32 +2826,44 @@ export default function ReportsPage() {
         <section
           data-report-summary
           aria-label="Report summary"
-          className="grid min-w-0 grid-cols-2 gap-x-5 gap-y-4 rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm sm:grid-cols-3 xl:grid-cols-6"
+          className="grid min-w-0 grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm xl:grid-cols-2"
         >
-          <div className="min-w-0">
-            <p className="oe-table-label">Records</p>
-            <p className="mt-1 text-lg font-bold tabular-nums text-slate-950">{filteredData.length}</p>
+          <div className="col-span-full flex items-center justify-between border-b border-slate-100 pb-2">
+            <h3 className="text-xs font-black uppercase tracking-[0.16em] text-slate-950">REPORT SUMMARY</h3>
+            <span className="text-xs font-bold tabular-nums text-slate-500">{filteredData.length} record{filteredData.length === 1 ? "" : "s"}</span>
           </div>
-          <div className="min-w-0">
-            <p className="oe-table-label">Confirmed</p>
-            <p className="mt-1 text-lg font-bold tabular-nums text-slate-950">{reportSummary.confirmed}</p>
-          </div>
-          <div className="min-w-0">
-            <p className="oe-table-label">Total Booking Value</p>
-            <p className="mt-1 break-words text-base font-bold tabular-nums text-slate-950">{formatReportMoney(reportSummary.totalBookingValue)}</p>
-          </div>
-          <div className="min-w-0">
-            <p className="oe-table-label">Received Payments</p>
-            <p className="mt-1 break-words text-base font-bold tabular-nums text-orange-700">{formatReportMoney(reportSummary.receivedPayments)}</p>
-          </div>
-          <div className="min-w-0">
-            <p className="oe-table-label">Processed Refunds</p>
-            <p className="mt-1 break-words text-base font-bold tabular-nums text-rose-700">{formatReportMoney(reportSummary.processedRefunds)}</p>
-          </div>
-          <div className="min-w-0">
-            <p className="oe-table-label">Net Received Cash</p>
-            <p className="mt-1 break-words text-base font-bold tabular-nums text-emerald-700">{formatReportMoney(reportSummary.netReceivedAmount)}</p>
-          </div>
+
+          <section data-report-summary-section="booking" className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+            <h4 className="text-sm font-black text-slate-950">Booking Summary</h4>
+            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
+              {reportBookingSummaryItems.map((item) => (
+                <div
+                  key={item.label}
+                  className={`min-w-0 ${item.emphasized ? "col-span-full border-t border-orange-200 pt-3" : ""}`}
+                >
+                  <p className={`oe-table-label ${item.emphasized ? "text-orange-700" : ""}`}>{item.label}{item.emphasized ? ":" : ""}</p>
+                  <p className={`mt-1 text-lg font-bold tabular-nums ${item.emphasized ? "text-orange-700" : "text-slate-950"}`}>{item.value}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section data-report-summary-section="payments" className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+            <h4 className="text-sm font-black text-slate-950">Payments &amp; Refunds Summary</h4>
+            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
+              {reportPaymentSummaryItems.map((item) => (
+                <div
+                  key={item.label}
+                  className={`min-w-0 ${item.emphasized ? "col-span-full border-t border-emerald-200 pt-3" : ""}`}
+                >
+                  <p className={`oe-table-label ${item.emphasized ? "text-emerald-700" : ""}`}>{item.label}{item.emphasized ? ":" : ""}</p>
+                  <p className={`mt-1 break-words text-base font-bold tabular-nums ${item.emphasized ? "text-emerald-700" : "text-slate-950"}`}>
+                    {item.money ? formatReportMoney(item.value) : item.value}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
         </section>
       </div>
 
@@ -3126,9 +3196,9 @@ export default function ReportsPage() {
            </div>
          ) : (
            <>
-              <div className="hidden xl:block">
-                <Table className="w-full table-fixed">
-                  <caption className="sr-only">Filtered booking financial report records</caption>
+            <div className="hidden xl:block">
+              <Table className="w-full table-fixed">
+                <caption className="sr-only">Filtered venue booking report records</caption>
                   <colgroup>
                     <col style={{ width: "14%" }} />
                     <col style={{ width: "15%" }} />
