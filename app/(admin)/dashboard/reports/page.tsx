@@ -472,7 +472,15 @@ function buildReportPerformance(
     return {
       mode: "daily",
       title: period === "custom" ? "Custom Period Performance" : period === "week" ? "Weekly Performance" : "Daily Performance",
-      description: "Select a valid reporting period to view performance.",
+      description: period === "week"
+        ? "Shows Monday through Sunday booking volume and received payments."
+        : period === "custom"
+          ? "Shows daily booking volume and received payments for the selected range."
+          : period === "date"
+            ? "Shows booking volume and received payments for the selected date."
+            : period === "month"
+              ? "Shows daily booking volume and received payments for the selected month."
+              : "Shows January through December booking volume and received payments.",
       data: [],
     }
   }
@@ -560,11 +568,24 @@ function ReportPrintPage({
         <p>Event Management System</p>
         <h2>{REPORT_TITLE}</h2>
         <div data-report-print-header-context>
-          {headerMetadata.map((item) => (
-            <span key={item.label}>
-              <strong>{item.label}:</strong> {item.value}
-            </span>
-          ))}
+          <div data-report-print-header-primary>
+            {headerMetadata.slice(0, 3).map((item) => (
+              <div key={item.label} data-report-print-header-item>
+                <strong>{item.label}:</strong>
+                <span>{item.value}</span>
+              </div>
+            ))}
+          </div>
+          {headerMetadata.length > 3 && (
+            <div data-report-print-header-secondary>
+              {headerMetadata.slice(3).map((item) => (
+                <div key={item.label} data-report-print-header-item>
+                  <strong>{item.label}:</strong>
+                  <span>{item.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </header>
 
@@ -1771,6 +1792,29 @@ export default function ReportsPage() {
     || effectiveFilterRoom !== "all"
     || searchTerm.trim(),
   )
+  const reportPeriodHelperText = (() => {
+    if (reportPeriod === "all") return ""
+    if (!reportPeriodResolution.ready) {
+      if (reportPeriod === "date") return "Choose a date to view its daily report."
+      if (reportPeriod === "week") return "Choose a date to view its reporting week."
+      if (reportPeriod === "month") return "Choose a month and year to view the report."
+      if (reportPeriod === "year") return "Choose a year to view the report."
+      if (customStartDate && customEndDate && reportPeriodResolution.error) return reportPeriodResolution.error
+      if (customStartDate || customEndDate) return "Choose both a start and end date to view the report."
+      return "Choose a start and end date to view the report."
+    }
+    if (reportPeriod === "date" && reportPeriodResolution.range) {
+      return `Selected date: ${formatReportDateKey(reportPeriodResolution.range.start)}`
+    }
+    if (reportPeriod === "week" && reportPeriodResolution.range) {
+      return `Reporting week: ${formatReportDateKey(reportPeriodResolution.range.start)} - ${formatReportDateKey(reportPeriodResolution.range.end)}`
+    }
+    if (reportPeriod === "month") return `Reporting month: ${reportPeriodLabel}`
+    if (reportPeriod === "year") return `Reporting year: ${reportPeriodLabel}`
+    return `Custom range: ${reportPeriodLabel}`
+  })()
+  const reportPeriodHelperIsError = reportPeriod === "custom"
+    && Boolean(customStartDate && customEndDate && reportPeriodResolution.error)
   const handleReportPeriodChange = (value: string) => {
     const nextPeriod = value as ReportPeriod
     const todayKey = getReportDateKey(new Date()) || ""
@@ -1861,10 +1905,14 @@ export default function ReportsPage() {
   const reportPaymentSummaryItems: ReportSummaryDisplayItem[] = [
     { label: "Total Booking Value", value: reportSummary.totalBookingValue, money: true },
     { label: "Received Payments", value: reportSummary.receivedPayments, money: true },
-    { label: "Verified Payments", value: reportSummary.verifiedPayments, money: true },
     { label: "Processed Refunds", value: reportSummary.processedRefunds, money: true },
     { label: "Outstanding Balance", value: reportSummary.outstandingBalance, money: true },
     { label: "NET RECEIVED CASH", value: reportSummary.netReceivedAmount, money: true, emphasized: true },
+  ]
+  const reportExcelPaymentSummaryItems: ReportSummaryDisplayItem[] = [
+    ...reportPaymentSummaryItems.slice(0, 2),
+    { label: "Verified Payments", value: reportSummary.verifiedPayments, money: true },
+    ...reportPaymentSummaryItems.slice(2),
   ]
 
   const openPrintOptions = () => {
@@ -1909,7 +1957,7 @@ export default function ReportsPage() {
       const summaryStartRow = 9
       const headerRow = summaryStartRow
         + 1 + reportBookingSummaryItems.length
-        + 1 + reportPaymentSummaryItems.length
+        + 1 + reportExcelPaymentSummaryItems.length
         + 1
 
       const worksheet = workbook.addWorksheet("Booking Records", {
@@ -2019,7 +2067,7 @@ export default function ReportsPage() {
 
       const summarySections = [
         { label: "BOOKING SUMMARY", items: reportBookingSummaryItems },
-        { label: "PAYMENTS & REFUNDS SUMMARY", items: reportPaymentSummaryItems },
+        { label: "PAYMENTS & REFUNDS SUMMARY", items: reportExcelPaymentSummaryItems },
       ]
       let summaryRowNumber = summaryStartRow
 
@@ -2426,23 +2474,51 @@ export default function ReportsPage() {
           font-weight: 700;
         }
         [data-report-print-header-context] {
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 1.5mm 4mm;
+          display: flex;
+          flex-direction: column;
+          gap: 1.5mm;
           margin-top: 2mm;
           color: #fff;
           font-size: 7.5pt;
           font-weight: 400;
           line-height: 1.25;
-          text-align: left;
           break-inside: avoid;
           page-break-inside: avoid;
         }
-        [data-report-print-header-context] span {
+        [data-report-print-header-primary] {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 1.5mm 4mm;
+        }
+        [data-report-print-header-secondary] {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: center;
+          gap: 1.5mm 10mm;
+        }
+        [data-report-print-header-item] {
+          display: flex;
+          min-width: 0;
+          flex-direction: column;
+          gap: 0.5mm;
+          overflow-wrap: anywhere;
+          text-align: left;
+        }
+        [data-report-print-header-secondary] [data-report-print-header-item] {
+          min-width: 42mm;
+          max-width: 64mm;
+          align-items: center;
+          text-align: center;
+        }
+        [data-report-print-header-item] strong {
+          color: #fdba74;
+          font-size: 6.5pt;
+          font-weight: 700;
+        }
+        [data-report-print-header-item] span {
           min-width: 0;
           overflow-wrap: anywhere;
         }
-        [data-report-print-header-context] strong { color: #fff; font-weight: 700; }
         [data-report-print-summary] {
           margin-top: 4mm;
           break-inside: avoid;
@@ -2722,23 +2798,23 @@ export default function ReportsPage() {
            font-size: 11pt;
            font-weight: 700;
          }
-         [data-report-print-header-context] {
-           display: grid;
-           grid-template-columns: repeat(3, minmax(0, 1fr));
-           gap: 1mm 4mm;
-           margin-top: 2mm;
-           color: #fff;
-           font-size: 7pt;
-           font-weight: 400;
-           line-height: 1.25;
-           text-align: left;
-         }
-         [data-report-print-header-context] span {
-           min-width: 0;
-           overflow-wrap: anywhere;
-         }
-         [data-report-print-header-context] span:not(:first-child) { text-align: center; }
-         [data-report-print-header-context] span:last-child { text-align: right; }
+          [data-report-print-header-context] {
+            gap: 1mm;
+            font-size: 7pt;
+          }
+          [data-report-print-header-primary] {
+            gap: 1mm 4mm;
+          }
+          [data-report-print-header-secondary] {
+            gap: 1mm 8mm;
+          }
+          [data-report-print-header-secondary] [data-report-print-header-item] {
+            min-width: 38mm;
+            max-width: 58mm;
+          }
+          [data-report-print-header-item] strong {
+            font-size: 6.2pt;
+          }
          [data-report-print-footer] {
            display: flex;
            flex: 0 0 10mm;
@@ -3006,81 +3082,167 @@ export default function ReportsPage() {
       </div>
 
       <div data-report-print-card className="mb-6 rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
-        <div data-report-print-heading className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="rounded-2xl bg-orange-50 p-3 text-orange-700">
+        <div data-report-print-heading className="mb-6">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="shrink-0 rounded-2xl bg-orange-50 p-3 text-orange-700">
               <CalendarDays className="h-5 w-5" />
             </div>
-            <div>
-                <h3 className="text-lg font-black text-slate-950">{reportPerformance.title}</h3>
-                <p className="text-xs font-semibold text-slate-500">
-                  {reportPerformance.description}
-                </p>
+            <div className="min-w-0 flex-1">
+              <h3 className="break-words text-lg font-black text-slate-950">{reportPerformance.title}</h3>
+              <p className="text-xs font-semibold text-slate-500">
+                {reportPerformance.description}
+              </p>
             </div>
           </div>
 
-          <div data-report-print-hidden className="flex flex-wrap items-center gap-2 sm:gap-3 print:hidden">
-            <Select value={reportPeriod} onValueChange={handleReportPeriodChange}>
-              <SelectTrigger
-                aria-label="Report period"
-                className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[180px]"
-              >
-                <div className="flex items-center gap-2">
-                  <CalendarDays className="h-3.5 w-3.5 text-slate-400" />
-                  <SelectValue placeholder="All Dates" />
-                </div>
-              </SelectTrigger>
-              <SelectContent className="rounded-xl shadow-xl">
-                <SelectItem value="all">All Dates</SelectItem>
-                <SelectItem value="date">Specific Date</SelectItem>
-                <SelectItem value="week">Specific Week</SelectItem>
-                <SelectItem value="month">Specific Month</SelectItem>
-                <SelectItem value="year">Specific Year</SelectItem>
-                <SelectItem value="custom">Custom Date Range</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {reportPeriod === "date" && (
-              <label className="flex h-10 w-full items-center rounded-xl border border-slate-200 bg-white px-3 sm:w-[165px]">
-                <span className="sr-only">Specific date</span>
-                <input
-                  type="date"
-                  aria-label="Specific date"
-                  value={specificDate}
-                  onChange={(event) => { setSpecificDate(event.target.value); setCurrentPage(1) }}
-                  className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none"
-                />
-              </label>
-            )}
-
-            {reportPeriod === "week" && (
-              <label className="flex h-10 w-full items-center rounded-xl border border-slate-200 bg-white px-3 sm:w-[165px]">
-                <span className="sr-only">Day in specific week</span>
-                <input
-                  type="date"
-                  aria-label="Day in specific week"
-                  value={specificWeekDate}
-                  onChange={(event) => { setSpecificWeekDate(event.target.value); setCurrentPage(1) }}
-                  className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none"
-                />
-              </label>
-            )}
-
-            {reportPeriod === "month" && (
-              <>
-                <Select
-                  value={filterMonth}
-                  onValueChange={(value) => { setFilterMonth(value); setCurrentPage(1) }}
+          <div data-report-performance-toolbar data-report-print-hidden className="mt-5 space-y-3 print:hidden">
+            <div data-report-primary-filters className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <Select value={reportPeriod} onValueChange={handleReportPeriodChange}>
+                <SelectTrigger
+                  aria-label="Report period"
+                  className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600"
                 >
-                  <SelectTrigger aria-label="Specific month" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[145px]">
-                    <SelectValue placeholder="Month" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl shadow-xl">
-                    {MONTHS.map((month, index) => (
-                      <SelectItem key={month} value={index.toString()}>{month}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <CalendarDays className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <SelectValue placeholder="All Dates" />
+                  </div>
+                </SelectTrigger>
+                <SelectContent className="rounded-xl shadow-xl">
+                  <SelectItem value="all">All Dates</SelectItem>
+                  <SelectItem value="date">Specific Date</SelectItem>
+                  <SelectItem value="week">Specific Week</SelectItem>
+                  <SelectItem value="month">Specific Month</SelectItem>
+                  <SelectItem value="year">Specific Year</SelectItem>
+                  <SelectItem value="custom">Custom Date Range</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={filterCategory}
+                onValueChange={(value) => {
+                  setFilterCategory(value as ReportCategoryFilter)
+                  setFilterResource("all")
+                  setFilterRoom("all")
+                  setCurrentPage(1)
+                }}
+              >
+                <SelectTrigger
+                  aria-label="Booking Category"
+                  className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Filter className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <SelectValue placeholder="All Categories" />
+                  </div>
+                </SelectTrigger>
+                <SelectContent className="rounded-xl shadow-xl">
+                  <SelectItem value="all" className="font-bold">All Categories</SelectItem>
+                  <SelectItem value="venue">Event Venues</SelectItem>
+                  <SelectItem value="office">Office Reservations</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={effectiveFilterResource}
+                onValueChange={(value) => {
+                  setFilterResource(value)
+                  setFilterRoom("all")
+                  setCurrentPage(1)
+                }}
+              >
+                <SelectTrigger
+                  aria-label="Venue / Office"
+                  className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600"
+                >
+                  <SelectValue
+                    placeholder={
+                      filterCategory === "venue"
+                        ? "All Event Venues"
+                        : filterCategory === "office"
+                          ? "All Offices"
+                          : "All Venues / Offices"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl shadow-xl">
+                  <SelectItem value="all" className="font-bold">
+                    {filterCategory === "venue"
+                      ? "All Event Venues"
+                      : filterCategory === "office"
+                        ? "All Offices"
+                        : "All Venues / Offices"}
+                  </SelectItem>
+                  {resourceOptions.map((resource) => (
+                    <SelectItem
+                      key={getResourceFilterValue(resource.category, resource.id)}
+                      value={getResourceFilterValue(resource.category, resource.id)}
+                    >
+                      {resource.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div data-report-contextual-filters className="grid min-w-0 grid-cols-1 items-center gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap">
+              {reportPeriod === "date" && (
+                <label className="flex h-10 w-full min-w-0 items-center rounded-xl border border-slate-200 bg-white px-3 sm:w-[165px]">
+                  <span className="sr-only">Specific date</span>
+                  <input
+                    type="date"
+                    aria-label="Specific date"
+                    value={specificDate}
+                    onChange={(event) => { setSpecificDate(event.target.value); setCurrentPage(1) }}
+                    className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none"
+                  />
+                </label>
+              )}
+
+              {reportPeriod === "week" && (
+                <label className="flex h-10 w-full min-w-0 items-center rounded-xl border border-slate-200 bg-white px-3 sm:w-[165px]">
+                  <span className="sr-only">Day in specific week</span>
+                  <input
+                    type="date"
+                    aria-label="Day in specific week"
+                    value={specificWeekDate}
+                    onChange={(event) => { setSpecificWeekDate(event.target.value); setCurrentPage(1) }}
+                    className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none"
+                  />
+                </label>
+              )}
+
+              {reportPeriod === "month" && (
+                <>
+                  <Select
+                    value={filterMonth}
+                    onValueChange={(value) => { setFilterMonth(value); setCurrentPage(1) }}
+                  >
+                    <SelectTrigger aria-label="Specific month" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[145px]">
+                      <SelectValue placeholder="Month" />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl shadow-xl">
+                      {MONTHS.map((month, index) => (
+                        <SelectItem key={month} value={index.toString()}>{month}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={filterYear}
+                    onValueChange={(value) => { setFilterYear(value); setCurrentPage(1) }}
+                  >
+                    <SelectTrigger aria-label="Specific year" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[130px]">
+                      <SelectValue placeholder="Year" />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl shadow-xl">
+                      {yearOptions.map((year) => (
+                        <SelectItem key={year} value={year}>{year}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
+
+              {reportPeriod === "year" && (
                 <Select
                   value={filterYear}
                   onValueChange={(value) => { setFilterYear(value); setCurrentPage(1) }}
@@ -3094,165 +3256,76 @@ export default function ReportsPage() {
                     ))}
                   </SelectContent>
                 </Select>
-              </>
-            )}
+              )}
 
-            {reportPeriod === "year" && (
-              <Select
-                value={filterYear}
-                onValueChange={(value) => { setFilterYear(value); setCurrentPage(1) }}
-              >
-                <SelectTrigger aria-label="Specific year" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[130px]">
-                  <SelectValue placeholder="Year" />
-                </SelectTrigger>
-                <SelectContent className="rounded-xl shadow-xl">
-                  {yearOptions.map((year) => (
-                    <SelectItem key={year} value={year}>{year}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-
-            {reportPeriod === "custom" && (
-              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-                <label className="flex h-10 min-w-0 flex-1 items-center rounded-xl border border-slate-200 bg-white px-3 sm:w-[155px] sm:flex-none">
-                  <span className="sr-only">Custom range start date</span>
-                  <input
-                    type="date"
-                    aria-label="Custom range start date"
-                    value={customStartDate}
-                    onChange={(event) => { setCustomStartDate(event.target.value); setCurrentPage(1) }}
-                    className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none"
-                  />
-                </label>
-                <span className="text-xs font-black text-slate-400">to</span>
-                <label className="flex h-10 min-w-0 flex-1 items-center rounded-xl border border-slate-200 bg-white px-3 sm:w-[155px] sm:flex-none">
-                  <span className="sr-only">Custom range end date</span>
-                  <input
-                    type="date"
-                    aria-label="Custom range end date"
-                    value={customEndDate}
-                    onChange={(event) => { setCustomEndDate(event.target.value); setCurrentPage(1) }}
-                    className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none"
-                  />
-                </label>
-              </div>
-            )}
-
-            <Select
-              value={filterCategory}
-              onValueChange={(value) => {
-                setFilterCategory(value as ReportCategoryFilter)
-                setFilterResource("all")
-                setFilterRoom("all")
-                setCurrentPage(1)
-              }}
-            >
-              <SelectTrigger
-                aria-label="Booking Category"
-                className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[175px]"
-              >
-                <div className="flex items-center gap-2">
-                  <Filter className="h-3.5 w-3.5 text-slate-400" />
-                  <SelectValue placeholder="All Categories" />
+              {reportPeriod === "custom" && (
+                <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:col-span-2 sm:w-auto lg:flex-none">
+                  <label className="flex h-10 min-w-0 flex-1 items-center rounded-xl border border-slate-200 bg-white px-3 sm:w-[155px] sm:flex-none">
+                    <span className="sr-only">Custom range start date</span>
+                    <input
+                      type="date"
+                      aria-label="Custom range start date"
+                      value={customStartDate}
+                      onChange={(event) => { setCustomStartDate(event.target.value); setCurrentPage(1) }}
+                      className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none"
+                    />
+                  </label>
+                  <span className="text-xs font-black text-slate-400">to</span>
+                  <label className="flex h-10 min-w-0 flex-1 items-center rounded-xl border border-slate-200 bg-white px-3 sm:w-[155px] sm:flex-none">
+                    <span className="sr-only">Custom range end date</span>
+                    <input
+                      type="date"
+                      aria-label="Custom range end date"
+                      value={customEndDate}
+                      onChange={(event) => { setCustomEndDate(event.target.value); setCurrentPage(1) }}
+                      className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none"
+                    />
+                  </label>
                 </div>
-              </SelectTrigger>
+              )}
 
-              <SelectContent className="rounded-xl shadow-xl">
-                <SelectItem value="all" className="font-bold">
-                  All Categories
-                </SelectItem>
-                <SelectItem value="venue">Event Venues</SelectItem>
-                <SelectItem value="office">Office Reservations</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select
-              value={effectiveFilterResource}
-              onValueChange={(value) => {
-                setFilterResource(value)
-                setFilterRoom("all")
-                setCurrentPage(1)
-              }}
-            >
-              <SelectTrigger
-                aria-label="Venue / Office"
-                className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[220px]"
-              >
-                <SelectValue
-                  placeholder={
-                    filterCategory === "venue"
-                      ? "All Event Venues"
-                      : filterCategory === "office"
-                        ? "All Offices"
-                        : "All Venues / Offices"
-                  }
-                />
-              </SelectTrigger>
-
-              <SelectContent className="rounded-xl shadow-xl">
-                <SelectItem value="all" className="font-bold">
-                  {filterCategory === "venue"
-                    ? "All Event Venues"
-                    : filterCategory === "office"
-                      ? "All Offices"
-                      : "All Venues / Offices"}
-                </SelectItem>
-                {resourceOptions.map((resource) => (
-                  <SelectItem
-                    key={getResourceFilterValue(resource.category, resource.id)}
-                    value={getResourceFilterValue(resource.category, resource.id)}
-                  >
-                    {resource.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {selectedResourceOption?.category === "office" && roomOptions.length > 0 && (
-              <Select
-                value={effectiveFilterRoom}
-                onValueChange={(value) => {
-                  setFilterRoom(value)
-                  setCurrentPage(1)
-                }}
-              >
-                <SelectTrigger
-                  aria-label="Office Room"
-                  className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[155px]"
+              {selectedResourceOption?.category === "office" && roomOptions.length > 0 && (
+                <Select
+                  value={effectiveFilterRoom}
+                  onValueChange={(value) => {
+                    setFilterRoom(value)
+                    setCurrentPage(1)
+                  }}
                 >
-                  <SelectValue placeholder="All Rooms" />
-                </SelectTrigger>
+                  <SelectTrigger aria-label="Office Room" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[155px]">
+                    <SelectValue placeholder="All Rooms" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl shadow-xl">
+                    <SelectItem value="all" className="font-bold">All Rooms</SelectItem>
+                    {roomOptions.map((room) => (
+                      <SelectItem key={room.id} value={room.id}>{room.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
 
-                <SelectContent className="rounded-xl shadow-xl">
-                  <SelectItem value="all" className="font-bold">
-                    All Rooms
-                  </SelectItem>
-                  {roomOptions.map((room) => (
-                    <SelectItem key={room.id} value={room.id}>
-                      {room.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
+              {hasActiveFilters && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={resetFilters}
+                  className="h-10 w-full rounded-xl border-slate-200 bg-white px-3 text-xs font-black text-slate-700 shadow-none hover:bg-slate-50 hover:text-slate-900 sm:w-auto"
+                >
+                  Reset Filters
+                </Button>
+              )}
+            </div>
 
-            {hasActiveFilters && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={resetFilters}
-                className="h-10 w-full rounded-xl border-slate-200 bg-white px-3 text-xs font-black text-slate-700 shadow-none hover:bg-slate-50 hover:text-slate-900 sm:w-auto"
+            {reportPeriodHelperText && (
+              <p
+                data-report-period-helper
+                aria-live="polite"
+                className={`text-xs font-semibold leading-5 ${reportPeriodHelperIsError ? "text-rose-600" : "text-slate-500"}`}
               >
-                Reset Filters
-              </Button>
+                {reportPeriodHelperText}
+              </p>
             )}
           </div>
-          {reportPeriodResolution.error && (
-            <p data-report-period-error className="basis-full text-xs font-bold text-rose-600">
-              {reportPeriodResolution.error}
-            </p>
-          )}
         </div>
 
         {filteredData.length === 0 ? (
@@ -3260,8 +3333,14 @@ export default function ReportsPage() {
             <div className="rounded-2xl bg-white p-3 text-slate-400 shadow-sm">
               <BarChart3 className="h-6 w-6" />
             </div>
-            <p className="mt-4 text-sm font-black text-slate-600">No booking data available for the selected period.</p>
-            <p className="mt-1 text-xs font-semibold text-slate-400">Try adjusting the selected filters.</p>
+            <p className="mt-4 text-sm font-black text-slate-600">
+              {reportPeriodResolution.ready
+                ? "No booking data available for the selected period."
+                : "Choose the contextual date filters to view this report."}
+            </p>
+            <p className="mt-1 text-xs font-semibold text-slate-400">
+              {reportPeriodResolution.ready ? "Try adjusting the selected filters." : reportPeriodHelperText}
+            </p>
           </div>
         ) : (
            <div data-report-print-chart role="img" aria-label={`${reportPerformance.title} chart showing booking volume and received payments`} className="h-[280px] sm:h-[320px] w-full">

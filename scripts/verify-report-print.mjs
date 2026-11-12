@@ -152,8 +152,41 @@ async function assertPrintDocumentLayout(page, expectedPreparedBy) {
   const summaryText = await report.locator('[data-report-print-summary]').innerText()
   assert.match(summaryText, /BOOKING SUMMARY/)
   assert.match(summaryText, /PAYMENTS & REFUNDS SUMMARY/)
+  assert.doesNotMatch(summaryText, /Verified Payments/)
+  assert.match(summaryText, /Total Booking Value/)
+  assert.match(summaryText, /Received Payments/)
+  assert.match(summaryText, /Processed Refunds/)
+  assert.match(summaryText, /Outstanding Balance/)
   assert.match(summaryText, /TOTAL BOOKINGS:/)
   assert.match(summaryText, /NET RECEIVED CASH:/)
+
+  const metadataLayouts = await pages.evaluateAll((nodes) => nodes.map((node) => {
+    const context = node.querySelector('[data-report-print-header-context]')
+    const primary = context?.querySelector('[data-report-print-header-primary]')
+    const secondary = context?.querySelector('[data-report-print-header-secondary]')
+    const rects = (parent) => Array.from(parent?.querySelectorAll('[data-report-print-header-item]') || [], (item) => {
+      const rect = item.getBoundingClientRect()
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width }
+    })
+    return {
+      primaryCount: primary?.children.length || 0,
+      secondaryCount: secondary?.children.length || 0,
+      primaryRects: rects(primary),
+      secondaryRects: rects(secondary),
+    }
+  }))
+  metadataLayouts.forEach((layout, index) => {
+    assert.equal(layout.primaryCount, 3, `page ${index + 1} should align the three primary header metadata blocks`)
+    assert.ok(layout.secondaryCount > 0, `page ${index + 1} should render relevant secondary header metadata`)
+    const primaryWidths = layout.primaryRects.map((rect) => rect.width)
+    assert.ok(primaryWidths.every((width) => width > 0), `page ${index + 1} primary metadata should be visible`)
+    assert.ok(Math.max(...primaryWidths) - Math.min(...primaryWidths) <= 1, `page ${index + 1} primary metadata columns should be balanced`)
+    for (const rects of [layout.primaryRects, layout.secondaryRects]) {
+      for (let rectIndex = 1; rectIndex < rects.length; rectIndex++) {
+        assert.ok(rects[rectIndex].left >= rects[rectIndex - 1].right - 1, `page ${index + 1} header metadata should not overlap`)
+      }
+    }
+  })
 
   const tablePages = details.filter((detail) => detail.tableHeadings > 0)
   tablePages.forEach((detail, index) => {
@@ -210,6 +243,51 @@ try {
      await page.getByRole("option", { name: option, exact: true }).click()
    }
    const summaryText = async () => page.locator('[data-report-summary]').innerText()
+   const readPerformanceLayout = async () => page.evaluate(() => {
+     const card = document.querySelector('[data-report-dashboard] [data-report-print-card]')
+     const readRect = (element) => {
+       if (!element) return null
+       const rect = element.getBoundingClientRect()
+       return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height }
+     }
+     const primary = card?.querySelector('[data-report-primary-filters]')
+     const contextual = card?.querySelector('[data-report-contextual-filters]')
+     return {
+       card: readRect(card),
+       title: readRect(card?.querySelector('h3')),
+       toolbar: readRect(card?.querySelector('[data-report-performance-toolbar]')),
+       primary: readRect(primary),
+       contextual: readRect(contextual),
+       helper: readRect(card?.querySelector('[data-report-period-helper]')),
+       helperText: card?.querySelector('[data-report-period-helper]')?.textContent?.trim() || "",
+       helperClass: card?.querySelector('[data-report-period-helper]')?.className || "",
+       primaryChildren: Array.from(primary?.children || [], readRect),
+       contextualChildren: Array.from(contextual?.children || [], readRect),
+     }
+   })
+   const assertPerformanceLayout = async (label) => {
+     const layout = await readPerformanceLayout()
+     assert.ok(layout.card && layout.title && layout.toolbar, `${label} performance layout should render its header and toolbar`)
+     assert.ok(layout.title.width > 0, `${label} performance title should retain usable width`)
+     assert.ok(layout.title.bottom <= layout.toolbar.top + 1, `${label} controls should remain below the performance title`)
+     assert.ok(layout.toolbar.right <= layout.card.right + 1, `${label} performance controls should stay inside the card`)
+     for (const children of [layout.primaryChildren, layout.contextualChildren]) {
+       children.forEach((child) => assert.ok(child && child.width > 0, `${label} filter controls should remain visible`))
+       for (let index = 0; index < children.length; index++) {
+         for (let nextIndex = index + 1; nextIndex < children.length; nextIndex++) {
+           const first = children[index]
+           const next = children[nextIndex]
+           const overlapsX = first.left < next.right - 1 && next.left < first.right - 1
+           const overlapsY = first.top < next.bottom - 1 && next.top < first.bottom - 1
+           assert.equal(overlapsX && overlapsY, false, `${label} filter controls should not overlap`)
+         }
+       }
+     }
+     return layout
+   }
+   const initialPerformanceLayout = await assertPerformanceLayout("All Dates")
+   assert.ok((initialPerformanceLayout.contextual?.height || 0) <= 1, "All Dates should not reserve a contextual filter row")
+   assert.equal(initialPerformanceLayout.helper, null, "All Dates should not show a contextual helper")
 
   await page.locator('#report-search').fill('  Table Client 7  ')
   await page.locator('[data-report-dashboard] [data-slot="table"] tbody tr').waitFor()
@@ -233,13 +311,14 @@ try {
   await page.getByRole('button', { name: 'View Details', exact: true }).first().click()
   assert.match(await page.locator('[data-report-dashboard]').innerText(), /Outstanding Balance/)
   await page.setViewportSize({ width: 1440, height: 1000 })
-  for (const width of [320, 375, 768, 1024, 1280, 1366, 1440]) {
+  for (const width of [320, 375, 390, 768, 1024, 1280, 1366, 1440]) {
     await page.setViewportSize({ width, height: width < 768 ? 844 : 1000 })
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
        true,
        `report dashboard should not create page-level horizontal overflow at ${width}px`,
-      )
+       )
+       await assertPerformanceLayout(`All Dates at ${width}px`)
       assert.equal(
         await page.locator('[data-report-dashboard] [data-slot="table"]').isVisible(),
         width >= 1280,
@@ -271,34 +350,48 @@ try {
   await page.locator('#report-rows-per-page').selectOption('10')
 
   await selectReportPeriod("Specific Date")
+  assert.match((await readPerformanceLayout()).helperText, /Choose a date to view its daily report/)
+  assert.doesNotMatch((await readPerformanceLayout()).helperClass, /text-rose-600/)
   await page.locator('[aria-label="Specific date"]').fill("2026-10-01")
   assert.match(await summaryText(), /Records\s+1/)
   assert.match(await page.locator('[data-report-dashboard]').innerText(), /BK-PRINT-1/)
   assert.doesNotMatch(await page.locator('[data-report-dashboard]').innerText(), /BK-PRINT-2/)
   assert.match(await page.locator('[data-report-dashboard]').innerText(), /Daily Performance/)
+  assert.match((await readPerformanceLayout()).helperText, /Selected date: Oct 1, 2026/)
 
   await selectReportPeriod("Specific Week")
+  assert.equal((await readPerformanceLayout()).helperText, "Choose a date to view its reporting week.")
+  assert.doesNotMatch((await readPerformanceLayout()).helperClass, /text-rose-600/)
   await page.locator('[aria-label="Day in specific week"]').fill("2026-10-15")
   assert.match(await summaryText(), /Records\s+1/)
   assert.match(await page.locator('[data-report-dashboard]').innerText(), /BK-PRINT-2/)
   assert.match(await page.locator('[data-report-dashboard]').innerText(), /Weekly Performance/)
+  assert.match((await readPerformanceLayout()).helperText, /Reporting week: Oct 12, 2026 - Oct 18, 2026/)
 
   await selectReportPeriod("Specific Month")
   await selectFilterOption("Specific month", "Oct")
   await selectFilterOption("Specific year", "2026")
   assert.match(await summaryText(), /Records\s+2/)
   assert.match(await page.locator('[data-report-dashboard]').innerText(), /Daily Performance/)
+  await assertPerformanceLayout("Specific Month")
 
   await selectReportPeriod("Specific Year")
   await selectFilterOption("Specific year", "2026")
   assert.match(await summaryText(), /Records\s+20/)
   assert.match(await page.locator('[data-report-dashboard]').innerText(), /Yearly Performance/)
+  await assertPerformanceLayout("Specific Year")
 
   await selectReportPeriod("Custom Date Range")
+  assert.match((await readPerformanceLayout()).helperText, /Choose a start and end date/)
   await page.locator('[aria-label="Custom range start date"]').fill("2026-09-01")
   await page.locator('[aria-label="Custom range end date"]').fill("2026-10-01")
   assert.match(await summaryText(), /Records\s+19/)
   assert.match(await page.locator('[data-report-dashboard]').innerText(), /Custom Period Performance/)
+  await assertPerformanceLayout("Custom Date Range")
+  await page.locator('[aria-label="Custom range start date"]').fill("2026-10-02")
+  assert.match((await readPerformanceLayout()).helperText, /Start date must be on or before end date/)
+  assert.match((await readPerformanceLayout()).helperClass, /text-rose-600/)
+  await page.locator('[aria-label="Custom range start date"]').fill("2026-09-01")
   await page.setViewportSize({ width: 320, height: 844 })
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "custom period controls should not overflow a phone viewport")
   await page.setViewportSize({ width: 1440, height: 1000 })
@@ -416,9 +509,9 @@ try {
   assert.equal(await page.locator('[data-report-print-analytics]').count(), 0, "chart-free output should omit analytics")
   assert.equal(await withoutChartsReport.locator('[data-report-print-chart-card]').count(), 0, "chart-free output should not leave chart cards")
   assert.equal(withoutChartsRows.length, 2, "chart-free output should include every filtered record")
-  assert.match(withoutChartsText, /Reporting Period: Oct 2026/)
+   assert.match(withoutChartsText, /Reporting Period:\s+Oct 2026/)
   assert.doesNotMatch(withoutChartsText, /Applied Filters:|Filters Applied:|Office Room: Not applicable/i)
-  assert.match(withoutChartsText, /Print Layout: Without Charts/)
+   assert.match(withoutChartsText, /Print Layout:\s+Without Charts/)
   assert.match(withoutChartsText, /Total Booking Value/i)
   assert.match(withoutChartsText, /Received Payments/i)
   assert.match(withoutChartsText, /Net Received Cash/i)
@@ -460,14 +553,18 @@ try {
   assert.equal(withChartsRows.length, withoutChartsRows.length, "both modes should include the same filtered row count")
   assert.deepEqual(withChartsRows, withoutChartsRows, "both modes should include the same filtered table rows")
   assert.equal(withChartsSummary, withoutChartsSummary, "both modes should preserve identical financial summaries")
-   assert.equal(
-     withChartsSelection.replace(/\nPrint Layout: (?:With|Without) Charts$/, ""),
-     withoutChartsSelection.replace(/\nPrint Layout: (?:With|Without) Charts$/, ""),
-     "both modes should preserve identical report selection metadata",
-   )
-  assert.match(withChartsText, /Print Layout: With Charts/)
+    const normalizeHeaderSelection = (value) => value
+      .replace(/Print Layout:\s*(?:With|Without) Charts/, "")
+      .replace(/\s+/g, " ")
+      .trim()
+    assert.equal(
+      normalizeHeaderSelection(withChartsSelection),
+      normalizeHeaderSelection(withoutChartsSelection),
+      "both modes should preserve identical report selection metadata",
+    )
+   assert.match(withChartsText, /Print Layout:\s+With Charts/)
   assert.match(withChartsText, /VISUAL ANALYTICS/)
-  assert.match(withChartsText, /Reporting Period: Oct 2026/)
+   assert.match(withChartsText, /Reporting Period:\s+Oct 2026/)
   assert.doesNotMatch(withChartsText, /Financial Report/i)
 
   const withChartsPdf = await page.pdf({
