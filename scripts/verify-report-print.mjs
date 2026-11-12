@@ -180,18 +180,36 @@ try {
   await page.locator('[data-report-dashboard]').waitFor({ state: "attached" })
   assert.equal(await page.locator('[data-report-print-report]').evaluate(element => getComputedStyle(element).display), "none")
 
-  const dashboardText = await page.locator('[data-report-dashboard]').innerText()
-  assert.match(dashboardText, /Received Payments/)
-  assert.match(dashboardText, /NET RECEIVED CASH/)
-  assert.match(dashboardText, /Total Booking Value/i)
-  assert.match(dashboardText, /Booking Summary/)
-  assert.match(dashboardText, /Payments & Refunds Summary/)
-  assert.equal(await page.locator('[data-report-controls]').count(), 1)
-  assert.equal(await page.locator('[data-report-summary]').count(), 1)
-  assert.match(dashboardText, /₱10,000\.00/)
-  assert.match(dashboardText, /₱5,000\.00/)
-  assert.match(dashboardText, /₱2,000\.00/)
-  assert.match(dashboardText, /₱3,000\.00/)
+   const dashboardText = await page.locator('[data-report-dashboard]').innerText()
+   assert.match(dashboardText, /Received Payments/)
+   assert.match(dashboardText, /Net Received Cash/)
+   assert.match(dashboardText, /Total Booking Value/i)
+   assert.match(dashboardText, /Records/)
+   assert.match(dashboardText, /Confirmed/)
+   assert.match(dashboardText, /Processed Refunds/)
+   assert.doesNotMatch(dashboardText, /Booking Summary/)
+   assert.doesNotMatch(dashboardText, /Payments & Refunds Summary/)
+   assert.equal(await page.locator('[data-report-controls]').count(), 1)
+   assert.equal(await page.locator('[data-report-summary]').count(), 1)
+   assert.equal(await page.locator('[data-report-summary] > div').count(), 6, "live report summary should use six compact KPI cells")
+   assert.equal(await page.locator('[data-report-dashboard] [data-report-summary-section]').count(), 0)
+   await page.locator('[aria-label="Report period"]').click()
+   assert.equal(await page.getByRole("option").filter({ hasText: /^(All Dates|Specific Date|Specific Week|Specific Month|Specific Year|Custom Date Range)$/ }).count(), 6)
+   await page.keyboard.press("Escape")
+   assert.match(dashboardText, /₱10,000\.00/)
+   assert.match(dashboardText, /₱5,000\.00/)
+   assert.match(dashboardText, /₱2,000\.00/)
+   assert.match(dashboardText, /₱3,000\.00/)
+
+   const selectReportPeriod = async (label) => {
+     await page.locator('[aria-label="Report period"]').click()
+     await page.getByRole("option", { name: label, exact: true }).click()
+   }
+   const selectFilterOption = async (label, option) => {
+     await page.locator(`[aria-label="${label}"]`).click()
+     await page.getByRole("option", { name: option, exact: true }).click()
+   }
+   const summaryText = async () => page.locator('[data-report-summary]').innerText()
 
   await page.locator('#report-search').fill('  Table Client 7  ')
   await page.locator('[data-report-dashboard] [data-slot="table"] tbody tr').waitFor()
@@ -248,14 +266,53 @@ try {
         const detailButtons = page.getByRole('button', { name: 'View Details', exact: true })
         assert.ok(await detailButtons.count() > 0, `desktop detail action should be available at ${width}px`)
       }
-    }
+  }
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.locator('#report-rows-per-page').selectOption('10')
 
-  await page.locator('[aria-label="Year"]').click()
-  await page.getByRole("option", { name: "2026", exact: true }).click()
-  await page.locator('[aria-label="Month"]').click()
-  await page.getByRole("option", { name: "Oct", exact: true }).click()
+  await selectReportPeriod("Specific Date")
+  await page.locator('[aria-label="Specific date"]').fill("2026-10-01")
+  assert.match(await summaryText(), /Records\s+1/)
+  assert.match(await page.locator('[data-report-dashboard]').innerText(), /BK-PRINT-1/)
+  assert.doesNotMatch(await page.locator('[data-report-dashboard]').innerText(), /BK-PRINT-2/)
+  assert.match(await page.locator('[data-report-dashboard]').innerText(), /Daily Performance/)
+
+  await selectReportPeriod("Specific Week")
+  await page.locator('[aria-label="Day in specific week"]').fill("2026-10-15")
+  assert.match(await summaryText(), /Records\s+1/)
+  assert.match(await page.locator('[data-report-dashboard]').innerText(), /BK-PRINT-2/)
+  assert.match(await page.locator('[data-report-dashboard]').innerText(), /Weekly Performance/)
+
+  await selectReportPeriod("Specific Month")
+  await selectFilterOption("Specific month", "Oct")
+  await selectFilterOption("Specific year", "2026")
+  assert.match(await summaryText(), /Records\s+2/)
+  assert.match(await page.locator('[data-report-dashboard]').innerText(), /Daily Performance/)
+
+  await selectReportPeriod("Specific Year")
+  await selectFilterOption("Specific year", "2026")
+  assert.match(await summaryText(), /Records\s+20/)
+  assert.match(await page.locator('[data-report-dashboard]').innerText(), /Yearly Performance/)
+
+  await selectReportPeriod("Custom Date Range")
+  await page.locator('[aria-label="Custom range start date"]').fill("2026-09-01")
+  await page.locator('[aria-label="Custom range end date"]').fill("2026-10-01")
+  assert.match(await summaryText(), /Records\s+19/)
+  assert.match(await page.locator('[data-report-dashboard]').innerText(), /Custom Period Performance/)
+  await page.setViewportSize({ width: 320, height: 844 })
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "custom period controls should not overflow a phone viewport")
+  await page.setViewportSize({ width: 1440, height: 1000 })
+
+  await selectReportPeriod("All Dates")
+  await selectFilterOption("Booking Category", "Event Venues")
+  await selectFilterOption("Venue / Office", "Main Hall")
+  await selectFilterOption("Booking status filter", "Confirmed")
+  assert.match(await summaryText(), /Records\s+10/)
+  await page.getByRole("button", { name: "Reset Filters", exact: true }).click()
+
+  await selectReportPeriod("Specific Month")
+  await selectFilterOption("Specific month", "Oct")
+  await selectFilterOption("Specific year", "2026")
 
   const [excelDownload] = await Promise.all([
     page.waitForEvent("download"),
@@ -269,8 +326,8 @@ try {
   const worksheet = workbook.getWorksheet("Booking Records")
   assert.ok(worksheet, "Excel export should contain the Booking Records sheet")
   assert.equal(worksheet.getCell("A3").value, "Venue Booking Report")
-  assert.equal(worksheet.getCell("A4").value, "Reporting Period: Oct 2026")
-  assert.equal(worksheet.getCell("A6").value, "Active Filters: Year: 2026 | Month: Oct")
+   assert.equal(worksheet.getCell("A4").value, "Reporting Period: Oct 2026")
+   assert.equal(worksheet.getCell("A6").value, "Active Filters: Reporting Period: Oct 2026")
   assert.equal(worksheet.getCell("A9").value, "BOOKING SUMMARY")
   assert.equal(worksheet.getCell("A15").value, "PAYMENTS & REFUNDS SUMMARY")
   assert.deepEqual(
@@ -329,11 +386,11 @@ try {
   assert.equal(await printDialog.getByRole("button", { name: "Cancel", exact: true }).isVisible(), true)
 
   const reportUrlBeforePrintOptions = page.url()
-  const selectedYearBeforeCancel = await page.locator('[aria-label="Year"]').innerText()
+   const selectedYearBeforeCancel = await page.locator('[aria-label="Specific year"]').innerText()
   await printDialog.getByRole("button", { name: "Cancel", exact: true }).click()
   await printDialog.waitFor({ state: "hidden" })
   assert.equal(await page.evaluate(() => window.__reportPrintCalls), 0, "cancel should not invoke browser printing")
-  assert.equal(await page.locator('[aria-label="Year"]').innerText(), selectedYearBeforeCancel, "cancel should preserve filters")
+   assert.equal(await page.locator('[aria-label="Specific year"]').innerText(), selectedYearBeforeCancel, "cancel should preserve filters")
   assert.equal(page.url(), reportUrlBeforePrintOptions, "print options should not navigate away from the report")
 
   await page.setViewportSize({ width: 1440, height: 1000 })

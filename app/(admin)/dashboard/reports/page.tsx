@@ -66,6 +66,16 @@ import {
   getReportPaymentStatusPresentationClass,
 } from "@/src/modules/shared/lib/status-presentation"
 import {
+  enumerateReportDateRange,
+  formatReportDateKey,
+  getReportDateKey,
+  getReportDateParts,
+  isReportDateInRange,
+  resolveReportPeriod,
+  type ReportDateRange,
+  type ReportPeriod,
+} from "@/src/modules/shared/lib/report-date-filters"
+import {
   Bar,
   BarChart,
   CartesianGrid,
@@ -306,6 +316,21 @@ type EnrichedBooking = BookingRecord & {
   _financials: ReportBookingFinancials
 }
 
+type ReportPerformancePoint = {
+  label: string
+  receivedPayments: number
+  bookings: number
+}
+
+type ReportPerformanceMode = "monthly" | "daily" | "yearly"
+
+type ReportPerformance = {
+  mode: ReportPerformanceMode
+  title: string
+  description: string
+  data: ReportPerformancePoint[]
+}
+
 type ReportRow = {
   rowKey: string
   bookingId: string | number
@@ -389,6 +414,104 @@ function chunkReportRows(rows: ReportRow[], size: number) {
   }
 
   return chunks
+}
+
+function buildReportPerformance(
+  enrichedData: EnrichedBooking[],
+  period: ReportPeriod,
+  range: ReportDateRange | null,
+): ReportPerformance {
+  const buildPoints = (
+    definitions: Array<{ key: string; label: string }>,
+    keyForDate: (dateKey: string) => string | null,
+  ) => {
+    const points = definitions.map(({ label }) => ({ label, receivedPayments: 0, bookings: 0 }))
+    const indexes = new Map(definitions.map(({ key }, index) => [key, index]))
+
+    enrichedData.forEach((booking) => {
+      const dateKey = getReportDateKey(getBookingDate(booking))
+      const key = dateKey ? keyForDate(dateKey) : null
+      const index = key === null ? undefined : indexes.get(key)
+      if (index === undefined) return
+
+      points[index].bookings += 1
+      points[index].receivedPayments += booking._financials.receivedPayments
+    })
+
+    return points
+  }
+
+  const monthDefinitions = (year?: string) => MONTHS.map((month, index) => ({
+    key: year ? `${year}-${String(index + 1).padStart(2, "0")}` : String(index),
+    label: year ? `${month} ${year}` : month,
+  }))
+
+  if (period === "all") {
+    return {
+      mode: "monthly",
+      title: "Monthly Performance",
+      description: "Shows booking volume and received payments per month.",
+      data: buildPoints(monthDefinitions(), (dateKey) => {
+        const parts = getReportDateParts(dateKey)
+        return parts ? String(parts.month - 1) : null
+      }),
+    }
+  }
+
+  if (period === "year") {
+    const year = range?.start.slice(0, 4)
+    return {
+      mode: "yearly",
+      title: "Yearly Performance",
+      description: "Shows January through December booking volume and received payments.",
+      data: buildPoints(monthDefinitions(year), (dateKey) => dateKey.slice(0, 7)),
+    }
+  }
+
+  if (!range) {
+    return {
+      mode: "daily",
+      title: period === "custom" ? "Custom Period Performance" : period === "week" ? "Weekly Performance" : "Daily Performance",
+      description: "Select a valid reporting period to view performance.",
+      data: [],
+    }
+  }
+
+  const dateKeys = enumerateReportDateRange(range)
+  const useMonthlyGrouping = period === "custom" && dateKeys.length > 31
+  if (useMonthlyGrouping) {
+    const monthKeys = Array.from(new Set(dateKeys.map((dateKey) => dateKey.slice(0, 7))))
+    return {
+      mode: "monthly",
+      title: "Custom Period Performance",
+      description: "Shows booking volume and received payments by month for the selected range.",
+      data: buildPoints(
+        monthKeys.map((key) => ({ key, label: formatReportDateKey(`${key}-01`, { month: "short", year: "numeric" }) })),
+        (dateKey) => dateKey.slice(0, 7),
+      ),
+    }
+  }
+
+  const title = period === "week"
+    ? "Weekly Performance"
+    : period === "custom"
+      ? "Custom Period Performance"
+      : "Daily Performance"
+  const description = period === "week"
+    ? "Shows Monday through Sunday booking volume and received payments."
+    : period === "custom"
+      ? "Shows daily booking volume and received payments for the selected range."
+      : "Shows booking volume and received payments for the selected calendar day or month."
+
+  return {
+    mode: "daily",
+    title,
+    description,
+    data: buildPoints(
+      dateKeys.map((key) => ({ key, label: formatReportDateKey(key, { month: "short", day: "numeric" }) })),
+      (dateKey) => dateKey,
+    ),
+  }
 }
 
 function buildReportPrintPages(rows: ReportRow[], mode: ReportPrintMode, isOfficeOnlyReport: boolean): ReportPrintPage[] {
@@ -954,12 +1077,6 @@ function useContainerWidth<T extends HTMLElement>() {
   return { ref, width }
 }
 
-type MonthlyPerformancePoint = {
-  month: string
-  receivedPayments: number
-  bookings: number
-}
-
 type ReceivedPaymentsByVenuePoint = {
   name: string
   receivedPayments: number
@@ -975,11 +1092,11 @@ type ReportChartProps = {
   printOnly?: boolean
 }
 
-function ReportMonthlyPerformanceChart({
+function ReportPerformanceChart({
   data,
   isPrinting,
   printOnly = false,
-}: ReportChartProps & { data: MonthlyPerformancePoint[] }) {
+}: ReportChartProps & { data: ReportPerformancePoint[] }) {
   return (
     <ResponsiveContainer
       initialDimension={printOnly ? { width: 1000, height: 210 } : undefined}
@@ -989,7 +1106,7 @@ function ReportMonthlyPerformanceChart({
       <ComposedChart data={data} margin={{ top: isPrinting ? 18 : 10, right: isPrinting ? 18 : 10, left: isPrinting ? 18 : -18, bottom: 5 }}>
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
         <XAxis
-          dataKey="month"
+          dataKey="label"
           axisLine={false}
           tickLine={false}
           tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }}
@@ -1249,6 +1366,11 @@ export default function ReportsPage() {
     }
   }, [user, router])
 
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>("all")
+  const [specificDate, setSpecificDate] = useState("")
+  const [specificWeekDate, setSpecificWeekDate] = useState("")
+  const [customStartDate, setCustomStartDate] = useState("")
+  const [customEndDate, setCustomEndDate] = useState("")
   const [filterYear, setFilterYear] = useState("all")
   const [filterMonth, setFilterMonth] = useState("all")
   const [filterStatus, setFilterStatus] = useState("all")
@@ -1267,7 +1389,7 @@ export default function ReportsPage() {
   const [dialogPrintMode, setDialogPrintMode] = useState<ReportPrintMode>("with-charts")
   const isPrinting = printDate !== null
   const preparedBy = getReportPreparedBy(user)
-  const reportPageKey = `${filterYear}|${filterMonth}|${filterStatus}|${filterCategory}|${filterResource}|${filterRoom}|${searchTerm}|${rowsPerPage}|${reportSortKey}|${reportSortDirection}`
+  const reportPageKey = `${reportPeriod}|${specificDate}|${specificWeekDate}|${customStartDate}|${customEndDate}|${filterYear}|${filterMonth}|${filterStatus}|${filterCategory}|${filterResource}|${filterRoom}|${searchTerm}|${rowsPerPage}|${reportSortKey}|${reportSortDirection}`
   const currentPage = currentPageState.key === reportPageKey ? currentPageState.page : 1
   const setCurrentPage = (next: number | ((page: number) => number)) => {
     setCurrentPageState((current) => {
@@ -1398,14 +1520,27 @@ export default function ReportsPage() {
     const years = new Set<string>()
 
     bookingList.forEach((booking) => {
-      const parsedDate = parseBookingDate(booking)
-      if (parsedDate) years.add(parsedDate.getFullYear().toString())
+      const dateKey = getReportDateKey(getBookingDate(booking))
+      if (dateKey) years.add(dateKey.slice(0, 4))
     })
 
     const sorted = Array.from(years).sort((a, b) => Number(b) - Number(a))
     if (filterYear !== "all" && !sorted.includes(filterYear)) sorted.push(filterYear)
     return sorted
   }, [bookingList, filterYear])
+
+  const reportPeriodResolution = useMemo(
+    () => resolveReportPeriod({
+      period: reportPeriod,
+      date: specificDate,
+      weekDate: specificWeekDate,
+      month: filterMonth,
+      year: filterYear,
+      startDate: customStartDate,
+      endDate: customEndDate,
+    }),
+    [customEndDate, customStartDate, filterMonth, filterYear, reportPeriod, specificDate, specificWeekDate],
+  )
 
   const filteredEntries = useMemo(() => {
     const keyword = normalizeTableSearchTerm(searchTerm)
@@ -1414,14 +1549,10 @@ export default function ReportsPage() {
     return classifiedBookings
       .filter((entry) => {
         const booking = entry.booking
-        const parsedDate = parseBookingDate(booking)
         const bookingStatus = getReportLifecycleLabel(booking).toLowerCase()
-        const bookingYear = parsedDate ? parsedDate.getFullYear().toString() : ""
-
-        const matchesMonth =
-          filterMonth === "all" || (parsedDate && parsedDate.getMonth().toString() === filterMonth)
-
-        const matchesYear = filterYear === "all" || bookingYear === filterYear
+        const bookingDateKey = getReportDateKey(getBookingDate(booking))
+        const matchesReportPeriod = reportPeriodResolution.ready
+          && (reportPeriodResolution.range === null || isReportDateInRange(bookingDateKey, reportPeriodResolution.range))
 
         const matchesStatus = filterStatus === "all" || bookingStatus === filterStatus
 
@@ -1484,12 +1615,11 @@ export default function ReportsPage() {
         return matchesCategory
           && matchesResource
           && matchesRoom
-          && matchesYear
-          && matchesMonth
+          && matchesReportPeriod
           && matchesStatus
           && matchesSearch
       })
-  }, [classifiedBookings, effectiveFilterResource, effectiveFilterRoom, filterCategory, filterYear, filterMonth, filterStatus, searchTerm])
+  }, [classifiedBookings, effectiveFilterResource, effectiveFilterRoom, filterCategory, filterStatus, reportPeriodResolution, searchTerm])
 
   // Every report surface below consumes this same filtered booking collection.
   const filteredData = useMemo(
@@ -1529,25 +1659,10 @@ export default function ReportsPage() {
     [enrichedData],
   )
 
-  const monthlyPerformance = useMemo(() => {
-    const map = MONTHS.map((month) => ({
-      month,
-      receivedPayments: 0,
-      bookings: 0,
-    }))
-
-    enrichedData.forEach((booking) => {
-      const parsedDate = parseBookingDate(booking)
-      if (!parsedDate) return
-
-      const monthIndex = parsedDate.getMonth()
-      map[monthIndex].bookings += 1
-
-      map[monthIndex].receivedPayments += booking._financials.receivedPayments
-    })
-
-    return filterMonth === "all" ? map : map.filter((_, index) => index.toString() === filterMonth)
-  }, [enrichedData, filterMonth])
+  const reportPerformance = useMemo(
+    () => buildReportPerformance(enrichedData, reportPeriod, reportPeriodResolution.range),
+    [enrichedData, reportPeriod, reportPeriodResolution.range],
+  )
 
   const receivedPaymentsByVenue = useMemo(() => {
     const map: Record<string, number> = {}
@@ -1601,14 +1716,26 @@ export default function ReportsPage() {
       .slice(0, 8)
   }, [enrichedData])
 
-  const reportPeriod =
-    filterYear !== "all" && filterMonth !== "all"
-      ? `${MONTHS[Number(filterMonth)]} ${filterYear}`
-      : filterYear !== "all"
-        ? `Year ${filterYear}`
-        : filterMonth !== "all"
-          ? MONTHS[Number(filterMonth)]
-          : "All Years"
+  const reportPeriodLabel = (() => {
+    if (reportPeriod === "all") return "All Dates"
+    if (reportPeriod === "date") {
+      return specificDate ? formatReportDateKey(specificDate) : "Specific Date"
+    }
+    if (reportPeriod === "week") {
+      return reportPeriodResolution.range
+        ? `${formatReportDateKey(reportPeriodResolution.range.start)} - ${formatReportDateKey(reportPeriodResolution.range.end)}`
+        : "Specific Week"
+    }
+    if (reportPeriod === "month") {
+      return reportPeriodResolution.range
+        ? formatReportDateKey(reportPeriodResolution.range.start, { month: "short", year: "numeric" })
+        : "Specific Month"
+    }
+    if (reportPeriod === "year") return filterYear !== "all" ? `Year ${filterYear}` : "Specific Year"
+    return reportPeriodResolution.range
+      ? `${formatReportDateKey(reportPeriodResolution.range.start)} - ${formatReportDateKey(reportPeriodResolution.range.end)}`
+      : "Custom Date Range"
+  })()
 
   const reportCategoryLabel =
     filterCategory === "venue"
@@ -1627,8 +1754,7 @@ export default function ReportsPage() {
     || (enrichedData.length > 0 && enrichedData.every((booking) => booking._category === "office"))
 
   const activeReportFilters = [
-    filterYear !== "all" ? `Year: ${filterYear}` : "",
-    filterMonth !== "all" ? `Month: ${MONTHS[Number(filterMonth)]}` : "",
+    reportPeriod !== "all" ? `Reporting Period: ${reportPeriodLabel}` : "",
     filterCategory !== "all"
       ? `Booking Category: ${filterCategory === "venue" ? "Event Venues" : "Office Reservations"}`
       : "",
@@ -1638,14 +1764,33 @@ export default function ReportsPage() {
     searchTerm.trim() ? `Search: ${searchTerm.trim()}` : "",
   ].filter(Boolean)
   const hasActiveFilters = Boolean(
-    filterYear !== "all"
-    || filterMonth !== "all"
+    reportPeriod !== "all"
     || filterStatus !== "all"
     || filterCategory !== "all"
     || effectiveFilterResource !== "all"
     || effectiveFilterRoom !== "all"
     || searchTerm.trim(),
   )
+  const handleReportPeriodChange = (value: string) => {
+    const nextPeriod = value as ReportPeriod
+    const todayKey = getReportDateKey(new Date()) || ""
+    const todayYear = todayKey.slice(0, 4)
+    const todayMonth = todayKey ? String(Number(todayKey.slice(5, 7)) - 1) : "0"
+    const defaultYear = yearOptions.includes(todayYear) ? todayYear : yearOptions[0] || todayYear
+
+    setReportPeriod(nextPeriod)
+    if (nextPeriod === "month") {
+      setFilterYear(filterYear === "all" ? defaultYear : filterYear)
+      setFilterMonth(filterMonth === "all" ? todayMonth : filterMonth)
+    } else if (nextPeriod === "year") {
+      setFilterYear(filterYear === "all" ? defaultYear : filterYear)
+      setFilterMonth("all")
+    } else if (nextPeriod === "all" || nextPeriod === "date" || nextPeriod === "week" || nextPeriod === "custom") {
+      setFilterYear("all")
+      setFilterMonth("all")
+    }
+    setCurrentPage(1)
+  }
   const handleReportSort = (sortKey: ReportSortKey) => {
     if (sortKey === reportSortKey) {
       setReportSortDirection((direction) => direction === "asc" ? "desc" : "asc")
@@ -1664,6 +1809,11 @@ export default function ReportsPage() {
     })
   }
   const resetFilters = () => {
+    setReportPeriod("all")
+    setSpecificDate("")
+    setSpecificWeekDate("")
+    setCustomStartDate("")
+    setCustomEndDate("")
     setFilterYear("all")
     setFilterMonth("all")
     setFilterStatus("all")
@@ -1677,7 +1827,7 @@ export default function ReportsPage() {
   const reportEnd = reportPagination.endIndex
   const reportGeneratedAt = printDate ?? new Date()
   const reportHeaderMetadata: ReportPrintMetadata[] = [
-    { label: "Reporting Period", value: reportPeriod },
+    { label: "Reporting Period", value: reportPeriodLabel },
     { label: "Booking Category", value: reportCategoryLabel },
     { label: "Venue / Office", value: reportResourceLabel },
     ...(filterStatus !== "all"
@@ -1811,7 +1961,7 @@ export default function ReportsPage() {
       worksheet.getRow(3).height = 24
 
       const periodCell = worksheet.getCell("A4")
-      periodCell.value = `Reporting Period: ${reportPeriod}`
+      periodCell.value = `Reporting Period: ${reportPeriodLabel}`
       periodCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF000000" } }
       periodCell.alignment = { vertical: "middle", horizontal: "center" }
       worksheet.mergeCells(4, 1, 4, EXCEL_HEADERS.length)
@@ -2009,7 +2159,7 @@ export default function ReportsPage() {
       const blob = new Blob([buffer], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       })
-      const periodKey = `${filterYear === "all" ? "all-years" : filterYear}-${filterMonth === "all" ? "all-months" : MONTHS[Number(filterMonth)].toLowerCase()}`
+      const periodKey = `${reportPeriod}-${reportPeriodLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`
       const fileName = `one-estela-venue-booking-report-${periodKey}.xlsx`
 
       const url = URL.createObjectURL(blob)
@@ -2087,14 +2237,14 @@ export default function ReportsPage() {
       )
     } else if (page.kind === "monthly-performance") {
       content = (
-        <section data-report-print-analytics-page aria-label="Monthly performance analytics">
+        <section data-report-print-analytics-page aria-label="Report performance analytics">
           <h3 data-report-print-analytics-heading>{isFirstAnalyticsPage ? "VISUAL ANALYTICS" : "VISUAL ANALYTICS (CONTINUED)"}</h3>
           <article data-report-print-chart-card data-report-print-chart-card-wide>
-            <h4>Monthly Performance</h4>
-            <p>Booking volume and received payments per month.</p>
+            <h4>{reportPerformance.title}</h4>
+            <p>{reportPerformance.description}</p>
             <div data-report-print-chart-canvas>
               {filteredData.length > 0 ? (
-                <ReportMonthlyPerformanceChart data={monthlyPerformance} isPrinting={isPrinting} printOnly />
+                <ReportPerformanceChart data={reportPerformance.data} isPrinting={isPrinting} printOnly />
               ) : (
                 <div data-report-print-chart-empty>No booking data available for the selected filters.</div>
               )}
@@ -2826,44 +2976,32 @@ export default function ReportsPage() {
         <section
           data-report-summary
           aria-label="Report summary"
-          className="grid min-w-0 grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm xl:grid-cols-2"
+          className="grid min-w-0 grid-cols-2 gap-x-5 gap-y-4 rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm sm:grid-cols-3 xl:grid-cols-6"
         >
-          <div className="col-span-full flex items-center justify-between border-b border-slate-100 pb-2">
-            <h3 className="text-xs font-black uppercase tracking-[0.16em] text-slate-950">REPORT SUMMARY</h3>
-            <span className="text-xs font-bold tabular-nums text-slate-500">{filteredData.length} record{filteredData.length === 1 ? "" : "s"}</span>
+          <div className="min-w-0">
+            <p className="oe-table-label">Records</p>
+            <p className="mt-1 text-lg font-bold tabular-nums text-slate-950">{filteredData.length}</p>
           </div>
-
-          <section data-report-summary-section="booking" className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-            <h4 className="text-sm font-black text-slate-950">Booking Summary</h4>
-            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
-              {reportBookingSummaryItems.map((item) => (
-                <div
-                  key={item.label}
-                  className={`min-w-0 ${item.emphasized ? "col-span-full border-t border-orange-200 pt-3" : ""}`}
-                >
-                  <p className={`oe-table-label ${item.emphasized ? "text-orange-700" : ""}`}>{item.label}{item.emphasized ? ":" : ""}</p>
-                  <p className={`mt-1 text-lg font-bold tabular-nums ${item.emphasized ? "text-orange-700" : "text-slate-950"}`}>{item.value}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section data-report-summary-section="payments" className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-            <h4 className="text-sm font-black text-slate-950">Payments &amp; Refunds Summary</h4>
-            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
-              {reportPaymentSummaryItems.map((item) => (
-                <div
-                  key={item.label}
-                  className={`min-w-0 ${item.emphasized ? "col-span-full border-t border-emerald-200 pt-3" : ""}`}
-                >
-                  <p className={`oe-table-label ${item.emphasized ? "text-emerald-700" : ""}`}>{item.label}{item.emphasized ? ":" : ""}</p>
-                  <p className={`mt-1 break-words text-base font-bold tabular-nums ${item.emphasized ? "text-emerald-700" : "text-slate-950"}`}>
-                    {item.money ? formatReportMoney(item.value) : item.value}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </section>
+          <div className="min-w-0">
+            <p className="oe-table-label">Confirmed</p>
+            <p className="mt-1 text-lg font-bold tabular-nums text-slate-950">{reportSummary.confirmed}</p>
+          </div>
+          <div className="min-w-0">
+            <p className="oe-table-label">Total Booking Value</p>
+            <p className="mt-1 break-words text-base font-bold tabular-nums text-slate-950">{formatReportMoney(reportSummary.totalBookingValue)}</p>
+          </div>
+          <div className="min-w-0">
+            <p className="oe-table-label">Received Payments</p>
+            <p className="mt-1 break-words text-base font-bold tabular-nums text-orange-700">{formatReportMoney(reportSummary.receivedPayments)}</p>
+          </div>
+          <div className="min-w-0">
+            <p className="oe-table-label">Processed Refunds</p>
+            <p className="mt-1 break-words text-base font-bold tabular-nums text-rose-700">{formatReportMoney(reportSummary.processedRefunds)}</p>
+          </div>
+          <div className="min-w-0">
+            <p className="oe-table-label">Net Received Cash</p>
+            <p className="mt-1 break-words text-base font-bold tabular-nums text-emerald-700">{formatReportMoney(reportSummary.netReceivedAmount)}</p>
+          </div>
         </section>
       </div>
 
@@ -2874,14 +3012,133 @@ export default function ReportsPage() {
               <CalendarDays className="h-5 w-5" />
             </div>
             <div>
-               <h3 className="text-lg font-black text-slate-950">Monthly Performance</h3>
-               <p className="text-xs font-semibold text-slate-500">
-                 Shows booking volume and received payments per month.
-               </p>
+                <h3 className="text-lg font-black text-slate-950">{reportPerformance.title}</h3>
+                <p className="text-xs font-semibold text-slate-500">
+                  {reportPerformance.description}
+                </p>
             </div>
           </div>
 
           <div data-report-print-hidden className="flex flex-wrap items-center gap-2 sm:gap-3 print:hidden">
+            <Select value={reportPeriod} onValueChange={handleReportPeriodChange}>
+              <SelectTrigger
+                aria-label="Report period"
+                className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[180px]"
+              >
+                <div className="flex items-center gap-2">
+                  <CalendarDays className="h-3.5 w-3.5 text-slate-400" />
+                  <SelectValue placeholder="All Dates" />
+                </div>
+              </SelectTrigger>
+              <SelectContent className="rounded-xl shadow-xl">
+                <SelectItem value="all">All Dates</SelectItem>
+                <SelectItem value="date">Specific Date</SelectItem>
+                <SelectItem value="week">Specific Week</SelectItem>
+                <SelectItem value="month">Specific Month</SelectItem>
+                <SelectItem value="year">Specific Year</SelectItem>
+                <SelectItem value="custom">Custom Date Range</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {reportPeriod === "date" && (
+              <label className="flex h-10 w-full items-center rounded-xl border border-slate-200 bg-white px-3 sm:w-[165px]">
+                <span className="sr-only">Specific date</span>
+                <input
+                  type="date"
+                  aria-label="Specific date"
+                  value={specificDate}
+                  onChange={(event) => { setSpecificDate(event.target.value); setCurrentPage(1) }}
+                  className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none"
+                />
+              </label>
+            )}
+
+            {reportPeriod === "week" && (
+              <label className="flex h-10 w-full items-center rounded-xl border border-slate-200 bg-white px-3 sm:w-[165px]">
+                <span className="sr-only">Day in specific week</span>
+                <input
+                  type="date"
+                  aria-label="Day in specific week"
+                  value={specificWeekDate}
+                  onChange={(event) => { setSpecificWeekDate(event.target.value); setCurrentPage(1) }}
+                  className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none"
+                />
+              </label>
+            )}
+
+            {reportPeriod === "month" && (
+              <>
+                <Select
+                  value={filterMonth}
+                  onValueChange={(value) => { setFilterMonth(value); setCurrentPage(1) }}
+                >
+                  <SelectTrigger aria-label="Specific month" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[145px]">
+                    <SelectValue placeholder="Month" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl shadow-xl">
+                    {MONTHS.map((month, index) => (
+                      <SelectItem key={month} value={index.toString()}>{month}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={filterYear}
+                  onValueChange={(value) => { setFilterYear(value); setCurrentPage(1) }}
+                >
+                  <SelectTrigger aria-label="Specific year" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[130px]">
+                    <SelectValue placeholder="Year" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl shadow-xl">
+                    {yearOptions.map((year) => (
+                      <SelectItem key={year} value={year}>{year}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            )}
+
+            {reportPeriod === "year" && (
+              <Select
+                value={filterYear}
+                onValueChange={(value) => { setFilterYear(value); setCurrentPage(1) }}
+              >
+                <SelectTrigger aria-label="Specific year" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[130px]">
+                  <SelectValue placeholder="Year" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl shadow-xl">
+                  {yearOptions.map((year) => (
+                    <SelectItem key={year} value={year}>{year}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            {reportPeriod === "custom" && (
+              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+                <label className="flex h-10 min-w-0 flex-1 items-center rounded-xl border border-slate-200 bg-white px-3 sm:w-[155px] sm:flex-none">
+                  <span className="sr-only">Custom range start date</span>
+                  <input
+                    type="date"
+                    aria-label="Custom range start date"
+                    value={customStartDate}
+                    onChange={(event) => { setCustomStartDate(event.target.value); setCurrentPage(1) }}
+                    className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none"
+                  />
+                </label>
+                <span className="text-xs font-black text-slate-400">to</span>
+                <label className="flex h-10 min-w-0 flex-1 items-center rounded-xl border border-slate-200 bg-white px-3 sm:w-[155px] sm:flex-none">
+                  <span className="sr-only">Custom range end date</span>
+                  <input
+                    type="date"
+                    aria-label="Custom range end date"
+                    value={customEndDate}
+                    onChange={(event) => { setCustomEndDate(event.target.value); setCurrentPage(1) }}
+                    className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none"
+                  />
+                </label>
+              </div>
+            )}
+
             <Select
               value={filterCategory}
               onValueChange={(value) => {
@@ -2980,58 +3237,6 @@ export default function ReportsPage() {
               </Select>
             )}
 
-            <Select
-              value={filterYear}
-              onValueChange={(value) => {
-                setFilterYear(value)
-                setCurrentPage(1)
-              }}
-            >
-              <SelectTrigger aria-label="Year" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[130px]">
-                <div className="flex items-center gap-2">
-                  <Filter className="h-3.5 w-3.5 text-slate-400" />
-                  <SelectValue placeholder="All Years" />
-                </div>
-              </SelectTrigger>
-
-              <SelectContent className="rounded-xl shadow-xl">
-                <SelectItem value="all" className="font-bold">
-                  All Years
-                </SelectItem>
-                {yearOptions.map((year) => (
-                  <SelectItem key={year} value={year}>
-                    {year}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select
-              value={filterMonth}
-              onValueChange={(value) => {
-                setFilterMonth(value)
-                setCurrentPage(1)
-              }}
-            >
-              <SelectTrigger aria-label="Month" className="h-10 w-full rounded-xl border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-orange-600 sm:w-[145px]">
-                <div className="flex items-center gap-2">
-                  <Filter className="h-3.5 w-3.5 text-slate-400" />
-                  <SelectValue placeholder="All Months" />
-                </div>
-              </SelectTrigger>
-
-              <SelectContent className="rounded-xl shadow-xl">
-                <SelectItem value="all" className="font-bold">
-                  All Months
-                </SelectItem>
-                {MONTHS.map((month, index) => (
-                  <SelectItem key={month} value={index.toString()}>
-                    {month}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
             {hasActiveFilters && (
               <Button
                 type="button"
@@ -3043,6 +3248,11 @@ export default function ReportsPage() {
               </Button>
             )}
           </div>
+          {reportPeriodResolution.error && (
+            <p data-report-period-error className="basis-full text-xs font-bold text-rose-600">
+              {reportPeriodResolution.error}
+            </p>
+          )}
         </div>
 
         {filteredData.length === 0 ? (
@@ -3054,9 +3264,9 @@ export default function ReportsPage() {
             <p className="mt-1 text-xs font-semibold text-slate-400">Try adjusting the selected filters.</p>
           </div>
         ) : (
-           <div data-report-print-chart role="img" aria-label="Monthly performance chart showing booking volume and received payments by month" className="h-[280px] sm:h-[320px] w-full">
-            <ReportMonthlyPerformanceChart data={monthlyPerformance} isPrinting={isPrinting} />
-          </div>
+           <div data-report-print-chart role="img" aria-label={`${reportPerformance.title} chart showing booking volume and received payments`} className="h-[280px] sm:h-[320px] w-full">
+             <ReportPerformanceChart data={reportPerformance.data} isPrinting={isPrinting} />
+           </div>
         )}
       </div>
 
